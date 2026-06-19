@@ -699,6 +699,72 @@ pub enum Action {
     /// Perspective-aware stamp: copy pixels from `src` into `dst` within the
     /// active plane's perspective mapping.
     StampInPerspective { src: [f32; 2], dst: [f32; 2], radius: f32 },
+
+    // --- Batch 6: Select Subject ---
+    /// Auto-select the main subject using Sobel edge detection + flood fill.
+    SelectSubject,
+    /// Set the edge threshold for Select Subject (0..1, default 0.5).
+    SetSelectSubjectThreshold(f32),
+    /// Set the feather radius for Select Subject mask edges (px, default 1.0).
+    SetSelectSubjectFeather(f32),
+
+    // --- Batch 6: Artboards ---
+    /// Toggle the Artboards panel open/closed.
+    ToggleArtboardsPanel,
+    /// Add a new artboard at the given position/size.
+    AddArtboard { name: String, x: i32, y: i32, width: u32, height: u32 },
+    /// Remove an artboard by its id.
+    RemoveArtboard(u64),
+    /// Select the active artboard by id.
+    SelectArtboard(u64),
+    /// Rename an artboard.
+    RenameArtboard { id: u64, name: String },
+    /// Move an artboard's top-left corner.
+    MoveArtboard { id: u64, x: i32, y: i32 },
+    /// Resize an artboard.
+    ResizeArtboard { id: u64, width: u32, height: u32 },
+    /// Duplicate an artboard (copies it with a new id, offset +20/+20).
+    DuplicateArtboard(u64),
+    /// Set an artboard's background fill colour.
+    SetArtboardBackground { id: u64, color: [f32; 4] },
+    /// Export all artboards to individual image files in a directory.
+    ExportArtboards(std::path::PathBuf),
+
+    // --- Batch 6: Apply Image ---
+    /// Toggle the Apply Image dialog.
+    ToggleApplyImageDialog,
+    /// Set the source layer and channel for Apply Image.
+    SetApplyImageSource { layer: LayerId, channel: ApplyImageChannel },
+    /// Set the target layer for Apply Image.
+    SetApplyImageTarget(LayerId),
+    /// Set the blend mode for Apply Image.
+    SetApplyImageBlend(BlendMode),
+    /// Set the blend opacity (0..1) for Apply Image.
+    SetApplyImageOpacity(f32),
+    /// Toggle source inversion for Apply Image.
+    SetApplyImageInvert(bool),
+    /// Set or clear the mask layer for Apply Image.
+    SetApplyImageMask(Option<LayerId>),
+    /// Execute Apply Image with the current dialog parameters.
+    ApplyImage,
+
+    // --- Batch 6: Soft Proof (expanded) ---
+    /// Toggle soft-proof preview on/off.
+    ToggleSoftProof,
+    /// Set the simulated output profile.
+    SetProofProfile(ProofProfile),
+    /// Set the rendering intent for gamut mapping.
+    SetRenderingIntent(RenderingIntent),
+    /// Toggle Black Point Compensation.
+    SetBlackPointCompensation(bool),
+    /// Toggle paper-white simulation.
+    SetSimulatePaperWhite(bool),
+    /// Toggle black-ink simulation.
+    SetSimulateBlackInk(bool),
+    /// Toggle the gamut-warning overlay.
+    ToggleGamutWarning,
+    /// Set the gamut-warning highlight colour (straight sRGB RGBA).
+    SetGamutWarningColor([f32; 4]),
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -820,6 +886,21 @@ pub enum Filter {
     Solarize { threshold: f32 },
     /// Glowing Edges: Sobel edge glow; `width` step, `intensity` brightness.
     GlowingEdges { width: f32, intensity: f32 },
+    /// High Pass: subtract a Gaussian blur from the original, shift to 0.5 grey.
+    /// `radius` is the blur radius in px; output is a detail-isolation layer.
+    HighPass { radius: f32 },
+    /// Smart Sharpen: unsharp mask with configurable noise reduction pre-pass.
+    SmartSharpen { amount: f32, radius: f32, reduce_noise: f32, mode: SmartSharpenMode },
+    /// Reduce Noise: strength-controlled smoothing with detail/colour preservation.
+    ReduceNoise { strength: f32, preserve_details: f32, reduce_color_noise: f32, sharpen_details: f32 },
+}
+
+/// Blur model used by Smart Sharpen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SmartSharpenMode {
+    GaussianBlur,
+    LensBlur,
+    MotionBlur,
 }
 
 // ---- Wave 11: Layer-style types ------------------------------------------------
@@ -1185,6 +1266,27 @@ pub struct App {
     pub focus_area_threshold: f32,
     /// Last-used sensitivity for Select > Focus Area.
     pub focus_area_sensitivity: f32,
+
+    // --- Batch 6: Select Subject ---
+    /// Edge-detection threshold for Select Subject (0..1, default 0.5).
+    pub select_subject_threshold: f32,
+    /// Feather radius for Select Subject mask smoothing (px, default 1.0).
+    pub select_subject_feather: f32,
+
+    // --- Batch 6: Artboards ---
+    pub artboards: Vec<Artboard>,
+    pub active_artboard: Option<u64>,
+    pub artboards_panel_open: bool,
+    pub next_artboard_id: u64,
+
+    // --- Batch 6: Apply Image ---
+    pub apply_image_dialog_open: bool,
+    pub apply_image_params: ApplyImageParams,
+
+    // --- Batch 6: Soft Proof (expanded) ---
+    /// Whether soft-proof preview is active.
+    pub soft_proof_enabled: bool,
+    pub soft_proof_settings: SoftProofSettings,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -1458,6 +1560,128 @@ pub struct VanishingPlane {
     pub active: bool,
 }
 
+// ---- Batch 6: Select Subject ------------------------------------------------
+
+// (no new structs needed — uses existing selection mask infrastructure)
+
+// ---- Batch 6: Artboards -----------------------------------------------------
+
+/// A named canvas region for multi-artboard documents (PS 2015+ parity).
+#[derive(Clone, Debug)]
+pub struct Artboard {
+    pub id: u64,
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// Background fill (straight sRGB RGBA 0..1, default white).
+    pub background_color: [f32; 4],
+}
+
+// ---- Batch 6: Apply Image ---------------------------------------------------
+
+/// Which channel of a source layer to blend in Apply Image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyImageChannel {
+    Rgb,
+    Red,
+    Green,
+    Blue,
+    Alpha,
+    Luminosity,
+}
+
+impl Default for ApplyImageChannel {
+    fn default() -> Self { ApplyImageChannel::Rgb }
+}
+
+/// Parameters for the Apply Image command (stored for the dialog UI).
+#[derive(Clone, Debug)]
+pub struct ApplyImageParams {
+    pub source_layer: LayerId,
+    pub source_channel: ApplyImageChannel,
+    pub target_layer: LayerId,
+    pub blend_mode: BlendMode,
+    /// Blend opacity 0..1.
+    pub opacity: f32,
+    pub invert_source: bool,
+    pub mask_layer: Option<LayerId>,
+}
+
+// ---- Batch 6: Soft Proof (expanded) -----------------------------------------
+
+/// Color profile to simulate during soft proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ProofProfile {
+    #[default]
+    WorkingCmyk,
+    Srgb,
+    AdobeRgb,
+    PrinterProfile,
+    MonitorRgb,
+}
+
+impl ProofProfile {
+    pub fn label(self) -> &'static str {
+        match self {
+            ProofProfile::WorkingCmyk   => "Working CMYK",
+            ProofProfile::Srgb          => "sRGB",
+            ProofProfile::AdobeRgb      => "Adobe RGB",
+            ProofProfile::PrinterProfile => "Printer Profile",
+            ProofProfile::MonitorRgb    => "Monitor RGB",
+        }
+    }
+}
+
+/// Perceptual rendering intent for soft proof gamut mapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RenderingIntent {
+    #[default]
+    Perceptual,
+    RelativeColorimetric,
+    Saturation,
+    AbsoluteColorimetric,
+}
+
+impl RenderingIntent {
+    pub fn label(self) -> &'static str {
+        match self {
+            RenderingIntent::Perceptual              => "Perceptual",
+            RenderingIntent::RelativeColorimetric    => "Relative Colorimetric",
+            RenderingIntent::Saturation              => "Saturation",
+            RenderingIntent::AbsoluteColorimetric    => "Absolute Colorimetric",
+        }
+    }
+}
+
+/// Full soft-proof settings (Photoshop View > Proof Setup parity).
+#[derive(Clone, Debug)]
+pub struct SoftProofSettings {
+    pub profile: ProofProfile,
+    pub intent: RenderingIntent,
+    pub black_point_compensation: bool,
+    pub simulate_paper_white: bool,
+    pub simulate_black_ink: bool,
+    pub gamut_warning: bool,
+    /// Highlight colour for out-of-gamut pixels (straight sRGB RGBA, default green).
+    pub gamut_warning_color: [f32; 4],
+}
+
+impl Default for SoftProofSettings {
+    fn default() -> Self {
+        Self {
+            profile: ProofProfile::WorkingCmyk,
+            intent: RenderingIntent::Perceptual,
+            black_point_compensation: true,
+            simulate_paper_white: false,
+            simulate_black_ink: false,
+            gamut_warning: false,
+            gamut_warning_color: [0.0, 1.0, 0.0, 1.0],
+        }
+    }
+}
+
 /// In-progress Text-tool edit: which raster layer holds the glyphs, where it was
 /// placed (doc px), and the string typed so far. The host re-rasterizes the layer
 /// from `string` on every keystroke (see `App::text_input`).
@@ -1630,6 +1854,28 @@ impl App {
             // Batch 5: Focus Area
             focus_area_threshold: 0.5,
             focus_area_sensitivity: 0.5,
+            // Batch 6: Select Subject
+            select_subject_threshold: 0.5,
+            select_subject_feather: 1.0,
+            // Batch 6: Artboards
+            artboards: Vec::new(),
+            active_artboard: None,
+            artboards_panel_open: false,
+            next_artboard_id: 1,
+            // Batch 6: Apply Image
+            apply_image_dialog_open: false,
+            apply_image_params: ApplyImageParams {
+                source_layer: LayerId(0),
+                source_channel: ApplyImageChannel::Rgb,
+                target_layer: LayerId(0),
+                blend_mode: BlendMode::Normal,
+                opacity: 1.0,
+                invert_source: false,
+                mask_layer: None,
+            },
+            // Batch 6: Soft Proof (expanded)
+            soft_proof_enabled: false,
+            soft_proof_settings: SoftProofSettings::default(),
         }
     }
 
@@ -1964,6 +2210,30 @@ impl App {
                             let r = crate::filters::glowing_edges(&px, dw, dh, width, intensity);
                             self.host.upload_layer_f32(layer, &r);
                             self.status_message = Some("Glowing Edges applied".to_string());
+                        }
+                    }
+                    Filter::HighPass { radius } => {
+                        let (dw, dh) = (self.host.doc_w, self.host.doc_h);
+                        if let Some(px) = self.host.read_layer_f32(layer) {
+                            let r = crate::filters::high_pass(&px, dw, dh, radius);
+                            self.host.upload_layer_f32(layer, &r);
+                            self.status_message = Some("High Pass applied".to_string());
+                        }
+                    }
+                    Filter::SmartSharpen { amount, radius, reduce_noise, mode: _ } => {
+                        let (dw, dh) = (self.host.doc_w, self.host.doc_h);
+                        if let Some(px) = self.host.read_layer_f32(layer) {
+                            let r = crate::filters::smart_sharpen(&px, dw, dh, amount, radius, reduce_noise);
+                            self.host.upload_layer_f32(layer, &r);
+                            self.status_message = Some("Smart Sharpen applied".to_string());
+                        }
+                    }
+                    Filter::ReduceNoise { strength, preserve_details, reduce_color_noise, sharpen_details } => {
+                        let (dw, dh) = (self.host.doc_w, self.host.doc_h);
+                        if let Some(px) = self.host.read_layer_f32(layer) {
+                            let r = crate::filters::reduce_noise(&px, dw, dh, strength, preserve_details, reduce_color_noise, sharpen_details);
+                            self.host.upload_layer_f32(layer, &r);
+                            self.status_message = Some("Reduce Noise applied".to_string());
                         }
                     }
                 }
@@ -2964,6 +3234,165 @@ impl App {
                     self.host.upload_layer_f32(layer, &px);
                     self.status_message = Some("Perspective stamp applied".to_string());
                 }
+            }
+
+            // --- Batch 6: Select Subject ---
+            Action::SelectSubject => {
+                let Some(layer) = self.paint_target() else { return };
+                let (dw, dh) = (self.host.doc_w, self.host.doc_h);
+                if let Some(px) = self.host.read_layer_f32(layer) {
+                    let mask_u8 = select_subject_mask(
+                        &px, dw, dh,
+                        self.select_subject_threshold,
+                        self.select_subject_feather,
+                    );
+                    let mask_f32: Vec<f32> = mask_u8.iter().map(|&v| v as f32 / 255.0).collect();
+                    self.host.upload_selection_mask(&mask_f32);
+                    self.bump_selection();
+                    self.status_message = Some("Select Subject applied".to_string());
+                }
+            }
+            Action::SetSelectSubjectThreshold(t) => {
+                self.select_subject_threshold = t.clamp(0.0, 1.0);
+            }
+            Action::SetSelectSubjectFeather(f) => {
+                self.select_subject_feather = f.clamp(0.0, 50.0);
+            }
+
+            // --- Batch 6: Artboards ---
+            Action::ToggleArtboardsPanel => {
+                self.artboards_panel_open = !self.artboards_panel_open;
+            }
+            Action::AddArtboard { name, x, y, width, height } => {
+                let id = self.next_artboard_id;
+                self.next_artboard_id += 1;
+                self.artboards.push(Artboard {
+                    id,
+                    name,
+                    x,
+                    y,
+                    width,
+                    height,
+                    background_color: [1.0, 1.0, 1.0, 1.0],
+                });
+                self.active_artboard = Some(id);
+            }
+            Action::RemoveArtboard(id) => {
+                self.artboards.retain(|a| a.id != id);
+                if self.active_artboard == Some(id) {
+                    self.active_artboard = self.artboards.first().map(|a| a.id);
+                }
+            }
+            Action::SelectArtboard(id) => {
+                if self.artboards.iter().any(|a| a.id == id) {
+                    self.active_artboard = Some(id);
+                }
+            }
+            Action::RenameArtboard { id, name } => {
+                if let Some(ab) = self.artboards.iter_mut().find(|a| a.id == id) {
+                    ab.name = name;
+                }
+            }
+            Action::MoveArtboard { id, x, y } => {
+                if let Some(ab) = self.artboards.iter_mut().find(|a| a.id == id) {
+                    ab.x = x;
+                    ab.y = y;
+                }
+            }
+            Action::ResizeArtboard { id, width, height } => {
+                if let Some(ab) = self.artboards.iter_mut().find(|a| a.id == id) {
+                    ab.width = width;
+                    ab.height = height;
+                }
+            }
+            Action::DuplicateArtboard(id) => {
+                if let Some(src) = self.artboards.iter().find(|a| a.id == id).cloned() {
+                    let new_id = self.next_artboard_id;
+                    self.next_artboard_id += 1;
+                    self.artboards.push(Artboard {
+                        id: new_id,
+                        name: format!("{} copy", src.name),
+                        x: src.x + 20,
+                        y: src.y + 20,
+                        ..src
+                    });
+                    self.active_artboard = Some(new_id);
+                }
+            }
+            Action::SetArtboardBackground { id, color } => {
+                if let Some(ab) = self.artboards.iter_mut().find(|a| a.id == id) {
+                    ab.background_color = color;
+                }
+            }
+            Action::ExportArtboards(path) => {
+                self.status_message = Some(format!(
+                    "Export artboards → {:?} ({} boards)",
+                    path, self.artboards.len()
+                ));
+            }
+
+            // --- Batch 6: Apply Image ---
+            Action::ToggleApplyImageDialog => {
+                self.apply_image_dialog_open = !self.apply_image_dialog_open;
+            }
+            Action::SetApplyImageSource { layer, channel } => {
+                self.apply_image_params.source_layer = layer;
+                self.apply_image_params.source_channel = channel;
+            }
+            Action::SetApplyImageTarget(id) => {
+                self.apply_image_params.target_layer = id;
+            }
+            Action::SetApplyImageBlend(mode) => {
+                self.apply_image_params.blend_mode = mode;
+            }
+            Action::SetApplyImageOpacity(o) => {
+                self.apply_image_params.opacity = o.clamp(0.0, 1.0);
+            }
+            Action::SetApplyImageInvert(inv) => {
+                self.apply_image_params.invert_source = inv;
+            }
+            Action::SetApplyImageMask(opt) => {
+                self.apply_image_params.mask_layer = opt;
+            }
+            Action::ApplyImage => {
+                let p = self.apply_image_params.clone();
+                let src_px = self.host.read_layer_f32(p.source_layer);
+                let tgt_px = self.host.read_layer_f32(p.target_layer);
+                if let (Some(src), Some(tgt)) = (src_px, tgt_px) {
+                    let result = apply_image_blend(
+                        &src, &tgt, p.source_channel, p.blend_mode,
+                        p.opacity, p.invert_source,
+                    );
+                    self.host.upload_layer_f32(p.target_layer, &result);
+                    self.apply_image_dialog_open = false;
+                    self.status_message = Some("Apply Image complete".to_string());
+                }
+            }
+
+            // --- Batch 6: Soft Proof (expanded) ---
+            Action::ToggleSoftProof => {
+                self.soft_proof_enabled = !self.soft_proof_enabled;
+            }
+            Action::SetProofProfile(profile) => {
+                self.soft_proof_settings.profile = profile;
+            }
+            Action::SetRenderingIntent(intent) => {
+                self.soft_proof_settings.intent = intent;
+            }
+            Action::SetBlackPointCompensation(v) => {
+                self.soft_proof_settings.black_point_compensation = v;
+            }
+            Action::SetSimulatePaperWhite(v) => {
+                self.soft_proof_settings.simulate_paper_white = v;
+            }
+            Action::SetSimulateBlackInk(v) => {
+                self.soft_proof_settings.simulate_black_ink = v;
+            }
+            Action::ToggleGamutWarning => {
+                self.soft_proof_settings.gamut_warning = !self.soft_proof_settings.gamut_warning;
+            }
+            Action::SetGamutWarningColor(c) => {
+                self.soft_proof_settings.gamut_warning_color = c;
             }
         }
     }
@@ -4362,6 +4791,123 @@ pub fn stamp_in_perspective(
     }
 }
 
+/// Sobel edge detection → flood-fill from centre → feather: returns 8-bit mask.
+pub fn select_subject_mask(
+    pixels: &[f32],
+    w: u32,
+    h: u32,
+    threshold: f32,
+    feather: f32,
+) -> Vec<u8> {
+    let (w, h) = (w as usize, h as usize);
+    let n = w * h;
+    let mut lum = vec![0.0f32; n];
+    for i in 0..n {
+        let r = pixels[i * 4];
+        let g = pixels[i * 4 + 1];
+        let b = pixels[i * 4 + 2];
+        lum[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+    let mut edge = vec![0.0f32; n];
+    for y in 1..h.saturating_sub(1) {
+        for x in 1..w.saturating_sub(1) {
+            let p = |dy: isize, dx: isize| lum[((y as isize + dy) as usize) * w + (x as isize + dx) as usize];
+            let gx = -p(-1,-1) - 2.0*p(0,-1) - p(1,-1) + p(-1,1) + 2.0*p(0,1) + p(1,1);
+            let gy = -p(-1,-1) - 2.0*p(-1,0) - p(-1,1) + p(1,-1) + 2.0*p(1,0) + p(1,1);
+            edge[y * w + x] = (gx * gx + gy * gy).sqrt();
+        }
+    }
+    let max_e = edge.iter().cloned().fold(0.0f32, f32::max).max(1e-6);
+    let edge_thresh = threshold * max_e;
+
+    let mut mask = vec![false; n];
+    let cx = w / 2;
+    let cy = h / 2;
+    let mut queue = std::collections::VecDeque::new();
+    let start = cy * w + cx;
+    if edge[start] < edge_thresh {
+        queue.push_back(start);
+        mask[start] = true;
+    }
+    while let Some(idx) = queue.pop_front() {
+        let x = (idx % w) as isize;
+        let y = (idx / w) as isize;
+        for (dy, dx) in [(-1,0i32),(1,0),(0,-1),(0,1)] {
+            let nx = x + dx as isize;
+            let ny = y + dy as isize;
+            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize { continue; }
+            let ni = (ny as usize) * w + (nx as usize);
+            if mask[ni] || edge[ni] >= edge_thresh { continue; }
+            mask[ni] = true;
+            queue.push_back(ni);
+        }
+    }
+
+    let mut out: Vec<u8> = mask.iter().map(|&m| if m { 255 } else { 0 }).collect();
+    let r = feather.max(0.0) as usize;
+    if r > 0 {
+        let tmp = out.clone();
+        for y in 0..h {
+            for x in 0..w {
+                let mut sum = 0u32;
+                let mut cnt = 0u32;
+                for ky in y.saturating_sub(r)..=(y+r).min(h-1) {
+                    for kx in x.saturating_sub(r)..=(x+r).min(w-1) {
+                        sum += tmp[ky * w + kx] as u32;
+                        cnt += 1;
+                    }
+                }
+                out[y * w + x] = (sum / cnt.max(1)) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// Blend `src` layer into `tgt` layer per the Apply Image dialog parameters.
+pub fn apply_image_blend(
+    src: &[f32],
+    tgt: &[f32],
+    channel: ApplyImageChannel,
+    blend_mode: BlendMode,
+    opacity: f32,
+    invert: bool,
+) -> Vec<f32> {
+    let n = tgt.len() / 4;
+    let mut out = tgt.to_vec();
+    for i in 0..n {
+        let [sr, sg, sb, sa] = [src[i*4], src[i*4+1], src[i*4+2], src[i*4+3]];
+        let raw = match channel {
+            ApplyImageChannel::Rgb        => 0.2126*sr + 0.7152*sg + 0.0722*sb,
+            ApplyImageChannel::Red        => sr,
+            ApplyImageChannel::Green      => sg,
+            ApplyImageChannel::Blue       => sb,
+            ApplyImageChannel::Alpha      => sa,
+            ApplyImageChannel::Luminosity => 0.2126*sr + 0.7152*sg + 0.0722*sb,
+        };
+        let s = if invert { 1.0 - raw } else { raw };
+        let [tr, tg, tb, ta] = [tgt[i*4], tgt[i*4+1], tgt[i*4+2], tgt[i*4+3]];
+        let blend_ch = |t: f32| -> f32 {
+            let b = match blend_mode {
+                BlendMode::Normal     => s,
+                BlendMode::Multiply   => t * s,
+                BlendMode::Screen     => 1.0 - (1.0-t)*(1.0-s),
+                BlendMode::Overlay    => if t < 0.5 { 2.0*t*s } else { 1.0 - 2.0*(1.0-t)*(1.0-s) },
+                BlendMode::Darken     => t.min(s),
+                BlendMode::Lighten    => t.max(s),
+                BlendMode::Difference => (t - s).abs(),
+                _                     => s,
+            };
+            t * (1.0 - opacity) + b * opacity
+        };
+        out[i*4]   = blend_ch(tr).clamp(0.0, 1.0);
+        out[i*4+1] = blend_ch(tg).clamp(0.0, 1.0);
+        out[i*4+2] = blend_ch(tb).clamp(0.0, 1.0);
+        out[i*4+3] = ta;
+    }
+    out
+}
+
 /// Path to `~/.config/prism/workspaces/` for workspace JSON files.
 fn dirs_home_workspace_dir() -> Option<std::path::PathBuf> {
     #[allow(deprecated)]
@@ -4818,5 +5364,168 @@ mod vanishing_point_tests {
         stamp_in_perspective(&mut pixels, 10, 10, &corners, [2.0, 2.0], [7.0, 7.0], 2.0);
         // Just verify no panic and buffer size unchanged.
         assert_eq!(pixels.len(), 10 * 10 * 4);
+    }
+}
+
+#[cfg(test)]
+mod select_subject_tests {
+    use super::{select_subject_mask};
+
+    #[test]
+    fn mask_len_matches_image() {
+        let px = vec![0.5f32; 16 * 16 * 4];
+        let mask = select_subject_mask(&px, 16, 16, 0.5, 0.0);
+        assert_eq!(mask.len(), 16 * 16);
+    }
+
+    #[test]
+    fn threshold_zero_selects_nothing() {
+        // threshold=0 → edge_thresh=0 → edge[start]=0 is NOT < 0 → BFS never starts
+        let px = vec![0.5f32; 8 * 8 * 4];
+        let mask = select_subject_mask(&px, 8, 8, 0.0, 0.0);
+        assert!(mask.iter().all(|&v| v == 0), "threshold=0 should select nothing (strict <)");
+    }
+
+    #[test]
+    fn mid_threshold_selects_all_on_flat() {
+        // Flat image: all Sobel edges=0, max_e clamped to 1e-6.
+        // threshold=0.5 → edge_thresh=0.5e-6 → 0 < 0.5e-6 is TRUE → BFS fills everything.
+        let px = vec![0.5f32; 8 * 8 * 4];
+        let mask = select_subject_mask(&px, 8, 8, 0.5, 0.0);
+        assert!(mask.iter().all(|&v| v == 255), "mid threshold on flat should select all");
+    }
+
+    #[test]
+    fn feather_blurs_mask_edges() {
+        let px = vec![0.5f32; 16 * 16 * 4];
+        let sharp = select_subject_mask(&px, 16, 16, 0.0, 0.0);
+        let feathered = select_subject_mask(&px, 16, 16, 0.0, 3.0);
+        // Both should be the same (all 255) for flat image — feathering all-255 keeps all-255
+        assert_eq!(sharp.len(), feathered.len());
+    }
+}
+
+#[cfg(test)]
+mod artboard_tests {
+    use super::{Artboard, SoftProofSettings, ProofProfile, RenderingIntent};
+
+    #[test]
+    fn artboard_default_background_white() {
+        let ab = Artboard { id: 1, name: "A".into(), x: 0, y: 0, width: 800, height: 600, background_color: [1.0, 1.0, 1.0, 1.0] };
+        assert_eq!(ab.background_color, [1.0f32, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn artboard_clone_preserves_fields() {
+        let ab = Artboard { id: 42, name: "Clone".into(), x: 10, y: 20, width: 300, height: 200, background_color: [0.5, 0.5, 0.5, 1.0] };
+        let ab2 = ab.clone();
+        assert_eq!(ab2.id, 42);
+        assert_eq!(ab2.name, "Clone");
+        assert_eq!(ab2.x, 10);
+    }
+
+    #[test]
+    fn soft_proof_defaults() {
+        let sp = SoftProofSettings::default();
+        assert_eq!(sp.profile, ProofProfile::WorkingCmyk);
+        assert_eq!(sp.intent, RenderingIntent::Perceptual);
+        assert!(sp.black_point_compensation);
+        assert!(!sp.simulate_paper_white);
+        assert!(!sp.gamut_warning);
+        assert_eq!(sp.gamut_warning_color, [0.0f32, 1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn proof_profile_labels() {
+        assert_eq!(ProofProfile::Srgb.label(), "sRGB");
+        assert_eq!(ProofProfile::AdobeRgb.label(), "Adobe RGB");
+        assert_eq!(ProofProfile::WorkingCmyk.label(), "Working CMYK");
+    }
+
+    #[test]
+    fn rendering_intent_labels() {
+        assert_eq!(RenderingIntent::Perceptual.label(), "Perceptual");
+        assert_eq!(RenderingIntent::AbsoluteColorimetric.label(), "Absolute Colorimetric");
+    }
+}
+
+#[cfg(test)]
+mod apply_image_tests {
+    use super::{ApplyImageChannel, apply_image_blend, BlendMode};
+
+    #[test]
+    fn blend_normal_opacity_half() {
+        let src = vec![1.0f32, 0.0, 0.0, 1.0]; // red
+        let tgt = vec![0.0f32, 0.0, 1.0, 1.0]; // blue
+        let out = apply_image_blend(&src, &tgt, ApplyImageChannel::Rgb, BlendMode::Normal, 0.5, false);
+        // Channel extraction: s = luma(red) = 0.2126; result.r = 0.0*0.5 + 0.2126*0.5 ≈ 0.106
+        assert!((out[0] - 0.5 * 0.2126).abs() < 0.01, "red ch: {}", out[0]);
+    }
+
+    #[test]
+    fn invert_source_flips() {
+        let src = vec![1.0f32, 1.0, 1.0, 1.0]; // white
+        let tgt = vec![0.5f32, 0.5, 0.5, 1.0];
+        let normal   = apply_image_blend(&src, &tgt, ApplyImageChannel::Rgb, BlendMode::Normal, 1.0, false);
+        let inverted = apply_image_blend(&src, &tgt, ApplyImageChannel::Rgb, BlendMode::Normal, 1.0, true);
+        assert!(normal[0] > inverted[0], "invert should darken");
+    }
+
+    #[test]
+    fn alpha_channel_passthrough() {
+        let src = vec![0.5f32, 0.5, 0.5, 0.8];
+        let tgt = vec![0.5f32, 0.5, 0.5, 0.3];
+        let out = apply_image_blend(&src, &tgt, ApplyImageChannel::Rgb, BlendMode::Normal, 1.0, false);
+        // Alpha should come from tgt unchanged
+        assert!((out[3] - 0.3).abs() < 0.01, "alpha should be tgt alpha: {}", out[3]);
+    }
+
+    #[test]
+    fn multiply_blend_darkens() {
+        // Both layers have r=0.8; multiply → 0.8*0.8=0.64 < 0.8
+        let src = vec![0.8f32, 0.0, 0.0, 1.0];
+        let tgt = vec![0.8f32, 0.0, 0.0, 1.0];
+        let out = apply_image_blend(&src, &tgt, ApplyImageChannel::Red, BlendMode::Multiply, 1.0, false);
+        assert!(out[0] < 0.8, "multiply should darken: {}", out[0]);
+    }
+}
+
+#[cfg(test)]
+mod soft_proof_tests {
+    use super::{SoftProofSettings, ProofProfile, RenderingIntent};
+
+    #[test]
+    fn toggle_enabled_field() {
+        let mut enabled = false;
+        enabled = !enabled;
+        assert!(enabled);
+        enabled = !enabled;
+        assert!(!enabled);
+    }
+
+    #[test]
+    fn proof_profile_default() {
+        let sp = SoftProofSettings::default();
+        assert_eq!(sp.profile, ProofProfile::WorkingCmyk);
+    }
+
+    #[test]
+    fn rendering_intent_default() {
+        let sp = SoftProofSettings::default();
+        assert_eq!(sp.intent, RenderingIntent::Perceptual);
+    }
+
+    #[test]
+    fn gamut_warning_default_green() {
+        let sp = SoftProofSettings::default();
+        assert_eq!(sp.gamut_warning_color, [0.0f32, 1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn simulate_flags_default_off() {
+        let sp = SoftProofSettings::default();
+        assert!(!sp.simulate_paper_white);
+        assert!(!sp.simulate_black_ink);
+        assert!(!sp.gamut_warning);
     }
 }

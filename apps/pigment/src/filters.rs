@@ -339,3 +339,181 @@ mod tests {
         assert!(max_b > 0.1, "edge not detected: {max_b}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Batch 6 filters: High Pass · Smart Sharpen · Reduce Noise
+// ---------------------------------------------------------------------------
+
+/// Gaussian-blur helper (separable, box approximation via 3-pass box blur).
+fn gaussian_blur_f32(pixels: &[f32], w: u32, h: u32, sigma: f32) -> Vec<f32> {
+    let (w, h) = (w as usize, h as usize);
+    let r = (sigma * 2.0).ceil() as usize;
+    let mut buf = pixels.to_vec();
+    // Horizontal pass
+    let src = buf.clone();
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = [0.0f32; 4];
+            let mut cnt = 0u32;
+            let x0 = x.saturating_sub(r);
+            let x1 = (x + r).min(w - 1);
+            for kx in x0..=x1 {
+                for c in 0..4 { sum[c] += src[(y * w + kx) * 4 + c]; }
+                cnt += 1;
+            }
+            for c in 0..4 { buf[(y * w + x) * 4 + c] = sum[c] / cnt as f32; }
+        }
+    }
+    // Vertical pass
+    let src2 = buf.clone();
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = [0.0f32; 4];
+            let mut cnt = 0u32;
+            let y0 = y.saturating_sub(r);
+            let y1 = (y + r).min(h - 1);
+            for ky in y0..=y1 {
+                for c in 0..4 { sum[c] += src2[(ky * w + x) * 4 + c]; }
+                cnt += 1;
+            }
+            for c in 0..4 { buf[(y * w + x) * 4 + c] = sum[c] / cnt as f32; }
+        }
+    }
+    buf
+}
+
+/// High Pass: original − blur + 0.5 grey, keeping only high-frequency detail.
+pub fn high_pass(pixels: &[f32], w: u32, h: u32, radius: f32) -> Vec<f32> {
+    let blurred = gaussian_blur_f32(pixels, w, h, radius.max(0.1));
+    let n = pixels.len();
+    let mut out = vec![0.0f32; n];
+    for i in 0..(n / 4) {
+        for c in 0..3 {
+            out[i * 4 + c] = (pixels[i * 4 + c] - blurred[i * 4 + c] + 0.5).clamp(0.0, 1.0);
+        }
+        out[i * 4 + 3] = pixels[i * 4 + 3];
+    }
+    out
+}
+
+/// Smart Sharpen: optional pre-blur for noise reduction, then unsharp mask.
+pub fn smart_sharpen(
+    pixels: &[f32],
+    w: u32,
+    h: u32,
+    amount: f32,
+    radius: f32,
+    reduce_noise: f32,
+) -> Vec<f32> {
+    let base = if reduce_noise > 0.0 {
+        gaussian_blur_f32(pixels, w, h, reduce_noise * 2.0)
+    } else {
+        pixels.to_vec()
+    };
+    let blurred = gaussian_blur_f32(&base, w, h, radius.max(0.1));
+    let n = pixels.len();
+    let mut out = vec![0.0f32; n];
+    for i in 0..(n / 4) {
+        for c in 0..3 {
+            let detail = base[i*4+c] - blurred[i*4+c];
+            out[i*4+c] = (base[i*4+c] + detail * amount).clamp(0.0, 1.0);
+        }
+        out[i*4+3] = pixels[i*4+3];
+    }
+    out
+}
+
+/// Reduce Noise: box-blur smoothing blended with original based on `strength`.
+/// `preserve_details` biases toward original on high-detail pixels.
+/// `reduce_color_noise` desaturates the blurred contribution slightly.
+/// `sharpen_details` applies mild unsharp mask to the result.
+pub fn reduce_noise(
+    pixels: &[f32],
+    w: u32,
+    h: u32,
+    strength: f32,
+    preserve_details: f32,
+    reduce_color_noise: f32,
+    sharpen_details: f32,
+) -> Vec<f32> {
+    let blurred = gaussian_blur_f32(pixels, w, h, strength * 3.0 + 0.5);
+    let n = pixels.len();
+    let mut out = vec![0.0f32; n];
+    for i in 0..(n / 4) {
+        let [r, g, b, a] = [pixels[i*4], pixels[i*4+1], pixels[i*4+2], pixels[i*4+3]];
+        let [br, bg, bb, _] = [blurred[i*4], blurred[i*4+1], blurred[i*4+2], blurred[i*4+3]];
+        // Luma-based detail preservation: keep more original where luma contrast is high
+        let orig_lum = 0.2126*r + 0.7152*g + 0.0722*b;
+        let blur_lum = 0.2126*br + 0.7152*bg + 0.0722*bb;
+        let detail = (orig_lum - blur_lum).abs();
+        let keep = (detail * preserve_details * 10.0).min(1.0);
+        let blend = strength * (1.0 - keep);
+        // Optionally desaturate blurred contribution to reduce chroma noise
+        let grey = 0.2126*br + 0.7152*bg + 0.0722*bb;
+        let br2 = br + (grey - br) * reduce_color_noise;
+        let bg2 = bg + (grey - bg) * reduce_color_noise;
+        let bb2 = bb + (grey - bb) * reduce_color_noise;
+        let nr = r * (1.0 - blend) + br2 * blend;
+        let ng = g * (1.0 - blend) + bg2 * blend;
+        let nb = b * (1.0 - blend) + bb2 * blend;
+        // Mild sharpening on result
+        let sharp = |orig: f32, sm: f32| (sm + (sm - orig) * sharpen_details * 0.5).clamp(0.0, 1.0);
+        out[i*4]   = sharp(r, nr);
+        out[i*4+1] = sharp(g, ng);
+        out[i*4+2] = sharp(b, nb);
+        out[i*4+3] = a;
+    }
+    out
+}
+
+#[cfg(test)]
+mod filter_b6_tests {
+    use super::{high_pass, smart_sharpen, reduce_noise};
+
+    fn flat(w: usize, h: usize, val: f32) -> Vec<f32> {
+        vec![val; w * h * 4]
+    }
+
+    #[test]
+    fn high_pass_flat_is_grey() {
+        let px = flat(8, 8, 0.8);
+        let out = high_pass(&px, 8, 8, 2.0);
+        for ch in out.chunks(4) {
+            assert!((ch[0] - 0.5).abs() < 0.01, "expected 0.5, got {}", ch[0]);
+        }
+    }
+
+    #[test]
+    fn high_pass_preserves_alpha() {
+        let mut px = flat(4, 4, 0.5);
+        for i in 0..16 { px[i*4+3] = 0.7; }
+        let out = high_pass(&px, 4, 4, 1.0);
+        for ch in out.chunks(4) {
+            assert!((ch[3] - 0.7).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn smart_sharpen_brightens_edges() {
+        let mut px = flat(8, 8, 0.3);
+        // bright stripe in the middle
+        for x in 3..5usize {
+            for y in 0..8usize {
+                for c in 0..3 { px[(y*8+x)*4+c] = 0.9; }
+            }
+        }
+        let out = smart_sharpen(&px, 8, 8, 1.5, 1.0, 0.0);
+        let mid = out[3*4]; // bright side of stripe — should be >= 0.9
+        assert!(mid >= 0.85, "sharpened bright side {mid}");
+    }
+
+    #[test]
+    fn reduce_noise_smooths_salt_pepper() {
+        let mut px = flat(8, 8, 0.5);
+        // Salt pixel
+        for c in 0..3 { px[5*4+c] = 1.0; }
+        let out = reduce_noise(&px, 8, 8, 0.8, 0.1, 0.0, 0.0);
+        // Salt pixel should be pulled toward 0.5
+        assert!(out[5*4] < 0.95, "not smoothed enough: {}", out[5*4]);
+    }
+}

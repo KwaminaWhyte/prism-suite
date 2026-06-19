@@ -99,13 +99,173 @@ pub use roving::{has_roving, roved_times, roved_tracks, RoveKey};
 // preset only through `capture` / `apply`, so allow them unused in the bin build.
 #[allow(unused_imports)]
 pub use preset::{PresetTrack, PropTag};
-pub use shape::{Fill, ShapeItem, ShapeLayer, ShapePrimitive, Stroke};
+pub use shape::{Fill, ShapeItem, ShapeLayer, ShapePrimitive, ShapeRepeater, Stroke, TrimPaths};
 pub use spatial::{apply_spatial_effects, gaussian_blur, RadialKind, SpatialEffect};
 pub use stylize::{apply_stylize_effects, StylizeEffect};
 pub use text::{TextAlign, TextLayer};
 pub use puppet::{PinId, PuppetPin};
 pub use time_remap::TimeRemap;
 pub use transform::{Affine2, Transform};
+
+/// Per-character text animator (After Effects' Text Animator). When attached to
+/// a text layer, applies per-character position/rotation/scale/opacity offsets
+/// to the fraction of characters in the selector range.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TextAnimator {
+    /// Fraction of text where the animator effect starts (0.0–1.0).
+    pub range_start: f32,
+    /// Fraction of text where the animator effect ends (0.0–1.0).
+    pub range_end: f32,
+    /// Per-character x offset in comp px.
+    pub offset_x: f32,
+    /// Per-character y offset in comp px.
+    pub offset_y: f32,
+    /// Per-character rotation in degrees.
+    pub rotation_deg: f32,
+    /// Per-character scale multiplier (1.0 = no change).
+    pub scale: f32,
+    /// Per-character opacity multiplier (1.0 = no change).
+    pub opacity: f32,
+}
+
+impl Default for TextAnimator {
+    fn default() -> Self {
+        TextAnimator {
+            range_start: 0.0,
+            range_end: 1.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            rotation_deg: 0.0,
+            scale: 1.0,
+            opacity: 1.0,
+        }
+    }
+}
+
+impl TextAnimator {
+    /// Whether character `i` of `total` characters is within the selector range.
+    pub fn char_in_range(&self, i: usize, total: usize) -> bool {
+        if total == 0 {
+            return false;
+        }
+        let t = i as f32 / total as f32;
+        t >= self.range_start.min(self.range_end) && t < self.range_start.max(self.range_end)
+    }
+}
+
+/// Lumetri Color: a per-layer color grade with basic (exposure/contrast/tonal)
+/// and creative (temperature/saturation) sections, matching Premiere's Lumetri
+/// Color panel (and After Effects' Lumetri Color effect).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LumetriColor {
+    // Basic section
+    /// Exposure adjustment in EV stops (-5.0 to +5.0, default 0.0).
+    pub exposure: f32,
+    /// Contrast adjustment (-100 to +100, default 0.0).
+    pub contrast: f32,
+    /// Highlights recovery/boost (-100 to +100, default 0.0).
+    pub highlights: f32,
+    /// Shadows lift/crush (-100 to +100, default 0.0).
+    pub shadows: f32,
+    /// Whites clip point (-100 to +100, default 0.0).
+    pub whites: f32,
+    /// Blacks clip point (-100 to +100, default 0.0).
+    pub blacks: f32,
+    // Creative section
+    /// Color temperature shift (-100 warm → +100 cool, default 0.0).
+    pub temperature: f32,
+    /// Tint shift green → magenta (-100 to +100, default 0.0).
+    pub tint: f32,
+    /// Saturation multiplier as a percentage (default 100.0 = unchanged).
+    pub saturation: f32,
+    /// Vibrance (boosts muted colors more than vivid, -100 to +100, default 0.0).
+    pub vibrance: f32,
+    /// Whether this grade is applied. `false` = bypass.
+    pub enabled: bool,
+}
+
+impl Default for LumetriColor {
+    fn default() -> Self {
+        LumetriColor {
+            exposure: 0.0,
+            contrast: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+            temperature: 0.0,
+            tint: 0.0,
+            saturation: 100.0,
+            vibrance: 0.0,
+            enabled: true,
+        }
+    }
+}
+
+impl LumetriColor {
+    /// Apply this grade to a straight sRGB pixel `[r, g, b, a]` and return the
+    /// graded pixel. A disabled grade returns the pixel unchanged.
+    pub fn apply(&self, pixel: [f32; 4]) -> [f32; 4] {
+        if !self.enabled {
+            return pixel;
+        }
+        let [r, g, b, a] = pixel;
+
+        // --- Exposure ---
+        let exp = 2.0_f32.powf(self.exposure);
+        let (r, g, b) = (r * exp, g * exp, b * exp);
+
+        // --- Contrast: S-curve around 0.5 midpoint ---
+        let contrast_scale = 1.0 + self.contrast / 100.0;
+        let s_curve = |v: f32| ((v - 0.5) * contrast_scale + 0.5).clamp(0.0, 1.0);
+        let (r, g, b) = (s_curve(r), s_curve(g), s_curve(b));
+
+        // --- Highlights / Shadows / Whites / Blacks (range masking) ---
+        let hi_scale = self.highlights / 100.0;
+        let sh_scale = self.shadows / 100.0;
+        let wh_scale = self.whites / 100.0;
+        let bl_scale = self.blacks / 100.0;
+        let range_adj = |v: f32| -> f32 {
+            // Highlights affect the bright range (v > 0.5).
+            let hi_mask = ((v - 0.5) * 2.0).clamp(0.0, 1.0);
+            // Shadows affect the dark range (v < 0.5).
+            let sh_mask = ((0.5 - v) * 2.0).clamp(0.0, 1.0);
+            (v + hi_scale * hi_mask * 0.5 + sh_scale * sh_mask * 0.5
+                + wh_scale * hi_mask * 0.25
+                + bl_scale * sh_mask * 0.25)
+                .clamp(0.0, 1.0)
+        };
+        let (r, g, b) = (range_adj(r), range_adj(g), range_adj(b));
+
+        // --- Temperature: shift R↑ B↓ (warm) or R↓ B↑ (cool) ---
+        let temp = self.temperature / 100.0 * 0.1;
+        let (r, g, b) = ((r + temp).clamp(0.0, 1.0), g, (b - temp).clamp(0.0, 1.0));
+
+        // --- Tint: shift G↑ (green) or G↓/R+B↑ (magenta) ---
+        let tint = self.tint / 100.0 * 0.1;
+        let (r, g, b) = (r, (g + tint).clamp(0.0, 1.0), b);
+
+        // --- Saturation: convert to luminance + chroma, scale chroma ---
+        let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let sat_scale = self.saturation / 100.0;
+        let (r, g, b) = (
+            (lum + (r - lum) * sat_scale).clamp(0.0, 1.0),
+            (lum + (g - lum) * sat_scale).clamp(0.0, 1.0),
+            (lum + (b - lum) * sat_scale).clamp(0.0, 1.0),
+        );
+
+        // --- Vibrance: boost low-saturation pixels more ---
+        let sat = (r - lum).abs().max((g - lum).abs()).max((b - lum).abs());
+        let vib = self.vibrance / 100.0 * (1.0 - sat).clamp(0.0, 1.0) * 0.5;
+        let (r, g, b) = (
+            (lum + (r - lum) * (1.0 + vib)).clamp(0.0, 1.0),
+            (lum + (g - lum) * (1.0 + vib)).clamp(0.0, 1.0),
+            (lum + (b - lum) * (1.0 + vib)).clamp(0.0, 1.0),
+        );
+
+        [r, g, b, a]
+    }
+}
 
 /// One animated layer: a solid color rect transformed by its tracks, optionally
 /// **parented** to another layer (whose transform it inherits).
@@ -293,6 +453,18 @@ pub struct PulseLayer {
     /// `serde`-defaulted to false.
     #[serde(default)]
     pub shy: bool,
+    /// **Text Animator** (After Effects' Text Animator): per-character offset /
+    /// scale / rotation / opacity applied to the fraction of characters in the
+    /// selector range. Only meaningful when `kind == LayerKind::Text`. `serde`-
+    /// defaulted to `None` so pre-animator `.pulse` files load unchanged.
+    #[serde(default)]
+    pub text_animator: Option<TextAnimator>,
+    /// **Lumetri Color** grade: an optional per-layer color grade (exposure /
+    /// contrast / highlights / shadows / temperature / saturation). Applied after
+    /// the layer's normal effect stack; `None` = bypass. `serde`-defaulted so
+    /// pre-Lumetri `.pulse` files load with no grade.
+    #[serde(default)]
+    pub lumetri: Option<LumetriColor>,
     /// **Layer markers** (After Effects' layer markers): labelled points/spans
     /// pinned to this layer's timeline. Pure timeline metadata — drawn on the
     /// layer's lane and used by time navigation; they carry no pixels.
@@ -361,6 +533,8 @@ impl PulseLayer {
             puppet_pins: Vec::new(),
             solo: false,
             shy: false,
+            text_animator: None,
+            lumetri: None,
             markers: Vec::new(),
             anchor_x: Track::default(),
             anchor_y: Track::default(),

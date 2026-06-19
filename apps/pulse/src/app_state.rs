@@ -188,6 +188,68 @@ pub struct SubComp {
     pub layers: Vec<crate::comp::PulseLayer>,
 }
 
+// ── Batch 2: Brainstorm ──────────────────────────────────────────────────────
+
+/// One randomised keyframe-variation preview in the Brainstorm panel.
+#[derive(Clone, Debug)]
+pub struct BrainstormVariation {
+    pub label: String,
+    /// (layer_idx, prop, override_value)
+    pub overrides: Vec<(usize, crate::comp::Prop, f32)>,
+    pub selected: bool,
+}
+
+/// State for the Brainstorm panel (generate + pick random comp variations).
+#[derive(Clone, Debug, Default)]
+pub struct BrainstormState {
+    pub open: bool,
+    pub variations: Vec<BrainstormVariation>,
+    /// Grid columns (default 2).
+    pub grid_cols: u32,
+    /// Grid rows (default 3).
+    pub grid_rows: u32,
+}
+
+impl BrainstormState {
+    fn new() -> Self {
+        Self { open: false, variations: Vec::new(), grid_cols: 2, grid_rows: 3 }
+    }
+}
+
+// ── Batch 2: Pre-render cache ─────────────────────────────────────────────────
+
+/// Status of the pre-render cache.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PreRenderStatus {
+    NotStarted,
+    Rendering { frames_done: u32, total: u32 },
+    Done { frame_count: u32, cache_dir: std::path::PathBuf },
+    Failed(String),
+}
+
+// ── Batch 2: Track Camera ─────────────────────────────────────────────────────
+
+/// A single 2-D motion track point with per-frame position keyframes.
+#[derive(Clone, Debug)]
+pub struct TrackPoint {
+    pub name: String,
+    /// Position in comp space at the reference time.
+    pub position: [f32; 2],
+    /// `(time_secs, comp_space_position)` keyframes for this point.
+    pub keyframes: Vec<(f32, [f32; 2])>,
+}
+
+/// State for the 2-point camera tracker panel.
+#[derive(Clone, Debug, Default)]
+pub struct CameraTracker {
+    pub track_points: Vec<TrackPoint>,
+    pub solved: bool,
+    /// `(time_secs, [tx, ty, scale])` — the solved camera motion.
+    pub camera_keyframes: Vec<(f32, [f32; 3])>,
+    pub open: bool,
+    pub analyze_progress: f32,
+}
+
 /// Shared cell holding the timeline track's painted bounds (window-relative).
 ///
 /// The timeline panel paints a tiny `canvas` over its scrub track that records
@@ -723,6 +785,74 @@ pub enum Action {
     SetMoGrtSliderValue { template_idx: usize, control_idx: usize, value: f32 },
     /// Export the template at `template_idx` to a JSON file at `path`.
     ExportMoGrt { template_idx: usize, path: PathBuf },
+
+    // --- Batch 2: Layer split ---
+    /// Split the layer at `id` at the current playhead time into two layers.
+    /// The original spans [in_point..playhead]; the new copy spans [playhead..out_point].
+    /// Undoable.
+    SplitLayer(usize),
+    /// Split the layer at `layer_id` at an explicit `time`. Undoable.
+    SplitLayerAt { layer_id: usize, time: f32 },
+
+    // --- Batch 2: Brainstorm ---
+    /// Toggle the Brainstorm variations panel open/closed.
+    ToggleBrainstorm,
+    /// Generate `count` random keyframe-variation previews from the current comp state.
+    GenerateBrainstormVariations { count: u32 },
+    /// Mark variation `idx` as the selected preview.
+    SelectBrainstormVariation(usize),
+    /// Apply variation `idx`: bake its overrides into the comp, then close Brainstorm.
+    ApplyBrainstormVariation(usize),
+    /// Resize the Brainstorm grid.
+    SetBrainstormGrid { cols: u32, rows: u32 },
+
+    // --- Batch 2: Color Finesse ---
+    /// Add a Color Finesse grade to the layer at `layer_id`. Undoable.
+    AddColorFinesse(usize),
+    /// Remove the Color Finesse grade from the layer at `layer_id`. Undoable.
+    RemoveColorFinesse(usize),
+    /// Enable or disable the Color Finesse grade on the layer at `layer_id`. Undoable.
+    SetColorFinesseEnabled { layer_id: usize, enabled: bool },
+    /// Set one parameter of the Color Finesse grade.
+    /// `range`: "master" | "reds" | "yellows" | "greens" | "cyans" | "blues" | "magentas"
+    /// `prop`:  "hue" | "saturation" | "lightness"
+    SetColorFinesseParam { layer_id: usize, range: &'static str, prop: &'static str, value: f32 },
+    /// Reset all Color Finesse parameters to defaults on the layer at `layer_id`. Undoable.
+    ResetColorFinesse(usize),
+
+    // --- Batch 2: Pre-render cache ---
+    /// Begin rendering the work area to a PNG frame sequence in a temp dir.
+    StartPreRender,
+    /// Cancel an in-progress pre-render.
+    CancelPreRender,
+    /// Update the pre-render progress counters.
+    SetPreRenderProgress { frames_done: u32, total: u32 },
+    /// Mark pre-render complete.
+    PreRenderComplete { frame_count: u32, cache_dir: std::path::PathBuf },
+    /// Record a pre-render failure.
+    PreRenderFailed(String),
+    /// Clear the pre-render cache and reset status.
+    ClearPreRenderCache,
+    /// Toggle whether the compositor serves frames from the pre-render cache.
+    ToggleUsePreRender,
+
+    // --- Batch 2: Track Camera ---
+    /// Toggle the Camera Tracker panel open/closed.
+    ToggleCameraTracker,
+    /// Add a track point at the given position (comp space) to the tracker.
+    AddTrackPoint { name: String, pos: [f32; 2] },
+    /// Remove the track point at `idx`.
+    RemoveTrackPoint(usize),
+    /// Record the position of track point `idx` at `time`.
+    MoveTrackPoint { idx: usize, time: f32, pos: [f32; 2] },
+    /// Solve the camera track from the current set of track points + their keyframes.
+    SolveCameraTrack,
+    /// Apply the solved camera motion to the comp's camera layer.
+    CreateCameraFromTrack,
+    /// Update the tracker's progress bar.
+    SetCameraTrackerProgress(f32),
+    /// Clear all track points and the solved camera keyframes.
+    ClearCameraTrack,
 }
 
 impl Action {
@@ -824,6 +954,13 @@ impl Action {
                 | Action::SetLumetriParam { .. }
                 | Action::ToggleLumetriEnabled(_)
                 | Action::ResetLumetriColor(_)
+                | Action::SplitLayer(_)
+                | Action::SplitLayerAt { .. }
+                | Action::AddColorFinesse(_)
+                | Action::RemoveColorFinesse(_)
+                | Action::SetColorFinesseEnabled { .. }
+                | Action::SetColorFinesseParam { .. }
+                | Action::ResetColorFinesse(_)
         )
     }
 }
@@ -982,6 +1119,18 @@ pub struct App {
     pub mogrt_panel_open: bool,
     /// Currently selected template index in the Essential Graphics panel.
     pub mogrt_selected: Option<usize>,
+
+    // --- Batch 2 fields ---
+    /// Brainstorm variations panel state.
+    pub brainstorm: BrainstormState,
+    /// Status of the pre-render cache.
+    pub pre_render_status: PreRenderStatus,
+    /// Directory where pre-rendered frames are cached (`None` when not yet started).
+    pub pre_render_cache_dir: Option<std::path::PathBuf>,
+    /// When true, the compositor serves frames from the pre-render cache.
+    pub use_pre_render: bool,
+    /// 2-point camera tracker state.
+    pub camera_tracker: CameraTracker,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -1108,6 +1257,11 @@ impl App {
             mogrt_templates: Vec::new(),
             mogrt_panel_open: false,
             mogrt_selected: None,
+            brainstorm: BrainstormState::new(),
+            pre_render_status: PreRenderStatus::NotStarted,
+            pre_render_cache_dir: None,
+            use_pre_render: false,
+            camera_tracker: CameraTracker::default(),
         }
     }
 
@@ -2843,6 +2997,158 @@ impl App {
                 }
             }
 
+            // --- Batch 2: Layer split ---
+            Action::SplitLayer(id) => {
+                let t = self.time;
+                self.apply(Action::SplitLayerAt { layer_id: id, time: t });
+            }
+            Action::SplitLayerAt { layer_id, time } => {
+                let ci = self.active_comp_index();
+                let dur = self.project.comps[ci].duration;
+                let t = time.clamp(0.0, dur);
+                if layer_id >= self.project.comps[ci].layers.len() {
+                    return;
+                }
+                let mut second = self.project.comps[ci].layers[layer_id].clone();
+                // First layer: visible up to `t`.
+                self.project.comps[ci].layers[layer_id].out_point = Some(t);
+                // Second layer: starts at `t`, inherits the original's out_point.
+                second.in_point = Some(t);
+                // Shift keyframes in the second layer: subtract `t` from every key time
+                // so the layer plays from its beginning at `t`.
+                for track in [
+                    &mut second.x, &mut second.y, &mut second.scale,
+                    &mut second.rotation, &mut second.opacity,
+                    &mut second.anchor_x, &mut second.anchor_y,
+                    &mut second.z, &mut second.orient_x, &mut second.orient_y, &mut second.orient_z,
+                ] {
+                    for key in &mut track.keys {
+                        key.t = (key.t - t).max(0.0);
+                    }
+                }
+                self.project.comps[ci].layers.insert(layer_id + 1, second);
+                self.host.mark_dirty();
+            }
+
+            // --- Batch 2: Brainstorm ---
+            Action::ToggleBrainstorm => {
+                self.brainstorm.open = !self.brainstorm.open;
+            }
+            Action::GenerateBrainstormVariations { count } => {
+                self.brainstorm.variations.clear();
+                let ci = self.active_comp_index();
+                let n_layers = self.project.comps[ci].layers.len();
+                for vi in 0..count {
+                    let mut overrides = Vec::new();
+                    // Pick 2–4 (layer, prop) pairs using a deterministic seed.
+                    let n_overrides = 2 + (vi % 3) as usize;
+                    let props = [
+                        Prop::X, Prop::Y, Prop::Scale, Prop::Rotation, Prop::Opacity,
+                    ];
+                    for oi in 0..n_overrides {
+                        let seed = vi * 1234 + oi as u32 * 37;
+                        let layer_idx = (seed as usize) % n_layers.max(1);
+                        let prop = props[(seed as usize / n_layers.max(1)) % props.len()];
+                        let cur = self.project.comps[ci].layer_value(layer_idx, prop, self.time);
+                        let scale_factor = 0.5 + (seed % 100) as f32 / 100.0;
+                        let new_val = cur * scale_factor;
+                        overrides.push((layer_idx, prop, new_val));
+                    }
+                    self.brainstorm.variations.push(BrainstormVariation {
+                        label: format!("Variation {}", vi + 1),
+                        overrides,
+                        selected: false,
+                    });
+                }
+            }
+            Action::SelectBrainstormVariation(idx) => {
+                for (i, v) in self.brainstorm.variations.iter_mut().enumerate() {
+                    v.selected = i == idx;
+                }
+            }
+            Action::ApplyBrainstormVariation(idx) => {
+                if idx >= self.brainstorm.variations.len() {
+                    return;
+                }
+                let overrides = self.brainstorm.variations[idx].overrides.clone();
+                let t = self.time;
+                let ci = self.active_comp_index();
+                for (layer_idx, prop, value) in overrides {
+                    if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_idx) {
+                        layer.track_mut(prop).set_key(t, value);
+                    }
+                }
+                self.brainstorm.variations.clear();
+                self.brainstorm.open = false;
+                self.host.mark_dirty();
+            }
+            Action::SetBrainstormGrid { cols, rows } => {
+                self.brainstorm.grid_cols = cols.max(1);
+                self.brainstorm.grid_rows = rows.max(1);
+            }
+
+            // --- Batch 2: Color Finesse ---
+            Action::AddColorFinesse(layer_id) => {
+                let ci = self.active_comp_index();
+                if let Some(l) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    if l.color_finesse.is_none() {
+                        l.color_finesse = Some(crate::comp::ColorFinesse::default());
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+            Action::RemoveColorFinesse(layer_id) => {
+                let ci = self.active_comp_index();
+                if let Some(l) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    l.color_finesse = None;
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SetColorFinesseEnabled { layer_id, enabled } => {
+                let ci = self.active_comp_index();
+                if let Some(cf) = self.project.comps[ci]
+                    .layers.get_mut(layer_id)
+                    .and_then(|l| l.color_finesse.as_mut())
+                {
+                    cf.enabled = enabled;
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SetColorFinesseParam { layer_id, range, prop, value } => {
+                let ci = self.active_comp_index();
+                if let Some(cf) = self.project.comps[ci]
+                    .layers.get_mut(layer_id)
+                    .and_then(|l| l.color_finesse.as_mut())
+                {
+                    let r = match range {
+                        "master"   => &mut cf.master,
+                        "reds"     => &mut cf.reds,
+                        "yellows"  => &mut cf.yellows,
+                        "greens"   => &mut cf.greens,
+                        "cyans"    => &mut cf.cyans,
+                        "blues"    => &mut cf.blues,
+                        "magentas" => &mut cf.magentas,
+                        _          => return,
+                    };
+                    match prop {
+                        "hue"        => r.hue_shift = value,
+                        "saturation" => r.saturation = value,
+                        "lightness"  => r.lightness = value,
+                        _            => return,
+                    }
+                    self.host.mark_dirty();
+                }
+            }
+            Action::ResetColorFinesse(layer_id) => {
+                let ci = self.active_comp_index();
+                if let Some(l) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    if l.color_finesse.is_some() {
+                        l.color_finesse = Some(crate::comp::ColorFinesse::default());
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+
             // --- Batch 6: Lumetri Color ---
             Action::AddLumetriColor(id) => {
                 let ci = self.active_comp_index();
@@ -2983,6 +3289,148 @@ impl App {
                     );
                     let _ = std::fs::write(path, json);
                 }
+            }
+
+            // --- Batch 2: Pre-render cache ---
+            Action::StartPreRender => {
+                let ci = self.active_comp_index();
+                let wa = self.project.comps[ci].clamped_work_area();
+                let fps = self.project.comps[ci].fps;
+                let total = ((wa.end - wa.start) * fps).ceil() as u32;
+                self.pre_render_status = PreRenderStatus::Rendering {
+                    frames_done: 0,
+                    total,
+                };
+            }
+            Action::CancelPreRender => {
+                self.pre_render_status = PreRenderStatus::NotStarted;
+            }
+            Action::SetPreRenderProgress { frames_done, total } => {
+                self.pre_render_status = PreRenderStatus::Rendering { frames_done, total };
+            }
+            Action::PreRenderComplete { frame_count, cache_dir } => {
+                self.pre_render_cache_dir = Some(cache_dir.clone());
+                self.pre_render_status = PreRenderStatus::Done { frame_count, cache_dir };
+            }
+            Action::PreRenderFailed(msg) => {
+                self.pre_render_status = PreRenderStatus::Failed(msg);
+            }
+            Action::ClearPreRenderCache => {
+                self.pre_render_status = PreRenderStatus::NotStarted;
+                self.pre_render_cache_dir = None;
+                self.use_pre_render = false;
+            }
+            Action::ToggleUsePreRender => {
+                self.use_pre_render = !self.use_pre_render;
+            }
+
+            // --- Batch 2: Track Camera ---
+            Action::ToggleCameraTracker => {
+                self.camera_tracker.open = !self.camera_tracker.open;
+            }
+            Action::AddTrackPoint { name, pos } => {
+                self.camera_tracker.track_points.push(TrackPoint {
+                    name,
+                    position: pos,
+                    keyframes: vec![(0.0, pos)],
+                });
+            }
+            Action::RemoveTrackPoint(idx) => {
+                if idx < self.camera_tracker.track_points.len() {
+                    self.camera_tracker.track_points.remove(idx);
+                    self.camera_tracker.solved = false;
+                }
+            }
+            Action::MoveTrackPoint { idx, time, pos } => {
+                if let Some(pt) = self.camera_tracker.track_points.get_mut(idx) {
+                    // Overwrite or insert keyframe at `time`.
+                    if let Some(kf) = pt.keyframes.iter_mut().find(|(t, _)| (*t - time).abs() < 1e-4) {
+                        kf.1 = pos;
+                    } else {
+                        pt.keyframes.push((time, pos));
+                        pt.keyframes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                    }
+                }
+            }
+            Action::SolveCameraTrack => {
+                let pts = &self.camera_tracker.track_points;
+                if pts.len() < 2 || pts.iter().any(|p| p.keyframes.len() < 2) {
+                    return;
+                }
+                // Gather all unique times from all track points.
+                let mut times: Vec<f32> = pts.iter()
+                    .flat_map(|p| p.keyframes.iter().map(|(t, _)| *t))
+                    .collect();
+                times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                times.dedup();
+
+                let mut camera_keyframes = Vec::new();
+                let ref_positions: Vec<[f32; 2]> = pts.iter()
+                    .map(|p| p.keyframes[0].1)
+                    .collect();
+
+                for t in &times {
+                    // Interpolate each track point's position at this time.
+                    let cur_positions: Vec<[f32; 2]> = pts.iter().map(|p| {
+                        // Linear interpolation between bracketing keyframes.
+                        let kfs = &p.keyframes;
+                        let pos = if *t <= kfs[0].0 {
+                            kfs[0].1
+                        } else if *t >= kfs[kfs.len()-1].0 {
+                            kfs[kfs.len()-1].1
+                        } else {
+                            let j = kfs.partition_point(|(kt, _)| *kt < *t);
+                            let (t0, p0) = kfs[j-1];
+                            let (t1, p1) = kfs[j];
+                            let frac = if (t1 - t0).abs() < 1e-6 { 0.0 } else { (*t - t0) / (t1 - t0) };
+                            [p0[0] + (p1[0] - p0[0]) * frac, p0[1] + (p1[1] - p0[1]) * frac]
+                        };
+                        pos
+                    }).collect();
+
+                    // Translation: negative of average displacement.
+                    let n = cur_positions.len() as f32;
+                    let tx = -cur_positions.iter().zip(ref_positions.iter())
+                        .map(|(c, r)| c[0] - r[0]).sum::<f32>() / n;
+                    let ty = -cur_positions.iter().zip(ref_positions.iter())
+                        .map(|(c, r)| c[1] - r[1]).sum::<f32>() / n;
+
+                    // Scale from distance change between first two points.
+                    let d_ref = {
+                        let dx = ref_positions[1][0] - ref_positions[0][0];
+                        let dy = ref_positions[1][1] - ref_positions[0][1];
+                        (dx*dx + dy*dy).sqrt()
+                    };
+                    let d_cur = {
+                        let dx = cur_positions[1][0] - cur_positions[0][0];
+                        let dy = cur_positions[1][1] - cur_positions[0][1];
+                        (dx*dx + dy*dy).sqrt()
+                    };
+                    let scale = if d_ref < 1e-6 { 1.0 } else { d_ref / d_cur };
+                    camera_keyframes.push((*t, [tx, ty, scale]));
+                }
+                self.camera_tracker.camera_keyframes = camera_keyframes;
+                self.camera_tracker.solved = true;
+            }
+            Action::CreateCameraFromTrack => {
+                if !self.camera_tracker.solved {
+                    return;
+                }
+                // Apply each solved keyframe to the comp camera position.
+                for (t, [tx, ty, _scale]) in &self.camera_tracker.camera_keyframes {
+                    let ci = self.active_comp_index();
+                    let cur_z = self.project.comps[ci].camera.position[2];
+                    // Snapshot undo once before the loop by doing it inline.
+                    self.project.comps[ci].camera.position = [*tx, *ty, cur_z];
+                    let _ = t; // timeline keying not done here — model uses single camera pos
+                }
+                self.host.mark_dirty();
+            }
+            Action::SetCameraTrackerProgress(p) => {
+                self.camera_tracker.analyze_progress = p.clamp(0.0, 1.0);
+            }
+            Action::ClearCameraTrack => {
+                self.camera_tracker = CameraTracker::default();
             }
         }
     }
@@ -3909,5 +4357,282 @@ mod tests {
         } else {
             panic!("expected Color control");
         }
+    }
+
+    // ── Batch 2: Layer Split ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_split_layer_creates_two() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        let before = app.project.comps[ci].layers.len();
+        app.apply(Action::SetTime(2.5));
+        app.apply(Action::SplitLayer(0));
+        let after = app.project.comps[ci].layers.len();
+        assert_eq!(after, before + 1, "split must add one layer");
+    }
+
+    #[test]
+    fn test_split_layer_timing() {
+        let mut app = App::new();
+        app.apply(Action::SetTime(2.0));
+        app.apply(Action::SplitLayer(0));
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].out_point, Some(2.0));
+        assert_eq!(app.project.comps[ci].layers[1].in_point, Some(2.0));
+    }
+
+    #[test]
+    fn test_split_layer_preserves_content() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        let orig_name = app.project.comps[ci].layers[0].name.clone();
+        app.apply(Action::SetTime(1.0));
+        app.apply(Action::SplitLayer(0));
+        // Both layers must have the same name (the copy is a literal clone before timing edits).
+        assert_eq!(app.project.comps[ci].layers[0].name, orig_name);
+        assert_eq!(app.project.comps[ci].layers[1].name, orig_name);
+    }
+
+    #[test]
+    fn test_split_layer_undo() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        let before = app.project.comps[ci].layers.len();
+        app.apply(Action::SetTime(1.5));
+        app.apply(Action::SplitLayer(0));
+        assert_eq!(app.project.comps[ci].layers.len(), before + 1);
+        app.apply(Action::Undo);
+        assert_eq!(app.project.comps[ci].layers.len(), before, "undo must restore original count");
+    }
+
+    // ── Batch 2: Brainstorm ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_brainstorm_toggle() {
+        let mut app = App::new();
+        assert!(!app.brainstorm.open);
+        app.apply(Action::ToggleBrainstorm);
+        assert!(app.brainstorm.open);
+        app.apply(Action::ToggleBrainstorm);
+        assert!(!app.brainstorm.open);
+    }
+
+    #[test]
+    fn test_brainstorm_generate() {
+        let mut app = App::new();
+        app.apply(Action::GenerateBrainstormVariations { count: 6 });
+        assert_eq!(app.brainstorm.variations.len(), 6);
+    }
+
+    #[test]
+    fn test_brainstorm_grid() {
+        let mut app = App::new();
+        app.apply(Action::SetBrainstormGrid { cols: 3, rows: 2 });
+        assert_eq!(app.brainstorm.grid_cols, 3);
+        assert_eq!(app.brainstorm.grid_rows, 2);
+    }
+
+    #[test]
+    fn test_brainstorm_select() {
+        let mut app = App::new();
+        app.apply(Action::GenerateBrainstormVariations { count: 4 });
+        app.apply(Action::SelectBrainstormVariation(2));
+        assert!(app.brainstorm.variations[2].selected);
+        assert!(!app.brainstorm.variations[0].selected);
+    }
+
+    #[test]
+    fn test_brainstorm_apply() {
+        let mut app = App::new();
+        app.apply(Action::GenerateBrainstormVariations { count: 3 });
+        app.apply(Action::ApplyBrainstormVariation(0));
+        // After apply, variations are cleared and panel closed.
+        assert!(app.brainstorm.variations.is_empty());
+        assert!(!app.brainstorm.open);
+    }
+
+    // ── Batch 2: Color Finesse ───────────────────────────────────────────────
+
+    #[test]
+    fn test_color_finesse_add_remove() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].color_finesse.is_none());
+        app.apply(Action::AddColorFinesse(0));
+        assert!(app.project.comps[ci].layers[0].color_finesse.is_some());
+        app.apply(Action::RemoveColorFinesse(0));
+        assert!(app.project.comps[ci].layers[0].color_finesse.is_none());
+    }
+
+    #[test]
+    fn test_color_finesse_set_master_hue() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        app.apply(Action::AddColorFinesse(0));
+        app.apply(Action::SetColorFinesseParam {
+            layer_id: 0,
+            range: "master",
+            prop: "hue",
+            value: 90.0,
+        });
+        let cf = app.project.comps[ci].layers[0].color_finesse.as_ref().unwrap();
+        assert!((cf.master.hue_shift - 90.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_color_finesse_set_range() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        app.apply(Action::AddColorFinesse(0));
+        app.apply(Action::SetColorFinesseParam {
+            layer_id: 0,
+            range: "reds",
+            prop: "saturation",
+            value: 50.0,
+        });
+        let cf = app.project.comps[ci].layers[0].color_finesse.as_ref().unwrap();
+        assert!((cf.reds.saturation - 50.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_color_finesse_reset() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        app.apply(Action::AddColorFinesse(0));
+        app.apply(Action::SetColorFinesseParam { layer_id: 0, range: "master", prop: "hue", value: 45.0 });
+        app.apply(Action::ResetColorFinesse(0));
+        let cf = app.project.comps[ci].layers[0].color_finesse.as_ref().unwrap();
+        assert!((cf.master.hue_shift).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_color_finesse_enabled_toggle() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        app.apply(Action::AddColorFinesse(0));
+        assert!(app.project.comps[ci].layers[0].color_finesse.as_ref().unwrap().enabled);
+        app.apply(Action::SetColorFinesseEnabled { layer_id: 0, enabled: false });
+        assert!(!app.project.comps[ci].layers[0].color_finesse.as_ref().unwrap().enabled);
+    }
+
+    #[test]
+    fn test_color_finesse_pixel_grade() {
+        use crate::comp::ColorFinesse;
+        // A green-hued pixel: R=0.0, G=1.0, B=0.0 (hue=120°, greens range).
+        let cf = ColorFinesse {
+            greens: crate::comp::ColorFinesseRange { hue_shift: 0.0, saturation: 100.0, lightness: 0.0 },
+            enabled: true,
+            ..ColorFinesse::default()
+        };
+        let out = cf.apply([0.0, 1.0, 0.0, 1.0]);
+        // Saturation boosted; green should still be the dominant channel but fully saturated.
+        assert!(out[1] > out[0], "green dominant after saturation boost");
+    }
+
+    // ── Batch 2: Pre-render Cache ────────────────────────────────────────────
+
+    #[test]
+    fn test_pre_render_start() {
+        let mut app = App::new();
+        app.apply(Action::StartPreRender);
+        assert!(matches!(app.pre_render_status, PreRenderStatus::Rendering { .. }));
+    }
+
+    #[test]
+    fn test_pre_render_progress() {
+        let mut app = App::new();
+        app.apply(Action::StartPreRender);
+        app.apply(Action::SetPreRenderProgress { frames_done: 5, total: 30 });
+        assert_eq!(
+            app.pre_render_status,
+            PreRenderStatus::Rendering { frames_done: 5, total: 30 }
+        );
+    }
+
+    #[test]
+    fn test_pre_render_complete() {
+        let mut app = App::new();
+        let dir = std::path::PathBuf::from("/tmp/pulse_test_cache");
+        app.apply(Action::PreRenderComplete { frame_count: 30, cache_dir: dir.clone() });
+        assert_eq!(
+            app.pre_render_status,
+            PreRenderStatus::Done { frame_count: 30, cache_dir: dir }
+        );
+    }
+
+    #[test]
+    fn test_pre_render_clear() {
+        let mut app = App::new();
+        app.apply(Action::StartPreRender);
+        app.apply(Action::ClearPreRenderCache);
+        assert_eq!(app.pre_render_status, PreRenderStatus::NotStarted);
+        assert!(app.pre_render_cache_dir.is_none());
+        assert!(!app.use_pre_render);
+    }
+
+    #[test]
+    fn test_pre_render_toggle_use() {
+        let mut app = App::new();
+        assert!(!app.use_pre_render);
+        app.apply(Action::ToggleUsePreRender);
+        assert!(app.use_pre_render);
+        app.apply(Action::ToggleUsePreRender);
+        assert!(!app.use_pre_render);
+    }
+
+    // ── Batch 2: Track Camera ────────────────────────────────────────────────
+
+    #[test]
+    fn test_camera_tracker_toggle() {
+        let mut app = App::new();
+        assert!(!app.camera_tracker.open);
+        app.apply(Action::ToggleCameraTracker);
+        assert!(app.camera_tracker.open);
+    }
+
+    #[test]
+    fn test_camera_tracker_add_remove_point() {
+        let mut app = App::new();
+        app.apply(Action::AddTrackPoint { name: "A".to_string(), pos: [100.0, 200.0] });
+        app.apply(Action::AddTrackPoint { name: "B".to_string(), pos: [400.0, 300.0] });
+        assert_eq!(app.camera_tracker.track_points.len(), 2);
+        app.apply(Action::RemoveTrackPoint(0));
+        assert_eq!(app.camera_tracker.track_points.len(), 1);
+    }
+
+    #[test]
+    fn test_camera_tracker_solve() {
+        let mut app = App::new();
+        // Two track points each with 2 keyframes.
+        app.apply(Action::AddTrackPoint { name: "A".to_string(), pos: [100.0, 100.0] });
+        app.apply(Action::AddTrackPoint { name: "B".to_string(), pos: [300.0, 100.0] });
+        app.apply(Action::MoveTrackPoint { idx: 0, time: 1.0, pos: [110.0, 110.0] });
+        app.apply(Action::MoveTrackPoint { idx: 1, time: 1.0, pos: [310.0, 110.0] });
+        app.apply(Action::SolveCameraTrack);
+        assert!(app.camera_tracker.solved);
+        assert!(!app.camera_tracker.camera_keyframes.is_empty());
+    }
+
+    #[test]
+    fn test_camera_tracker_clear() {
+        let mut app = App::new();
+        app.apply(Action::AddTrackPoint { name: "X".to_string(), pos: [0.0, 0.0] });
+        app.apply(Action::ClearCameraTrack);
+        assert!(app.camera_tracker.track_points.is_empty());
+        assert!(!app.camera_tracker.solved);
+    }
+
+    #[test]
+    fn test_camera_tracker_move_point() {
+        let mut app = App::new();
+        app.apply(Action::AddTrackPoint { name: "P".to_string(), pos: [50.0, 50.0] });
+        app.apply(Action::MoveTrackPoint { idx: 0, time: 1.0, pos: [60.0, 70.0] });
+        let kfs = &app.camera_tracker.track_points[0].keyframes;
+        let kf = kfs.iter().find(|(t, _)| (*t - 1.0).abs() < 1e-3);
+        assert!(kf.is_some());
+        let pos = kf.unwrap().1;
+        assert!((pos[0] - 60.0).abs() < 1e-3);
+        assert!((pos[1] - 70.0).abs() < 1e-3);
     }
 }

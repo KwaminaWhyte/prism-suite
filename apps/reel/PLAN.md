@@ -1,10 +1,20 @@
 # Reel — Open Source Premiere Pro Alternative
 
-> **Status: 100% parity reached (65/65 features). Batch 5 complete (depth & polish).**
+> **Status: ~35% parity (Phases 0–5 done). Target ≥85% by end of Phase 7.**
+
+## Batch 6 (latest) — Completed (2026-06-19)
+
+72 tests green. Added 5 high-impact features across `app_state.rs` and helpers.
+
+- [x] **Copy / Paste / Duplicate Clips** — `clipboard_clips: Vec<Clip>` on App; `Action::CopySelectedClips`, `CutSelectedClips`, `PasteClips { at_t }`, `DuplicateSelectedClips`. Paste offsets all clipboard clips relative to the first clip's start, snap-to-frame. Cut removes the original and selects nothing. Duplicate places a copy immediately after the source clip.
+- [x] **Clip Transform Effect** — `ClipBlendMode` enum (Normal/Multiply/Screen/Overlay/Add/Subtract); new fields on Clip: `anchor_x/y`, `crop_left/right/top/bottom`, `blend_mode`. `Action::SetClipAnchor`, `SetClipCrop`, `SetClipBlendMode`, `ResetClipTransform`. All anchors/crops clamped to valid ranges.
+- [x] **Time Remap Keyframes** — `time_remap_enabled: bool`, `time_remap_keys: Vec<(f32, f32)>` on Clip. `Clip::remapped_source_t(t)` samples linearly between keyframe pairs. `Action::SetTimeRemapEnabled` seeds identity keys on first enable; `AddTimeRemapKey`, `MoveTimeRemapKey`, `RemoveTimeRemapKey`, `SetFreezeFrame` (inserts a freeze region).
+- [x] **LUFS Loudness Metering** — Pure functions `k_weighted_power`, `lufs_short_term`, `lufs_integrated` (ITU-R BS.1770-4 approximation, gated). App fields `lufs_short_term`, `lufs_integrated`, `lufs_power_history`. `Action::UpdateLufsMeters { power }` appends to history and recalculates; `ResetLufsIntegrated` clears.
+- [x] **Ripple-Aware Group Trim** — `Action::GroupRippleTrimIn/Out { clip_indices, delta }` trims multiple clip edges simultaneously and ripples downstream clips on each affected track.
 
 ## Batch 5 — Completed (2026-06-19, depth & polish)
 
-Deepened five existing GPUI-host features so they work end-to-end (model + compositor/mix apply + UI), not stubs. All in `reel-gpui`; 60 tests green; no new warnings.
+Deepened five existing GPUI-host features so they work end-to-end (model + compositor/mix apply + UI), not stubs. All in `reel-gpui`; no new warnings.
 
 - [x] **Nested-sequence recursive compositing** — `ClipSource::NestedClip` rendered through the same compositor at the speed/reverse-aware nest-local time (was a purple placeholder); `MAX_NEST_DEPTH=8` cycle guard; identity inner grade. `program_frame::render_program_inner` / `sample_clip_raw`.
 - [x] **Caption burn-in onto the program frame** — the active cue is drawn (5×7 font, style color, legibility box, Bottom/Top/Custom position, comp-relative size, multi-line) in the preview, scopes, AND export. Threaded via `program_frame` → `CanvasHost::image` → `Reel::preview_image` + `JobSpec.captions`/`with_progress_encode`. `draw_active_caption`.

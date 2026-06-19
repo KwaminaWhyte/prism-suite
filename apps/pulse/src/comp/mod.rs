@@ -107,6 +107,136 @@ pub use puppet::{PinId, PuppetPin};
 pub use time_remap::TimeRemap;
 pub use transform::{Affine2, Transform};
 
+// ColorFinesse is defined in this file (not a sub-module) so no pub use needed.
+
+// ── Color Finesse ────────────────────────────────────────────────────────────
+
+/// Per-tonal-range Hue/Saturation/Lightness values for [`ColorFinesse`].
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ColorFinesseRange {
+    /// Hue rotation in degrees, -180 to +180. Default 0.0.
+    pub hue_shift: f32,
+    /// Saturation delta, -100 to +100. Default 0.0.
+    pub saturation: f32,
+    /// Lightness delta, -100 to +100. Default 0.0.
+    pub lightness: f32,
+}
+
+/// Per-layer Color Finesse grade: Master + 6 tonal ranges (Reds, Yellows,
+/// Greens, Cyans, Blues, Magentas). Applied after the per-pixel effect stack.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ColorFinesse {
+    pub master: ColorFinesseRange,
+    pub reds: ColorFinesseRange,
+    pub yellows: ColorFinesseRange,
+    pub greens: ColorFinesseRange,
+    pub cyans: ColorFinesseRange,
+    pub blues: ColorFinesseRange,
+    pub magentas: ColorFinesseRange,
+    /// Master on/off switch. Default `true`.
+    pub enabled: bool,
+}
+
+impl Default for ColorFinesse {
+    fn default() -> Self {
+        Self {
+            master: ColorFinesseRange::default(),
+            reds: ColorFinesseRange::default(),
+            yellows: ColorFinesseRange::default(),
+            greens: ColorFinesseRange::default(),
+            cyans: ColorFinesseRange::default(),
+            blues: ColorFinesseRange::default(),
+            magentas: ColorFinesseRange::default(),
+            enabled: true,
+        }
+    }
+}
+
+impl ColorFinesse {
+    /// Apply the grade to a straight-sRGB pixel `[r, g, b, a]` and return the
+    /// modified pixel. Alpha is passed through unchanged.
+    pub fn apply(&self, pixel: [f32; 4]) -> [f32; 4] {
+        if !self.enabled {
+            return pixel;
+        }
+        let [r, g, b, a] = pixel;
+        // Convert to HSL.
+        let (h, s, l) = rgb_to_hsl(r, g, b);
+        // Tonal range: pick the range whose hue-center is closest to `h` (degrees).
+        let range = self.tonal_range(h);
+        // Apply master first, then range-specific.
+        let h2 = (h + self.master.hue_shift + range.hue_shift).rem_euclid(360.0);
+        let s2 = (s + (self.master.saturation + range.saturation) / 100.0).clamp(0.0, 1.0);
+        let l2 = (l + (self.master.lightness + range.lightness) / 100.0).clamp(0.0, 1.0);
+        let (r2, g2, b2) = hsl_to_rgb(h2, s2, l2);
+        [r2, g2, b2, a]
+    }
+
+    fn tonal_range(&self, hue_deg: f32) -> &ColorFinesseRange {
+        // Hue is in [0, 360). Map to named ranges.
+        // Reds: [-30, 30) → [330, 360) ∪ [0, 30)
+        // Yellows: [30, 90)
+        // Greens: [90, 150)
+        // Cyans: [150, 210)
+        // Blues: [210, 270)
+        // Magentas: [270, 330)
+        let h = hue_deg.rem_euclid(360.0);
+        if h < 30.0 || h >= 330.0 {
+            &self.reds
+        } else if h < 90.0 {
+            &self.yellows
+        } else if h < 150.0 {
+            &self.greens
+        } else if h < 210.0 {
+            &self.cyans
+        } else if h < 270.0 {
+            &self.blues
+        } else {
+            &self.magentas
+        }
+    }
+}
+
+fn rgb_to_hsl(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let l = (max + min) / 2.0;
+    if (max - min).abs() < 1e-6 {
+        return (0.0, 0.0, l);
+    }
+    let d = max - min;
+    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
+    let h = if max == r {
+        ((g - b) / d + if g < b { 6.0 } else { 0.0 }) * 60.0
+    } else if max == g {
+        ((b - r) / d + 2.0) * 60.0
+    } else {
+        ((r - g) / d + 4.0) * 60.0
+    };
+    (h, s, l)
+}
+
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    if s < 1e-6 {
+        return (l, l, l);
+    }
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    let r = hue_to_rgb(p, q, h / 360.0 + 1.0 / 3.0);
+    let g = hue_to_rgb(p, q, h / 360.0);
+    let b = hue_to_rgb(p, q, h / 360.0 - 1.0 / 3.0);
+    (r, g, b)
+}
+
+fn hue_to_rgb(p: f32, q: f32, mut t: f32) -> f32 {
+    if t < 0.0 { t += 1.0; }
+    if t > 1.0 { t -= 1.0; }
+    if t < 1.0 / 6.0 { return p + (q - p) * 6.0 * t; }
+    if t < 1.0 / 2.0 { return q; }
+    if t < 2.0 / 3.0 { return p + (q - p) * (2.0 / 3.0 - t) * 6.0; }
+    p
+}
+
 /// One animated layer: a solid color rect transformed by its tracks, optionally
 /// **parented** to another layer (whose transform it inherits).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -299,6 +429,22 @@ pub struct PulseLayer {
     /// `serde`-defaulted to empty so pre-marker `.pulse` files still load.
     #[serde(default)]
     pub markers: Vec<Marker>,
+    /// **In-point**: time (seconds) at which this layer becomes visible. `None`
+    /// means the layer is visible from the start of the comp. `serde`-defaulted
+    /// to `None` so pre-in-point `.pulse` files load unchanged.
+    #[serde(default)]
+    pub in_point: Option<f32>,
+    /// **Out-point**: time (seconds) after which this layer is no longer visible.
+    /// `None` means the layer is visible until the end of the comp. `serde`-defaulted
+    /// to `None` so pre-out-point `.pulse` files load unchanged.
+    #[serde(default)]
+    pub out_point: Option<f32>,
+    /// **Per-layer Color Finesse**: Master + 6 tonal-range (Reds/Yellows/Greens/
+    /// Cyans/Blues/Magentas) Hue/Saturation/Lightness adjustment, applied after
+    /// the color-correction stack. `serde`-defaulted to `None` so pre-finesse
+    /// `.pulse` files load and render unchanged.
+    #[serde(default)]
+    pub color_finesse: Option<ColorFinesse>,
     // Animated properties. An empty track means "use the default constant".
     /// Anchor-point offset from the layer's geometric center (comp px). The
     /// pivot for scale/rotation and the local point aligned to `(x, y)`.
@@ -362,6 +508,9 @@ impl PulseLayer {
             solo: false,
             shy: false,
             markers: Vec::new(),
+            in_point: None,
+            out_point: None,
+            color_finesse: None,
             anchor_x: Track::default(),
             anchor_y: Track::default(),
             x: Track::default(),

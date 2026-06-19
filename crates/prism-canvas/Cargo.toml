@@ -1,0 +1,23 @@
+[package]
+name = "prism-canvas"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# wgpu 29 — the version eframe 0.34.3 re-exports (the engine was written against
+# `eframe::wgpu`, which resolves to wgpu 29, not the crates.io 24 line). Matching
+# it keeps the egui-app boundary types identical with no conversion.
+wgpu = "29"
+bytemuck.workspace = true
+half = { version = "2", features = ["bytemuck"] }
+glam.workspace = true
+log.workspace = true
+prism-core.workspace = true
+
+[dev-dependencies]
+pollster = "0.4"
+
+[lints]
+workspace = true

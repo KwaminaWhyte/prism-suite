@@ -1,0 +1,42 @@
+[package]
+name = "pigment-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "pigment-gpui"
+
+[[bin]]
+name = "pigment-gpui"
+path = "src/main.rs"
+
+[dependencies]
+prism-canvas.workspace = true
+prism-core.workspace = true
+prism-io.workspace = true
+prism-ui.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+serde.workspace = true
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true
+gpui.workspace = true
+pollster.workspace = true
+image.workspace = true
+half.workspace = true
+rfd.workspace = true
+serde_json.workspace = true
+exr.workspace = true
+dirs.workspace = true
+
+[package.metadata.bundle]
+name = "Pigment"
+identifier = "com.prism-suite.pigment"
+short_description = "Raster image editor — Photoshop analog"
+long_description = "Pigment is a GPU-accelerated raster editor, part of the open-source Prism creative suite."
+category = "Graphics"
+osx_minimum_system_version = "13.0"
+osx_url_schemes = ["pigment"]
+
+[lints]
+workspace = true

@@ -1,0 +1,9 @@
+/target
+dist/
+*.dmg
+*.deb
+*.zip
+*.icns
+*.iconset
+.DS_Store
+/clone_debug.log

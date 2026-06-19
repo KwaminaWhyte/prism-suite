@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.app }} — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── macOS ────────────────────────────────────────────────────────────
+          - os: macos-latest
+            app: Pigment
+            bin: pigment-gpui
+            bundle_id: com.prism-suite.pigment
+            artifact: Pigment-macos.dmg
+            script: |
+              bash scripts/package-macos.sh Pigment pigment-gpui com.prism-suite.pigment
+              mv dist/Pigment-*-macos.dmg dist/Pigment-macos.dmg
+
+          - os: macos-latest
+            app: Contour
+            bin: contour-gpui
+            bundle_id: com.prism-suite.contour
+            artifact: Contour-macos.dmg
+            script: |
+              bash scripts/package-macos.sh Contour contour-gpui com.prism-suite.contour
+              mv dist/Contour-*-macos.dmg dist/Contour-macos.dmg
+
+          - os: macos-latest
+            app: Pulse
+            bin: pulse-gpui
+            bundle_id: com.prism-suite.pulse
+            artifact: Pulse-macos.dmg
+            script: |
+              bash scripts/package-macos.sh Pulse pulse-gpui com.prism-suite.pulse
+              mv dist/Pulse-*-macos.dmg dist/Pulse-macos.dmg
+
+          - os: macos-latest
+            app: Reel
+            bin: reel-gpui
+            bundle_id: com.prism-suite.reel
+            artifact: Reel-macos.dmg
+            script: |
+              bash scripts/package-macos.sh Reel reel-gpui com.prism-suite.reel
+              mv dist/Reel-*-macos.dmg dist/Reel-macos.dmg
+
+          # ── Linux ────────────────────────────────────────────────────────────
+          - os: ubuntu-latest
+            app: Pigment
+            artifact: Pigment-linux.deb
+            script: |
+              bash scripts/package-linux.sh pigment Pigment pigment-gpui com.prism-suite.pigment
+              mv dist/pigment_*_*.deb dist/Pigment-linux.deb
+
+          - os: ubuntu-latest
+            app: Contour
+            artifact: Contour-linux.deb
+            script: |
+              bash scripts/package-linux.sh contour Contour contour-gpui com.prism-suite.contour
+              mv dist/contour_*_*.deb dist/Contour-linux.deb
+
+          - os: ubuntu-latest
+            app: Pulse
+            artifact: Pulse-linux.deb
+            script: |
+              bash scripts/package-linux.sh pulse Pulse pulse-gpui com.prism-suite.pulse
+              mv dist/pulse_*_*.deb dist/Pulse-linux.deb
+
+          - os: ubuntu-latest
+            app: Reel
+            artifact: Reel-linux.deb
+            script: |
+              bash scripts/package-linux.sh reel Reel reel-gpui com.prism-suite.reel
+              mv dist/reel_*_*.deb dist/Reel-linux.deb
+
+          # ── Windows ──────────────────────────────────────────────────────────
+          - os: windows-latest
+            app: Pigment
+            artifact: Pigment-windows.zip
+            script: |
+              pwsh scripts/package-windows.ps1 -AppName Pigment -Bin pigment-gpui
+              mv dist/Pigment-*-windows-x64.zip dist/Pigment-windows.zip
+
+          - os: windows-latest
+            app: Contour
+            artifact: Contour-windows.zip
+            script: |
+              pwsh scripts/package-windows.ps1 -AppName Contour -Bin contour-gpui
+              mv dist/Contour-*-windows-x64.zip dist/Contour-windows.zip
+
+          - os: windows-latest
+            app: Pulse
+            artifact: Pulse-windows.zip
+            script: |
+              pwsh scripts/package-windows.ps1 -AppName Pulse -Bin pulse-gpui
+              mv dist/Pulse-*-windows-x64.zip dist/Pulse-windows.zip
+
+          - os: windows-latest
+            app: Reel
+            artifact: Reel-windows.zip
+            script: |
+              pwsh scripts/package-windows.ps1 -AppName Reel -Bin reel-gpui
+              mv dist/Reel-*-windows-x64.zip dist/Reel-windows.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.app }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libgtk-3-dev libxdo-dev libvulkan-dev imagemagick dpkg
+
+      - name: Install ImageMagick (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install imagemagick || true
+
+      - name: Build & package
+        run: ${{ matrix.script }}
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

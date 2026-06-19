@@ -1,0 +1,36 @@
+[package]
+name = "pulse-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "pulse"
+
+[[bin]]
+name = "pulse"
+path = "src/main.rs"
+required-features = ["egui-ui"]
+
+[features]
+default = ["egui-ui"]
+egui-ui = ["dep:eframe", "dep:egui", "dep:egui-phosphor"]
+
+[dependencies]
+prism-core.workspace = true
+prism-io.workspace = true
+prism-media.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true
+rfd.workspace = true
+rhai.workspace = true
+ttf-parser.workspace = true
+fontdb.workspace = true
+image = { workspace = true, features = ["png"] }
+eframe        = { workspace = true, optional = true }
+egui          = { workspace = true, optional = true }
+egui-phosphor = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -2,26 +2,25 @@
 resolver = "2"
 members = [
     # Shared engine crates
-    "crates/prism-canvas",
-    "crates/prism-color",
-    "crates/prism-core",
-    "crates/prism-io",
-    "crates/prism-media",
-    "crates/prism-ui",
-    # App library crates (consumed by their GPUI hosts)
-    "crates/contour-app",
-    "crates/pulse-app",
-    # GPUI host binaries
-    "crates/pigment-gpui",
-    "crates/contour-gpui",
-    "crates/pulse-gpui",
-    "crates/reel-gpui",
+    "shared/prism-canvas",
+    "shared/prism-color",
+    "shared/prism-core",
+    "shared/prism-io",
+    "shared/prism-media",
+    "shared/prism-ui",
+    # App crates (logic libraries + GPUI host binaries)
+    "apps/contour-app",
+    "apps/pulse-app",
+    "apps/pigment-gpui",
+    "apps/contour-gpui",
+    "apps/pulse-gpui",
+    "apps/reel-gpui",
 ]
 default-members = [
-    "crates/pigment-gpui",
-    "crates/contour-gpui",
-    "crates/pulse-gpui",
-    "crates/reel-gpui",
+    "apps/pigment-gpui",
+    "apps/contour-gpui",
+    "apps/pulse-gpui",
+    "apps/reel-gpui",
 ]
 
 [workspace.package]
@@ -32,14 +31,14 @@ repository = "https://github.com/KwaminaWhyte/prism-suite"
 
 [workspace.dependencies]
 # ── Suite crates ──────────────────────────────────────────────────────────────
-prism-canvas  = { path = "crates/prism-canvas" }
-prism-color   = { path = "crates/prism-color" }
-prism-core    = { path = "crates/prism-core" }
-prism-io      = { path = "crates/prism-io" }
-prism-media   = { path = "crates/prism-media" }
-prism-ui      = { path = "crates/prism-ui" }
-contour-app   = { path = "crates/contour-app" }
-pulse-app     = { path = "crates/pulse-app", default-features = false }
+prism-canvas  = { path = "shared/prism-canvas" }
+prism-color   = { path = "shared/prism-color" }
+prism-core    = { path = "shared/prism-core" }
+prism-io      = { path = "shared/prism-io" }
+prism-media   = { path = "shared/prism-media" }
+prism-ui      = { path = "shared/prism-ui" }
+contour-app   = { path = "apps/contour-app" }
+pulse-app     = { path = "apps/pulse-app", default-features = false }
 
 # ── Shared third-party ────────────────────────────────────────────────────────
 glam          = "0.29"

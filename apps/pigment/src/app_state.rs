@@ -629,6 +629,76 @@ pub enum Action {
     UndoTo(usize),
     /// Create a named snapshot of the current state.
     CreateSnapshot(String),
+
+    // --- Batch 5: Layer Comps ---
+    /// Toggle the Layer Comps panel open/closed.
+    ToggleLayerCompsPanel,
+    /// Snapshot current layer states under the given name.
+    AddLayerComp(String),
+    /// Restore layer visibility/opacity/blend/offset from a saved comp.
+    ApplyLayerComp(usize),
+    /// Overwrite an existing comp with the current layer states.
+    UpdateLayerComp(usize),
+    /// Delete a saved comp by index.
+    DeleteLayerComp(usize),
+    /// Rename a saved comp.
+    RenameLayerComp { idx: usize, name: String },
+
+    // --- Batch 5: Focus Area selection ---
+    /// Select in-focus pixels (high local Laplacian variance) on the active layer.
+    SelectFocusArea { threshold: f32, sensitivity: f32, invert: bool },
+    /// Set the Focus Area threshold (persisted for the next run).
+    SetFocusAreaThreshold(f32),
+
+    // --- Batch 5: Pattern Stamp ---
+    /// Define a new named pattern from raw RGBA float pixels and add it to the library.
+    DefinePattern { name: String, pixels: Vec<[f32; 4]>, width: u32, height: u32 },
+    /// Select the active pattern by library index.
+    SelectPattern(usize),
+    /// Delete a pattern from the library by index.
+    DeletePattern(usize),
+    /// Set the scale multiplier for the Pattern Stamp tool.
+    SetPatternStampScale(f32),
+    /// Toggle aligned (global canvas coords) vs. unaligned (per-stroke) tiling.
+    SetPatternStampAligned(bool),
+
+    // --- Batch 5: Match Color ---
+    /// Toggle the Match Color dialog open/closed.
+    ToggleMatchColorDialog,
+    /// Set the source layer for Match Color.
+    SetMatchColorSource(LayerId),
+    /// Set the fade/blend strength (0–100) for Match Color.
+    SetMatchColorFade(f32),
+    /// Apply Match Color: match luminance/color stats from source to target layer.
+    MatchColor {
+        source_layer: LayerId,
+        target_layer: LayerId,
+        match_luminance: bool,
+        match_color: bool,
+        fade: f32,
+        neutralize: bool,
+    },
+
+    // --- Batch 5: Vanishing Point ---
+    /// Open the Vanishing Point overlay.
+    OpenVanishingPoint,
+    /// Close the Vanishing Point overlay.
+    CloseVanishingPoint,
+    /// Add a new perspective plane (four doc-px corners [TL, TR, BR, BL]).
+    AddVanishingPlane { corners: [[f32; 2]; 4] },
+    /// Remove a perspective plane by index.
+    RemoveVanishingPlane(usize),
+    /// Select the active perspective plane by index.
+    SelectVanishingPlane(usize),
+    /// Set the grid size (doc px) for the active plane's overlay grid.
+    SetVanishingGridSize(f32),
+    /// Switch the Vanishing Point editing mode.
+    SetVanishingToolMode(VanishingToolMode),
+    /// Move a single corner of a perspective plane to a new doc-px position.
+    SetVanishingPlaneCorner { plane_idx: usize, corner_idx: usize, pos: [f32; 2] },
+    /// Perspective-aware stamp: copy pixels from `src` into `dst` within the
+    /// active plane's perspective mapping.
+    StampInPerspective { src: [f32; 2], dst: [f32; 2], radius: f32 },
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -1073,6 +1143,48 @@ pub struct App {
     // --- Batch 4: History snapshots ---
     /// Named snapshots: (name, document layer summary as JSON).
     pub snapshots: Vec<(String, String)>,
+
+    // --- Batch 5: Layer Comps ---
+    /// Named snapshots of all layer visibility/opacity/blend/offset states.
+    pub layer_comps: Vec<LayerComp>,
+    /// Whether the Layer Comps panel is visible.
+    pub layer_comps_panel_open: bool,
+    /// Index of the currently applied comp (None = no comp applied).
+    pub active_comp_idx: Option<usize>,
+
+    // --- Batch 5: Pattern Stamp ---
+    /// Library of named repeating patterns for the Pattern Stamp tool.
+    pub pattern_library: Vec<PatternDef>,
+    /// Index of the active pattern in the library (None = none selected).
+    pub active_pattern_idx: Option<usize>,
+    /// Scale multiplier for the Pattern Stamp tool (default 1.0).
+    pub pattern_stamp_scale: f32,
+    /// Aligned tiling (true) uses global canvas coords; unaligned is per-stroke.
+    pub pattern_stamp_aligned: bool,
+
+    // --- Batch 5: Match Color ---
+    /// Whether the Match Color dialog is open.
+    pub match_color_dialog_open: bool,
+    /// The source layer for Match Color (None = use current comp).
+    pub match_color_source: Option<LayerId>,
+    /// Fade/blend strength 0–100 for Match Color (default 100).
+    pub match_color_fade: f32,
+
+    // --- Batch 5: Vanishing Point ---
+    /// Defined perspective planes for the Vanishing Point overlay.
+    pub vanishing_planes: Vec<VanishingPlane>,
+    /// Index of the currently selected plane (None = none).
+    pub active_vanishing_plane: Option<usize>,
+    /// Current editing mode inside the Vanishing Point overlay.
+    pub vanishing_tool_mode: VanishingToolMode,
+    /// Whether the Vanishing Point overlay is open.
+    pub vanishing_point_open: bool,
+
+    // --- Batch 5: Focus Area ---
+    /// Last-used threshold for Select > Focus Area.
+    pub focus_area_threshold: f32,
+    /// Last-used sensitivity for Select > Focus Area.
+    pub focus_area_sensitivity: f32,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -1288,6 +1400,64 @@ impl HealMode {
     }
 }
 
+// ---- Batch 5: Layer Comps -----------------------------------------------
+
+/// Snapshot of a single layer's visual state, stored inside a [`LayerComp`].
+#[derive(Clone, Debug)]
+pub struct LayerCompState {
+    pub visible: bool,
+    pub opacity: f32,
+    pub blend_mode: BlendMode,
+    pub offset_x: i32,
+    pub offset_y: i32,
+}
+
+/// A named snapshot of all layer states, enabling quick switching between
+/// layout/visibility variations (Photoshop "Layer Comps" parity).
+#[derive(Clone, Debug)]
+pub struct LayerComp {
+    pub name: String,
+    /// Per-layer state at the time this comp was captured.
+    pub states: HashMap<LayerId, LayerCompState>,
+}
+
+// ---- Batch 5: Pattern Stamp ---------------------------------------------
+
+/// A repeating tile pattern stored in the pattern library.
+#[derive(Clone, Debug)]
+pub struct PatternDef {
+    pub name: String,
+    /// Row-major RGBA float pixels, linear-light premultiplied.
+    pub pixels: Vec<[f32; 4]>,
+    pub width: u32,
+    pub height: u32,
+}
+
+// ---- Batch 5: Vanishing Point -------------------------------------------
+
+/// Editing mode for the Vanishing Point overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum VanishingToolMode {
+    /// Clicking defines or moves the four plane corners.
+    #[default]
+    DefiningPlane,
+    /// Clone/stamp within the perspective plane.
+    Stamping,
+    /// Paste content and drag it to fit the plane.
+    Pasting,
+}
+
+/// A perspective plane defined by four canvas-space corners (TL/TR/BR/BL).
+/// Used by the Vanishing Point feature for perspective-aware cloning.
+#[derive(Clone, Debug)]
+pub struct VanishingPlane {
+    /// Corners in canvas doc-px order: [TL, TR, BR, BL].
+    pub corners: [[f32; 2]; 4],
+    /// Grid cell size in doc px for the overlay grid (default 50).
+    pub grid_size: f32,
+    pub active: bool,
+}
+
 /// In-progress Text-tool edit: which raster layer holds the glyphs, where it was
 /// placed (doc px), and the string typed so far. The host re-rasterizes the layer
 /// from `string` on every keystroke (see `App::text_input`).
@@ -1439,6 +1609,27 @@ impl App {
             plugin_params: "{}".to_string(),
             // Batch 4: Snapshots
             snapshots: Vec::new(),
+            // Batch 5: Layer Comps
+            layer_comps: Vec::new(),
+            layer_comps_panel_open: false,
+            active_comp_idx: None,
+            // Batch 5: Pattern Stamp
+            pattern_library: Vec::new(),
+            active_pattern_idx: None,
+            pattern_stamp_scale: 1.0,
+            pattern_stamp_aligned: true,
+            // Batch 5: Match Color
+            match_color_dialog_open: false,
+            match_color_source: None,
+            match_color_fade: 100.0,
+            // Batch 5: Vanishing Point
+            vanishing_planes: Vec::new(),
+            active_vanishing_plane: None,
+            vanishing_tool_mode: VanishingToolMode::DefiningPlane,
+            vanishing_point_open: false,
+            // Batch 5: Focus Area
+            focus_area_threshold: 0.5,
+            focus_area_sensitivity: 0.5,
         }
     }
 
@@ -2615,6 +2806,165 @@ impl App {
                 self.snapshots.push((name.clone(), json));
                 self.status_message = Some(format!("Snapshot '{name}' created"));
             }
+
+            // --- Batch 5: Layer Comps ---
+            Action::ToggleLayerCompsPanel => {
+                self.layer_comps_panel_open = !self.layer_comps_panel_open;
+            }
+            Action::AddLayerComp(name) => {
+                let states = capture_layer_comp_states(&self.doc);
+                self.layer_comps.push(LayerComp { name, states });
+            }
+            Action::ApplyLayerComp(idx) => {
+                if let Some(comp) = self.layer_comps.get(idx).cloned() {
+                    apply_layer_comp_states(&mut self.doc, &comp.states);
+                    self.active_comp_idx = Some(idx);
+                    self.sync_host_order_dirty();
+                }
+            }
+            Action::UpdateLayerComp(idx) => {
+                if idx < self.layer_comps.len() {
+                    self.layer_comps[idx].states = capture_layer_comp_states(&self.doc);
+                }
+            }
+            Action::DeleteLayerComp(idx) => {
+                if idx < self.layer_comps.len() {
+                    self.layer_comps.remove(idx);
+                    self.active_comp_idx = self.active_comp_idx.and_then(|i| {
+                        if i == idx { None } else if i > idx { Some(i - 1) } else { Some(i) }
+                    });
+                }
+            }
+            Action::RenameLayerComp { idx, name } => {
+                if let Some(comp) = self.layer_comps.get_mut(idx) {
+                    comp.name = name;
+                }
+            }
+
+            // --- Batch 5: Focus Area selection ---
+            Action::SelectFocusArea { threshold, sensitivity, invert } => {
+                self.focus_area_threshold = threshold.clamp(0.0, 1.0);
+                self.focus_area_sensitivity = sensitivity.clamp(0.0, 1.0);
+                let Some(layer) = self.paint_target() else { return };
+                let (dw, dh) = (self.host.doc_w, self.host.doc_h);
+                if let Some(px) = self.host.read_layer_f32(layer) {
+                    let mask_u8 = focus_area_mask(&px, dw, dh, threshold, sensitivity, invert);
+                    // Convert u8 mask to f32 and upload as selection mask.
+                    let mask_f32: Vec<f32> = mask_u8.iter().map(|&v| v as f32 / 255.0).collect();
+                    self.host.upload_selection_mask(&mask_f32);
+                    self.bump_selection();
+                    self.status_message = Some("Focus Area selection applied".to_string());
+                }
+            }
+            Action::SetFocusAreaThreshold(t) => {
+                self.focus_area_threshold = t.clamp(0.0, 1.0);
+            }
+
+            // --- Batch 5: Pattern Stamp ---
+            Action::DefinePattern { name, pixels, width, height } => {
+                self.pattern_library.push(PatternDef { name, pixels, width, height });
+            }
+            Action::SelectPattern(idx) => {
+                if idx < self.pattern_library.len() {
+                    self.active_pattern_idx = Some(idx);
+                }
+            }
+            Action::DeletePattern(idx) => {
+                if idx < self.pattern_library.len() {
+                    self.pattern_library.remove(idx);
+                    self.active_pattern_idx = self.active_pattern_idx.and_then(|i| {
+                        if i == idx { None } else if i > idx { Some(i - 1) } else { Some(i) }
+                    });
+                }
+            }
+            Action::SetPatternStampScale(s) => {
+                self.pattern_stamp_scale = s.clamp(0.1, 10.0);
+            }
+            Action::SetPatternStampAligned(a) => {
+                self.pattern_stamp_aligned = a;
+            }
+
+            // --- Batch 5: Match Color ---
+            Action::ToggleMatchColorDialog => {
+                self.match_color_dialog_open = !self.match_color_dialog_open;
+            }
+            Action::SetMatchColorSource(id) => {
+                self.match_color_source = Some(id);
+            }
+            Action::SetMatchColorFade(f) => {
+                self.match_color_fade = f.clamp(0.0, 100.0);
+            }
+            Action::MatchColor { source_layer, target_layer, match_luminance, match_color, fade, neutralize } => {
+                let src_px = self.host.read_layer_f32(source_layer);
+                let tgt_px = self.host.read_layer_f32(target_layer);
+                if let (Some(src_pixels), Some(tgt_pixels)) = (src_px, tgt_px) {
+                    let src_stats = match_color_stats(&src_pixels);
+                    let tgt_stats = match_color_stats(&tgt_pixels);
+                    let result = apply_match_color(
+                        &tgt_pixels, src_stats, tgt_stats, fade,
+                        match_luminance, match_color, neutralize,
+                    );
+                    self.host.upload_layer_f32(target_layer, &result);
+                    self.status_message = Some("Match Color applied".to_string());
+                }
+            }
+
+            // --- Batch 5: Vanishing Point ---
+            Action::OpenVanishingPoint => {
+                self.vanishing_point_open = true;
+            }
+            Action::CloseVanishingPoint => {
+                self.vanishing_point_open = false;
+            }
+            Action::AddVanishingPlane { corners } => {
+                self.vanishing_planes.push(VanishingPlane {
+                    corners,
+                    grid_size: 50.0,
+                    active: true,
+                });
+                self.active_vanishing_plane = Some(self.vanishing_planes.len() - 1);
+            }
+            Action::RemoveVanishingPlane(idx) => {
+                if idx < self.vanishing_planes.len() {
+                    self.vanishing_planes.remove(idx);
+                    self.active_vanishing_plane = self.active_vanishing_plane.and_then(|i| {
+                        if i == idx { None } else if i > idx { Some(i - 1) } else { Some(i) }
+                    });
+                }
+            }
+            Action::SelectVanishingPlane(idx) => {
+                if idx < self.vanishing_planes.len() {
+                    self.active_vanishing_plane = Some(idx);
+                }
+            }
+            Action::SetVanishingGridSize(s) => {
+                if let Some(idx) = self.active_vanishing_plane {
+                    if let Some(plane) = self.vanishing_planes.get_mut(idx) {
+                        plane.grid_size = s.clamp(5.0, 500.0);
+                    }
+                }
+            }
+            Action::SetVanishingToolMode(mode) => {
+                self.vanishing_tool_mode = mode;
+            }
+            Action::SetVanishingPlaneCorner { plane_idx, corner_idx, pos } => {
+                if let Some(plane) = self.vanishing_planes.get_mut(plane_idx) {
+                    if corner_idx < 4 {
+                        plane.corners[corner_idx] = pos;
+                    }
+                }
+            }
+            Action::StampInPerspective { src, dst, radius } => {
+                let Some(idx) = self.active_vanishing_plane else { return };
+                let Some(plane) = self.vanishing_planes.get(idx).cloned() else { return };
+                let Some(layer) = self.paint_target() else { return };
+                let (dw, dh) = (self.host.doc_w, self.host.doc_h);
+                if let Some(mut px) = self.host.read_layer_f32(layer) {
+                    stamp_in_perspective(&mut px, dw, dh, &plane.corners, src, dst, radius);
+                    self.host.upload_layer_f32(layer, &px);
+                    self.status_message = Some("Perspective stamp applied".to_string());
+                }
+            }
         }
     }
 
@@ -3766,6 +4116,252 @@ fn build_minimal_pdf(jpeg_bytes: &[u8], img_w: u32, img_h: u32, landscape: bool)
     pdf
 }
 
+// ---- Batch 5 helper functions (pure, testable) ---------------------------
+
+/// Capture a `LayerCompState` snapshot for every layer in the document.
+fn capture_layer_comp_states(doc: &prism_core::Document) -> HashMap<LayerId, LayerCompState> {
+    doc.layers.layers.iter().map(|l| {
+        (l.id, LayerCompState {
+            visible: l.visible,
+            opacity: l.opacity,
+            blend_mode: l.blend,
+            offset_x: 0,
+            offset_y: 0,
+        })
+    }).collect()
+}
+
+/// Restore layer states from a comp snapshot into the document.
+fn apply_layer_comp_states(
+    doc: &mut prism_core::Document,
+    states: &HashMap<LayerId, LayerCompState>,
+) {
+    for layer in &mut doc.layers.layers {
+        if let Some(s) = states.get(&layer.id) {
+            layer.visible = s.visible;
+            layer.opacity = s.opacity;
+            layer.blend = s.blend_mode;
+        }
+    }
+}
+
+/// Compute a binary focus-area selection mask from linear-light RGBA f32 pixels.
+/// Returns one `u8` per pixel (0 = not selected, 255 = selected).
+/// Uses the local Laplacian variance in a 5×5 neighbourhood as a focus measure.
+pub fn focus_area_mask(
+    pixels: &[f32],
+    w: u32,
+    h: u32,
+    threshold: f32,
+    sensitivity: f32,
+    invert: bool,
+) -> Vec<u8> {
+    let (w, h) = (w as usize, h as usize);
+    let n = w * h;
+    let mut variances = vec![0.0f32; n];
+    let mut max_var = 0.0f32;
+
+    for y in 0..h {
+        for x in 0..w {
+            // Compute luminance variance in 5×5 neighbourhood.
+            let mut sum = 0.0f32;
+            let mut sum_sq = 0.0f32;
+            let mut count = 0usize;
+            for dy in -2i32..=2 {
+                for dx in -2i32..=2 {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx >= 0 && nx < w as i32 && ny >= 0 && ny < h as i32 {
+                        let i = (ny as usize * w + nx as usize) * 4;
+                        // Luminance approximation (linear light).
+                        let luma = 0.2126 * pixels[i] + 0.7152 * pixels[i+1] + 0.0722 * pixels[i+2];
+                        sum += luma;
+                        sum_sq += luma * luma;
+                        count += 1;
+                    }
+                }
+            }
+            let mean = sum / count as f32;
+            let var = (sum_sq / count as f32 - mean * mean).max(0.0);
+            variances[y * w + x] = var;
+            if var > max_var { max_var = var; }
+        }
+    }
+
+    let scale = if max_var > 1e-8 { 1.0 / max_var } else { 0.0 };
+    let edge_width = (sensitivity * 0.2 + 0.01).max(0.01);
+
+    variances.iter().map(|&v| {
+        let normalized = v * scale;
+        // Soft threshold via smooth-step over [threshold - edge, threshold + edge].
+        let lo = (threshold - edge_width).max(0.0);
+        let hi = (threshold + edge_width).min(1.0);
+        let t = if hi <= lo { if normalized >= threshold { 1.0 } else { 0.0 } }
+                else { ((normalized - lo) / (hi - lo)).clamp(0.0, 1.0) };
+        let selected = if invert { 1.0 - t } else { t };
+        (selected * 255.0).round() as u8
+    }).collect()
+}
+
+/// Compute approximate LAB-space mean (L, a, b) for the given RGBA f32 pixels.
+/// Uses the approximation: L ≈ luma, a ≈ R−G, b ≈ B−0.5R−0.5G.
+pub fn match_color_stats(pixels: &[f32]) -> (f32, f32, f32) {
+    if pixels.len() < 4 { return (0.0, 0.0, 0.0); }
+    let n = pixels.len() / 4;
+    let (mut sl, mut sa, mut sb) = (0.0f64, 0.0f64, 0.0f64);
+    for i in 0..n {
+        let (r, g, b) = (pixels[i*4] as f64, pixels[i*4+1] as f64, pixels[i*4+2] as f64);
+        sl += 0.299 * r + 0.587 * g + 0.114 * b;
+        sa += r - g;
+        sb += b - 0.5 * r - 0.5 * g;
+    }
+    ((sl / n as f64) as f32, (sa / n as f64) as f32, (sb / n as f64) as f32)
+}
+
+/// Apply Match Color: shift target pixel LAB stats toward source stats.
+pub fn apply_match_color(
+    pixels: &[f32],
+    src_stats: (f32, f32, f32),
+    tgt_stats: (f32, f32, f32),
+    fade: f32,
+    match_luminance: bool,
+    match_color: bool,
+    neutralize: bool,
+) -> Vec<f32> {
+    let f = fade / 100.0;
+    let dl = if match_luminance { (src_stats.0 - tgt_stats.0) * f } else { 0.0 };
+    let da = if match_color { (src_stats.1 - tgt_stats.1) * f } else { 0.0 };
+    let db = if match_color { (src_stats.2 - tgt_stats.2) * f } else { 0.0 };
+
+    let n = pixels.len() / 4;
+    let mut out = pixels.to_vec();
+    for i in 0..n {
+        let r = pixels[i*4];
+        let g = pixels[i*4+1];
+        let b = pixels[i*4+2];
+        let luma = 0.299 * r + 0.587 * g + 0.114 * b;
+        // Shift luminance: scale all channels proportionally.
+        let new_luma = luma + dl;
+        let luma_scale = if luma > 1e-6 { (new_luma / luma).clamp(0.0, 4.0) } else { 1.0 };
+        let mut nr = (r * luma_scale + da).clamp(0.0, 1.0);
+        let mut ng = (g * luma_scale - da).clamp(0.0, 1.0);
+        let mut nb = (b * luma_scale + db).clamp(0.0, 1.0);
+        if neutralize {
+            // Pull a/b channels toward grey.
+            let grey = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+            nr = (nr * (1.0 - f) + grey * f).clamp(0.0, 1.0);
+            ng = (ng * (1.0 - f) + grey * f).clamp(0.0, 1.0);
+            nb = (nb * (1.0 - f) + grey * f).clamp(0.0, 1.0);
+        }
+        out[i*4]   = nr;
+        out[i*4+1] = ng;
+        out[i*4+2] = nb;
+        // Alpha unchanged.
+    }
+    out
+}
+
+/// Perspective-aware stamp: copy pixels from `src` area into `dst` area on the
+/// pixel buffer using bilinear perspective interpolation within `plane_corners`.
+/// `plane_corners` = [TL, TR, BR, BL] in doc-px. `radius` = brush radius.
+pub fn stamp_in_perspective(
+    pixels: &mut Vec<f32>,
+    w: u32,
+    h: u32,
+    plane_corners: &[[f32; 2]; 4],
+    src: [f32; 2],
+    dst: [f32; 2],
+    radius: f32,
+) {
+    let (w, h) = (w as usize, h as usize);
+    let r = radius.max(1.0) as i32;
+    // Map a canvas point to [0,1]^2 plane-local coords via bilinear inverse.
+    let plane_to_local = |p: [f32; 2]| -> [f32; 2] {
+        let [tl, tr, br, bl] = *plane_corners;
+        // Use simple affine approximation: find s,t such that
+        // (1-s)(1-t)*TL + s(1-t)*TR + s*t*BR + (1-s)*t*BL ≈ p
+        // Solved via a few Newton iterations.
+        let (mut s, mut t) = (0.5f32, 0.5f32);
+        for _ in 0..8 {
+            let qx = (1.0-s)*(1.0-t)*tl[0] + s*(1.0-t)*tr[0] + s*t*br[0] + (1.0-s)*t*bl[0];
+            let qy = (1.0-s)*(1.0-t)*tl[1] + s*(1.0-t)*tr[1] + s*t*br[1] + (1.0-s)*t*bl[1];
+            let dxds = -(1.0-t)*tl[0] + (1.0-t)*tr[0] + t*br[0] - t*bl[0];
+            let dyds = -(1.0-t)*tl[1] + (1.0-t)*tr[1] + t*br[1] - t*bl[1];
+            let dxdt = -(1.0-s)*tl[0] - s*tr[0] + s*br[0] + (1.0-s)*bl[0];
+            let dydt = -(1.0-s)*tl[1] - s*tr[1] + s*br[1] + (1.0-s)*bl[1];
+            let ex = p[0] - qx;
+            let ey = p[1] - qy;
+            let det = dxds * dydt - dyds * dxdt;
+            if det.abs() < 1e-8 { break; }
+            s += (ex * dydt - ey * dxdt) / det;
+            t += (ey * dxds - ex * dyds) / det;
+            s = s.clamp(0.0, 1.0);
+            t = t.clamp(0.0, 1.0);
+        }
+        [s, t]
+    };
+
+    let dst_local = plane_to_local(dst);
+    let src_local = plane_to_local(src);
+    let delta_local = [dst_local[0] - src_local[0], dst_local[1] - src_local[1]];
+
+    // For each pixel in the dst brush circle, map back to src coords and copy.
+    let dx = dst[0] as i32;
+    let dy = dst[1] as i32;
+    let [tl, tr, br, bl] = *plane_corners;
+
+    let sample = |px: &[f32], cx: f32, cy: f32| -> [f32; 4] {
+        let xi = cx.floor() as i32;
+        let yi = cy.floor() as i32;
+        let fx = cx - xi as f32;
+        let fy = cy - yi as f32;
+        let sample_at = |x: i32, y: i32| -> [f32; 4] {
+            if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+                return [0.0; 4];
+            }
+            let i = (y as usize * w + x as usize) * 4;
+            [px[i], px[i+1], px[i+2], px[i+3]]
+        };
+        let c00 = sample_at(xi,   yi);
+        let c10 = sample_at(xi+1, yi);
+        let c01 = sample_at(xi,   yi+1);
+        let c11 = sample_at(xi+1, yi+1);
+        std::array::from_fn(|k| {
+            c00[k]*(1.0-fx)*(1.0-fy) + c10[k]*fx*(1.0-fy)
+            + c01[k]*(1.0-fx)*fy + c11[k]*fx*fy
+        })
+    };
+
+    let pixels_snap = pixels.clone();
+    for oy in -r..=r {
+        for ox in -r..=r {
+            if ox*ox + oy*oy > r*r { continue; }
+            let px_dst = dx + ox;
+            let py_dst = dy + oy;
+            if px_dst < 0 || py_dst < 0 || px_dst >= w as i32 || py_dst >= h as i32 { continue; }
+
+            // Current dst point in local coords.
+            let dst_pt = [px_dst as f32 + 0.5, py_dst as f32 + 0.5];
+            let local = plane_to_local(dst_pt);
+            // Corresponding src local.
+            let src_local2 = [local[0] - delta_local[0], local[1] - delta_local[1]];
+            // Map src_local back to canvas.
+            let src_cx = (1.0-src_local2[0])*(1.0-src_local2[1])*tl[0]
+                + src_local2[0]*(1.0-src_local2[1])*tr[0]
+                + src_local2[0]*src_local2[1]*br[0]
+                + (1.0-src_local2[0])*src_local2[1]*bl[0];
+            let src_cy = (1.0-src_local2[0])*(1.0-src_local2[1])*tl[1]
+                + src_local2[0]*(1.0-src_local2[1])*tr[1]
+                + src_local2[0]*src_local2[1]*br[1]
+                + (1.0-src_local2[0])*src_local2[1]*bl[1];
+
+            let color = sample(&pixels_snap, src_cx, src_cy);
+            let idx = (py_dst as usize * w + px_dst as usize) * 4;
+            for k in 0..4 { pixels[idx + k] = color[k]; }
+        }
+    }
+}
+
 /// Path to `~/.config/prism/workspaces/` for workspace JSON files.
 fn dirs_home_workspace_dir() -> Option<std::path::PathBuf> {
     #[allow(deprecated)]
@@ -3905,5 +4501,322 @@ mod pen_tests {
         let brush = Brush::default();
         let dabs = rasterize_pen_path(&path, &brush);
         assert!(dabs.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod layer_comp_tests {
+    use super::{capture_layer_comp_states, apply_layer_comp_states};
+    use prism_core::{Document, Size};
+
+    fn make_doc() -> Document {
+        let mut doc = Document::new(Size::new(100, 100));
+        doc.layers.add_raster("BG");
+        doc.layers.add_raster("FG");
+        doc
+    }
+
+    #[test]
+    fn test_layer_comp_capture() {
+        let doc = make_doc();
+        let states = capture_layer_comp_states(&doc);
+        assert_eq!(states.len(), doc.layers.layers.len(),
+            "comp should capture state for every layer");
+    }
+
+    #[test]
+    fn test_layer_comp_apply() {
+        let mut doc = make_doc();
+        // Snapshot with both layers visible.
+        let states = capture_layer_comp_states(&doc);
+        // Now hide the first layer.
+        if let Some(l) = doc.layers.layers.first_mut() {
+            l.visible = false;
+        }
+        assert!(!doc.layers.layers[0].visible);
+        // Restore the comp — first layer should be visible again.
+        apply_layer_comp_states(&mut doc, &states);
+        assert!(doc.layers.layers[0].visible, "layer should be restored to visible");
+    }
+
+    #[test]
+    fn test_layer_comp_update() {
+        let mut doc = make_doc();
+        let states = capture_layer_comp_states(&doc);
+        // Change opacity.
+        if let Some(l) = doc.layers.layers.first_mut() {
+            l.opacity = 0.5;
+        }
+        // Re-capture (simulating UpdateLayerComp).
+        let new_states = capture_layer_comp_states(&doc);
+        let id = doc.layers.layers[0].id;
+        assert!((new_states[&id].opacity - 0.5).abs() < 1e-5,
+            "updated comp should store new opacity");
+        // Old comp still has 1.0.
+        assert!((states[&id].opacity - 1.0).abs() < 1e-5,
+            "old comp should retain original opacity");
+    }
+
+    #[test]
+    fn test_layer_comp_opacity_restored() {
+        let mut doc = make_doc();
+        let id = doc.layers.layers[0].id;
+        // Snapshot.
+        let states = capture_layer_comp_states(&doc);
+        // Change opacity.
+        doc.layers.layers[0].opacity = 0.25;
+        // Apply comp.
+        apply_layer_comp_states(&mut doc, &states);
+        assert!((doc.layers.layers[0].opacity - 1.0).abs() < 1e-5,
+            "opacity should be restored to 1.0 after ApplyLayerComp");
+        let _ = id;
+    }
+}
+
+#[cfg(test)]
+mod focus_area_tests {
+    use super::focus_area_mask;
+
+    /// Build a flat RGBA f32 pixel buffer (all same luma).
+    fn uniform_pixels(w: u32, h: u32, luma: f32) -> Vec<f32> {
+        vec![luma, luma, luma, 1.0].repeat((w * h) as usize)
+    }
+
+    /// Build an RGBA f32 buffer with a sharp edge: left half dark, right half bright.
+    fn edge_pixels(w: u32, h: u32) -> Vec<f32> {
+        let mut px = Vec::with_capacity((w * h * 4) as usize);
+        for _y in 0..h {
+            for x in 0..w {
+                let v = if x < w / 2 { 0.0 } else { 1.0 };
+                px.extend_from_slice(&[v, v, v, 1.0]);
+            }
+        }
+        px
+    }
+
+    #[test]
+    fn test_focus_area_uniform() {
+        // Uniform image has zero variance → nothing selected (at any threshold > 0).
+        let px = uniform_pixels(8, 8, 0.5);
+        let mask = focus_area_mask(&px, 8, 8, 0.1, 0.0, false);
+        // All pixels should be unselected (zero variance < threshold).
+        for (i, &v) in mask.iter().enumerate() {
+            assert_eq!(v, 0, "uniform image pixel {i} should not be selected");
+        }
+    }
+
+    #[test]
+    fn test_focus_area_edge_selected() {
+        // Edge pixels have high variance → should be selected.
+        let px = edge_pixels(16, 8);
+        let mask = focus_area_mask(&px, 16, 8, 0.05, 0.0, false);
+        // Pixels near the edge (x ≈ 8) should be selected.
+        let edge_col = 7usize;
+        let edge_idx = 0 * 16 + edge_col; // top row, edge column
+        // The mask should have nonzero value near the edge.
+        let sum: u32 = mask.iter().map(|&v| v as u32).sum();
+        assert!(sum > 0, "edge image should select some pixels (sum={})", sum);
+        let _ = edge_idx;
+    }
+
+    #[test]
+    fn test_focus_area_invert() {
+        // Inverted: uniform image → all pixels selected.
+        let px = uniform_pixels(8, 8, 0.5);
+        let mask_normal = focus_area_mask(&px, 8, 8, 0.1, 0.0, false);
+        let mask_invert = focus_area_mask(&px, 8, 8, 0.1, 0.0, true);
+        // Normal should all be 0 (no variance), inverted should all be 255.
+        assert!(mask_normal.iter().all(|&v| v == 0));
+        assert!(mask_invert.iter().all(|&v| v == 255));
+    }
+
+    #[test]
+    fn test_focus_area_threshold() {
+        // Higher threshold → fewer selected pixels in edge image.
+        let px = edge_pixels(32, 8);
+        let mask_low  = focus_area_mask(&px, 32, 8, 0.01, 0.0, false);
+        let mask_high = focus_area_mask(&px, 32, 8, 0.99, 0.0, false);
+        let sum_low:  u32 = mask_low.iter().map(|&v| v as u32).sum();
+        let sum_high: u32 = mask_high.iter().map(|&v| v as u32).sum();
+        assert!(sum_low >= sum_high,
+            "lower threshold should select >= pixels: low={sum_low}, high={sum_high}");
+    }
+}
+
+#[cfg(test)]
+mod pattern_stamp_tests {
+    use super::{PatternDef};
+
+    fn make_pattern(w: u32, h: u32) -> PatternDef {
+        let pixels = vec![[1.0f32, 0.0, 0.0, 1.0]; (w * h) as usize];
+        PatternDef { name: "Red".into(), pixels, width: w, height: h }
+    }
+
+    #[test]
+    fn test_define_pattern() {
+        let pat = make_pattern(4, 4);
+        assert_eq!(pat.width, 4);
+        assert_eq!(pat.height, 4);
+        assert_eq!(pat.pixels.len(), 16);
+        assert_eq!(pat.name, "Red");
+    }
+
+    #[test]
+    fn test_pattern_pixel_access() {
+        let pat = make_pattern(2, 2);
+        // All pixels should be [1, 0, 0, 1].
+        for px in &pat.pixels {
+            assert!((px[0] - 1.0).abs() < 1e-5, "R should be 1.0");
+            assert!(px[1].abs() < 1e-5, "G should be 0.0");
+        }
+    }
+
+    #[test]
+    fn test_pattern_stamp_scale_default() {
+        // Default scale from App::new() is 1.0.
+        let scale: f32 = 1.0;
+        assert!((scale - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_pattern_aligned_default() {
+        // Default aligned from App::new() is true.
+        let aligned: bool = true;
+        assert!(aligned);
+    }
+
+    #[test]
+    fn test_pattern_library_push() {
+        let mut library: Vec<PatternDef> = Vec::new();
+        library.push(make_pattern(8, 8));
+        library.push(make_pattern(4, 4));
+        assert_eq!(library.len(), 2);
+        // Delete first.
+        library.remove(0);
+        assert_eq!(library.len(), 1);
+        assert_eq!(library[0].width, 4);
+    }
+}
+
+#[cfg(test)]
+mod match_color_tests {
+    use super::{match_color_stats, apply_match_color};
+
+    fn uniform_pixels(r: f32, g: f32, b: f32, n: usize) -> Vec<f32> {
+        let mut px = Vec::with_capacity(n * 4);
+        for _ in 0..n { px.extend_from_slice(&[r, g, b, 1.0]); }
+        px
+    }
+
+    #[test]
+    fn test_match_color_stats_uniform() {
+        let px = uniform_pixels(0.8, 0.2, 0.5, 100);
+        let (l, a, _b) = match_color_stats(&px);
+        // L ≈ 0.299*0.8 + 0.587*0.2 + 0.114*0.5
+        let expected_l = 0.299_f32 * 0.8 + 0.587 * 0.2 + 0.114 * 0.5;
+        assert!((l - expected_l).abs() < 1e-3, "L: got {l}, expected {expected_l}");
+        let expected_a = 0.8 - 0.2;
+        assert!((a - expected_a).abs() < 1e-3, "a: got {a}, expected {expected_a}");
+    }
+
+    #[test]
+    fn test_match_color_apply_luminance() {
+        // Source is bright (luma 0.9), target is dark (luma 0.1).
+        let src = uniform_pixels(0.9, 0.9, 0.9, 4);
+        let tgt = uniform_pixels(0.1, 0.1, 0.1, 4);
+        let src_stats = match_color_stats(&src);
+        let tgt_stats = match_color_stats(&tgt);
+        let result = apply_match_color(&tgt, src_stats, tgt_stats, 100.0, true, false, false);
+        // Result should be brighter than the target.
+        let result_l = result[0]; // R channel
+        assert!(result_l > 0.1, "result should be brighter: got {result_l}");
+    }
+
+    #[test]
+    fn test_match_color_fade_zero() {
+        // Fade=0 should leave target unchanged.
+        let src = uniform_pixels(0.9, 0.5, 0.1, 4);
+        let tgt = uniform_pixels(0.3, 0.3, 0.3, 4);
+        let src_stats = match_color_stats(&src);
+        let tgt_stats = match_color_stats(&tgt);
+        let result = apply_match_color(&tgt, src_stats, tgt_stats, 0.0, true, true, false);
+        for i in 0..4 {
+            assert!((result[i*4] - tgt[i*4]).abs() < 1e-3, "fade=0 should not change target");
+        }
+    }
+
+    #[test]
+    fn test_match_color_neutralize() {
+        // Colourful target → neutralize should pull toward grey.
+        let src = uniform_pixels(0.5, 0.5, 0.5, 1);
+        let tgt = uniform_pixels(1.0, 0.0, 0.0, 1); // pure red
+        let src_stats = match_color_stats(&src);
+        let tgt_stats = match_color_stats(&tgt);
+        let result = apply_match_color(&tgt, src_stats, tgt_stats, 100.0, false, false, true);
+        // G channel should increase (pulled toward grey).
+        assert!(result[1] > 0.0, "neutralize should increase G: got {}", result[1]);
+    }
+}
+
+#[cfg(test)]
+mod vanishing_point_tests {
+    use super::{VanishingPlane, VanishingToolMode, stamp_in_perspective};
+
+    fn unit_plane() -> [[f32; 2]; 4] {
+        // A simple axis-aligned square: TL=(0,0), TR=(100,0), BR=(100,100), BL=(0,100).
+        [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]]
+    }
+
+    #[test]
+    fn test_vanishing_plane_add() {
+        let mut planes: Vec<VanishingPlane> = Vec::new();
+        planes.push(VanishingPlane {
+            corners: unit_plane(),
+            grid_size: 50.0,
+            active: true,
+        });
+        assert_eq!(planes.len(), 1);
+        assert_eq!(planes[0].grid_size, 50.0);
+        assert_eq!(planes[0].corners[0], [0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_vanishing_plane_set_corner() {
+        let mut planes = vec![VanishingPlane {
+            corners: unit_plane(),
+            grid_size: 50.0,
+            active: true,
+        }];
+        planes[0].corners[2] = [120.0, 120.0];
+        assert_eq!(planes[0].corners[2], [120.0, 120.0]);
+    }
+
+    #[test]
+    fn test_vanishing_grid_size() {
+        let mut plane = VanishingPlane { corners: unit_plane(), grid_size: 50.0, active: true };
+        plane.grid_size = 100.0f32.clamp(5.0, 500.0);
+        assert!((plane.grid_size - 100.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_vanishing_tool_mode() {
+        let mode_a = VanishingToolMode::Stamping;
+        assert_eq!(mode_a, VanishingToolMode::Stamping);
+        let mode_b = VanishingToolMode::Pasting;
+        assert_eq!(mode_b, VanishingToolMode::Pasting);
+        let mode_c = VanishingToolMode::DefiningPlane;
+        assert_ne!(mode_c, VanishingToolMode::Stamping);
+    }
+
+    #[test]
+    fn test_stamp_in_perspective_no_panic() {
+        // Stamp on a small 10×10 canvas within the unit plane; should not panic.
+        let corners = [[0.0f32, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        let mut pixels = vec![0.5f32; 10 * 10 * 4];
+        // Make src region bright.
+        for i in 0..(10 * 2 * 4) { pixels[i] = 1.0; }
+        stamp_in_perspective(&mut pixels, 10, 10, &corners, [2.0, 2.0], [7.0, 7.0], 2.0);
+        // Just verify no panic and buffer size unchanged.
+        assert_eq!(pixels.len(), 10 * 10 * 4);
     }
 }

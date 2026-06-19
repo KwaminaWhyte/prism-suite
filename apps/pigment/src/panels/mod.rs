@@ -57,6 +57,7 @@ pub mod color;
 pub mod filter_gallery;
 pub mod histogram;
 pub mod history;
+pub mod layer_comps;
 pub mod layer_style;
 pub mod layers;
 pub mod plugins;
@@ -64,6 +65,7 @@ pub mod print;
 pub mod tool_options;
 pub mod toolbar;
 pub mod tools;
+pub mod vanishing_point;
 
 use gpui::{div, px, IntoElement, ParentElement, Styled};
 use prism_ui::colors;

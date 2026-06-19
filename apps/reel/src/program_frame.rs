@@ -1093,8 +1093,7 @@ pub fn apply_slog2_rec709(buf: &mut [u8]) {
 mod tests {
     use super::*;
     use crate::app_state::{
-        Caption, CaptionPosition, CaptionStyle, Clip, ColorGrade, HslSecondaryGrade, Project,
-        SpeedCurve, Track,
+        Caption, CaptionPosition, CaptionStyle, Clip, HslSecondaryGrade, Project, Track,
     };
 
     fn color_clip(rgba: [f32; 4], track: usize, start: f32, dur: f32) -> Clip {
@@ -1104,17 +1103,7 @@ mod tests {
             track,
             start,
             duration: dur,
-            source_in: 0.0,
-            opacity: 1.0,
-            grade: ColorGrade::default(),
-            hsl_secondary: HslSecondaryGrade::default(),
-            fade_in: 0.0,
-            fade_out: 0.0,
-            speed: 1.0,
-            reversed: false,
-            speed_curve: SpeedCurve::default(),
-            proxy_path: None,
-            link_group: None,
+            ..Clip::default()
         }
     }
 

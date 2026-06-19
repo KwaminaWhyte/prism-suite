@@ -302,6 +302,74 @@ fn over_straight(src: [f32; 4], dst: [f32; 4]) -> [f32; 4] {
     ]
 }
 
+/// Trim Paths: animate the visible portion of a shape layer's stroke, revealing
+/// the path progressively from `start` to `end` (After Effects' Trim Paths).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TrimPaths {
+    /// Fraction of the path where the stroke begins (0.0–1.0).
+    pub start: f32,
+    /// Fraction of the path where the stroke ends (0.0–1.0).
+    pub end: f32,
+    /// Phase shift applied to both endpoints before rendering (0.0–1.0).
+    pub offset: f32,
+}
+
+impl TrimPaths {
+    /// The effective start and end after applying the offset phase shift,
+    /// both clamped to `[0.0, 1.0]`.
+    pub fn effective(&self) -> (f32, f32) {
+        let start = (self.start + self.offset).rem_euclid(1.0);
+        let end = (self.end + self.offset).rem_euclid(1.0);
+        (start, end)
+    }
+}
+
+/// Shape Repeater: duplicate a shape layer's items N times with an incremental
+/// transform (After Effects' Repeater shape operator).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShapeRepeater {
+    /// Number of copies (including the original). Minimum 1.
+    pub copies: u32,
+    /// Per-copy x translation step in comp px.
+    pub offset_x: f32,
+    /// Per-copy y translation step in comp px.
+    pub offset_y: f32,
+    /// Per-copy rotation step in degrees.
+    pub rotation_deg: f32,
+    /// Per-copy scale multiplier (applied cumulatively). 1.0 = no size change.
+    pub scale: f32,
+    /// Opacity of the first copy (0.0–1.0).
+    pub opacity_start: f32,
+    /// Opacity of the last copy (0.0–1.0).
+    pub opacity_end: f32,
+}
+
+impl Default for ShapeRepeater {
+    fn default() -> Self {
+        ShapeRepeater {
+            copies: 3,
+            offset_x: 50.0,
+            offset_y: 0.0,
+            rotation_deg: 0.0,
+            scale: 1.0,
+            opacity_start: 1.0,
+            opacity_end: 1.0,
+        }
+    }
+}
+
+impl ShapeRepeater {
+    /// The interpolated opacity for copy `i` (0-indexed). With only one copy
+    /// or i = 0 the opacity equals `opacity_start`.
+    pub fn copy_opacity(&self, i: u32) -> f32 {
+        if self.copies <= 1 || i == 0 {
+            return self.opacity_start;
+        }
+        let t = i as f32 / (self.copies - 1) as f32;
+        self.opacity_start + (self.opacity_end - self.opacity_start) * t
+    }
+}
+
 /// A **shape layer**: an ordered stack of [`ShapeItem`]s drawn bottom-up
 /// (index 0 first / under). The whole stack is rasterized in the layer's local
 /// frame and rides the layer transform (position / scale / rotation / parent)
@@ -309,6 +377,14 @@ fn over_straight(src: [f32; 4], dst: [f32; 4]) -> [f32; 4] {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShapeLayer {
     pub items: Vec<ShapeItem>,
+    /// Optional Trim Paths: when set, only the stroke between the trimmed
+    /// start/end fractions is rendered. `serde`-defaulted to `None`.
+    #[serde(default)]
+    pub trim_paths: Option<TrimPaths>,
+    /// Optional Repeater: when set, every item is rendered N times with an
+    /// incremental transform and opacity. `serde`-defaulted to `None`.
+    #[serde(default)]
+    pub repeater: Option<ShapeRepeater>,
 }
 
 impl ShapeLayer {
@@ -611,7 +687,7 @@ mod tests {
             width: 8.0,
             opacity: 1.0,
         });
-        let layer = ShapeLayer { items: vec![item] };
+        let layer = ShapeLayer { items: vec![item], trim_paths: None, repeater: None };
         let (min_x, _, max_x, _) = layer.local_bounds().unwrap();
         // 10 + 4 (half stroke) + 1 (margin) = 15.
         assert!((14.9..=15.1).contains(&max_x), "padded max_x, got {max_x}");
@@ -624,7 +700,7 @@ mod tests {
         // An item with no fill and no stroke still bounds its geometry.
         let mut item = ShapeItem::new(ShapePrimitive::Ellipse { rx: 5.0, ry: 5.0 });
         item.fill = None;
-        let layer = ShapeLayer { items: vec![item] };
+        let layer = ShapeLayer { items: vec![item], trim_paths: None, repeater: None };
         assert!(layer.local_bounds().is_some());
     }
 

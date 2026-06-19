@@ -8,10 +8,10 @@ Open-source creative suite: four desktop apps in Rust, each targeting ≥85% par
 
 | App | Adobe analog | Domain | Status |
 |-----|--------------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~65% |
-| **Contour** | Illustrator | CPU vector editor | ~35% |
-| **Pulse** | After Effects | CPU compositor / motion | ~25% |
-| **Reel** | Premiere Pro | NLE / video editor | ~15% |
+| **Pigment** | Photoshop | GPU raster editor | ~72% |
+| **Contour** | Illustrator | CPU vector editor | ~48% |
+| **Pulse** | After Effects | CPU compositor / motion | ~40% |
+| **Reel** | Premiere Pro | NLE / video editor | ~28% |
 
 Architectural bet: raster, vector, video frames, comp layers all reduce to compositing tiles through a DAG in linear light, cached by what's dirty. See `SUITE.md` for vision, `RESEARCH.md` for suite-level research.
 
@@ -22,8 +22,8 @@ prism-suite/
   Cargo.toml              # workspace root — pins ALL versions
   apps/
     pigment/               # [[bin]] — Pigment (GPUI host + inline GPU compositor)
-    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 94 tests)
-    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 633 tests)
+    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 572+ tests)
+    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 683+ tests)
     reel/                  # [[bin]] — Reel (GPUI host + NLE logic)
   shared/
     prism-core/           # doc model, blend modes, adjustments, curves, shapes, histogram

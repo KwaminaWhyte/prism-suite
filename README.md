@@ -27,12 +27,12 @@
 ```
 prism-suite/
   apps/
-    pigment-gpui/       — Pigment binary (GPUI host + GPU compositor)
-    contour-app/        — Contour document model + CPU rasterizer
-    contour-gpui/       — Contour binary (GPUI host)
-    pulse-app/          — Pulse compositor + keyframe engine (also egui binary)
-    pulse-gpui/         — Pulse binary (GPUI host)
-    reel-gpui/          — Reel binary (GPUI host)
+    pigment/            — Pigment (GPUI host + GPU compositor)
+    
+    contour/            — Contour (GPUI host + all vector logic)
+    
+    pulse/              — Pulse (GPUI host + compositor + keyframe engine)
+    reel/               — Reel (GPUI host + NLE logic)
   shared/
     prism-core/         — Document model, blend modes, adjustments, curves, shapes
     prism-canvas/       — wgpu GPU compositor (Pigment's raster engine)
@@ -52,10 +52,10 @@ git clone https://github.com/KwaminaWhyte/prism-suite
 cd prism-suite
 
 # Run an app
-cargo run -p pigment-gpui
-cargo run -p contour-gpui
-cargo run -p pulse-gpui
-cargo run -p reel-gpui
+cargo run -p pigment
+cargo run -p contour
+cargo run -p pulse
+cargo run -p reel
 
 # Build all
 cargo build --workspace
@@ -71,28 +71,28 @@ cargo check --workspace
 cargo test --workspace
 
 # Per-app (the logic crates have the most tests)
-cargo test -p pigment-gpui       # 35 tests: filters, lens, perspective, canvas math
-cargo test -p contour-app        # 94 tests: document, path, boolean ops
-cargo test -p pulse-app --no-default-features  # 633 tests: compositor, keyframes, render
-cargo test -p reel-gpui          # project/timeline tests
+cargo test -p pigment          # 35 tests: filters, lens, perspective, canvas math
+cargo test -p contour          # 94 tests: document, path, boolean ops
+cargo test -p pulse            # 633 tests: compositor, keyframes, render
+cargo test -p reel             # project/timeline tests
 ```
 
 ## Packaging
 
 ```bash
 # macOS .app + .dmg
-bash scripts/package-macos.sh Pigment pigment-gpui com.prism-suite.pigment
+bash scripts/package-macos.sh Pigment pigment com.prism-suite.pigment
 
 # Linux .deb
-bash scripts/package-linux.sh pigment Pigment pigment-gpui com.prism-suite.pigment
+bash scripts/package-linux.sh pigment Pigment pigment com.prism-suite.pigment
 
 # Windows .zip (PowerShell)
-pwsh scripts/package-windows.ps1 -AppName Pigment -Bin pigment-gpui
+pwsh scripts/package-windows.ps1 -AppName Pigment -Bin pigment
 ```
 
 ## Per-app docs
 
-Each app has its own docs in `apps/<app>-gpui/`:
+Each app has its own docs in `apps/<app>/`:
 
 | Doc | Purpose |
 |-----|---------|

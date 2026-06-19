@@ -16,38 +16,38 @@ jobs:
           # ── macOS ────────────────────────────────────────────────────────────
           - os: macos-latest
             app: Pigment
-            bin: pigment-gpui
+            bin: pigment
             bundle_id: com.prism-suite.pigment
             artifact: Pigment-macos.dmg
             script: |
-              bash scripts/package-macos.sh Pigment pigment-gpui com.prism-suite.pigment
+              bash scripts/package-macos.sh Pigment pigment com.prism-suite.pigment
               mv dist/Pigment-*-macos.dmg dist/Pigment-macos.dmg
 
           - os: macos-latest
             app: Contour
-            bin: contour-gpui
+            bin: contour
             bundle_id: com.prism-suite.contour
             artifact: Contour-macos.dmg
             script: |
-              bash scripts/package-macos.sh Contour contour-gpui com.prism-suite.contour
+              bash scripts/package-macos.sh Contour contour com.prism-suite.contour
               mv dist/Contour-*-macos.dmg dist/Contour-macos.dmg
 
           - os: macos-latest
             app: Pulse
-            bin: pulse-gpui
+            bin: pulse
             bundle_id: com.prism-suite.pulse
             artifact: Pulse-macos.dmg
             script: |
-              bash scripts/package-macos.sh Pulse pulse-gpui com.prism-suite.pulse
+              bash scripts/package-macos.sh Pulse pulse com.prism-suite.pulse
               mv dist/Pulse-*-macos.dmg dist/Pulse-macos.dmg
 
           - os: macos-latest
             app: Reel
-            bin: reel-gpui
+            bin: reel
             bundle_id: com.prism-suite.reel
             artifact: Reel-macos.dmg
             script: |
-              bash scripts/package-macos.sh Reel reel-gpui com.prism-suite.reel
+              bash scripts/package-macos.sh Reel reel com.prism-suite.reel
               mv dist/Reel-*-macos.dmg dist/Reel-macos.dmg
 
           # ── Linux ────────────────────────────────────────────────────────────
@@ -55,28 +55,28 @@ jobs:
             app: Pigment
             artifact: Pigment-linux.deb
             script: |
-              bash scripts/package-linux.sh pigment Pigment pigment-gpui com.prism-suite.pigment
+              bash scripts/package-linux.sh pigment Pigment pigment com.prism-suite.pigment
               mv dist/pigment_*_*.deb dist/Pigment-linux.deb
 
           - os: ubuntu-latest
             app: Contour
             artifact: Contour-linux.deb
             script: |
-              bash scripts/package-linux.sh contour Contour contour-gpui com.prism-suite.contour
+              bash scripts/package-linux.sh contour Contour contour com.prism-suite.contour
               mv dist/contour_*_*.deb dist/Contour-linux.deb
 
           - os: ubuntu-latest
             app: Pulse
             artifact: Pulse-linux.deb
             script: |
-              bash scripts/package-linux.sh pulse Pulse pulse-gpui com.prism-suite.pulse
+              bash scripts/package-linux.sh pulse Pulse pulse com.prism-suite.pulse
               mv dist/pulse_*_*.deb dist/Pulse-linux.deb
 
           - os: ubuntu-latest
             app: Reel
             artifact: Reel-linux.deb
             script: |
-              bash scripts/package-linux.sh reel Reel reel-gpui com.prism-suite.reel
+              bash scripts/package-linux.sh reel Reel reel com.prism-suite.reel
               mv dist/reel_*_*.deb dist/Reel-linux.deb
 
           # ── Windows ──────────────────────────────────────────────────────────
@@ -84,28 +84,28 @@ jobs:
             app: Pigment
             artifact: Pigment-windows.zip
             script: |
-              pwsh scripts/package-windows.ps1 -AppName Pigment -Bin pigment-gpui
+              pwsh scripts/package-windows.ps1 -AppName Pigment -Bin pigment
               mv dist/Pigment-*-windows-x64.zip dist/Pigment-windows.zip
 
           - os: windows-latest
             app: Contour
             artifact: Contour-windows.zip
             script: |
-              pwsh scripts/package-windows.ps1 -AppName Contour -Bin contour-gpui
+              pwsh scripts/package-windows.ps1 -AppName Contour -Bin contour
               mv dist/Contour-*-windows-x64.zip dist/Contour-windows.zip
 
           - os: windows-latest
             app: Pulse
             artifact: Pulse-windows.zip
             script: |
-              pwsh scripts/package-windows.ps1 -AppName Pulse -Bin pulse-gpui
+              pwsh scripts/package-windows.ps1 -AppName Pulse -Bin pulse
               mv dist/Pulse-*-windows-x64.zip dist/Pulse-windows.zip
 
           - os: windows-latest
             app: Reel
             artifact: Reel-windows.zip
             script: |
-              pwsh scripts/package-windows.ps1 -AppName Reel -Bin reel-gpui
+              pwsh scripts/package-windows.ps1 -AppName Reel -Bin reel
               mv dist/Reel-*-windows-x64.zip dist/Reel-windows.zip
 
     steps:

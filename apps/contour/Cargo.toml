@@ -1,0 +1,41 @@
+[package]
+name = "contour"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "contour"
+
+[[bin]]
+name = "contour"
+path = "src/main.rs"
+
+[dependencies]
+prism-core.workspace = true
+prism-ui.workspace = true
+gpui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true
+kurbo.workspace = true
+tiny-skia.workspace = true
+i_overlay.workspace = true
+ttf-parser.workspace = true
+fontdb.workspace = true
+rfd.workspace = true
+vtracer.workspace = true
+visioncortex.workspace = true
+image = { workspace = true, features = ["png", "jpeg", "bmp", "gif"] }
+
+[package.metadata.bundle]
+name = "Contour"
+identifier = "com.prism-suite.contour"
+short_description = "Vector graphics editor — Illustrator analog"
+long_description = "Contour is a GPU-accelerated vector editor, part of the open-source Prism creative suite."
+category = "Graphics"
+osx_minimum_system_version = "13.0"
+osx_url_schemes = ["contour"]
+
+[lints]
+workspace = true

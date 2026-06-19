@@ -21,12 +21,10 @@ Architectural bet: raster, vector, video frames, comp layers all reduce to compo
 prism-suite/
   Cargo.toml              # workspace root — pins ALL versions
   apps/
-    pigment-gpui/         # [[bin]] — Pigment (GPUI host + inline GPU compositor)
-    contour-app/          # [lib] — Contour document + CPU rasterizer (94 tests)
-    contour-gpui/         # [[bin]] — Contour GPUI host
-    pulse-app/            # [lib] + [[bin]] — Pulse compositor + keyframe engine (633 tests)
-    pulse-gpui/           # [[bin]] — Pulse GPUI host
-    reel-gpui/            # [[bin]] — Reel GPUI host
+    pigment/               # [[bin]] — Pigment (GPUI host + inline GPU compositor)
+    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 94 tests)
+    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 633 tests)
+    reel/                  # [[bin]] — Reel (GPUI host + NLE logic)
   shared/
     prism-core/           # doc model, blend modes, adjustments, curves, shapes, histogram
     prism-canvas/         # wgpu GPU compositor: composite/display/dab/filter/selection passes
@@ -47,10 +45,10 @@ Everything runs from the repo root:
 
 ```bash
 # Run an app
-cargo run -p pigment-gpui
-cargo run -p contour-gpui
-cargo run -p pulse-gpui
-cargo run -p reel-gpui
+cargo run -p pigment
+cargo run -p contour
+cargo run -p pulse
+cargo run -p reel
 
 # Check all
 cargo check --workspace
@@ -59,10 +57,10 @@ cargo check --workspace
 cargo test --workspace
 
 # Per-crate tests (most tests here)
-cargo test -p pigment-gpui       # 35: filters, lens, perspective
-cargo test -p contour-app        # 94: document, path, boolean ops
-cargo test -p pulse-app --no-default-features   # 633: compositor, keyframes, render
-cargo test -p reel-gpui
+cargo test -p pigment          # 35: filters, lens, perspective
+cargo test -p contour          # 94: document, path, boolean ops
+cargo test -p pulse            # 633: compositor, keyframes, render
+cargo test -p reel
 
 # Subset by name
 cargo test flood_fill
@@ -72,7 +70,7 @@ Unit tests live inline (`#[cfg(test)]`) in the source files they cover. GPUI bin
 
 ## GPU model — Pigment is the exception
 
-- **Pigment** uses **GPUI + wgpu**. WGSL shaders in `apps/pigment-gpui/src/shaders/` (`composite`, `display`, `dab`, `filter`, `selection`). GPU compositor lives entirely inside `pigment-gpui` — it has NOT been promoted to `prism-canvas`. Compositor passes run in GPUI's `prepare_frame` hook.
+- **Pigment** uses **GPUI + wgpu**. WGSL shaders in `apps/pigment/src/shaders/` (`composite`, `display`, `dab`, `filter`, `selection`). GPU compositor lives entirely inside `pigment` — it has NOT been promoted to `prism-canvas`. Compositor passes run in GPUI's `prepare_frame` hook.
 - **Contour / Pulse / Reel** use eframe/egui (Contour, Pulse) or GPUI without custom GPU passes (Reel). Do not add wgpu pipelines to these without a strong reason.
 - Compositing: linear-light, premultiplied, `Rgba16Float` working textures. sRGB↔linear boundary owned by `prism-color`; encode at display blit only.
 
@@ -98,4 +96,4 @@ Unit tests live inline (`#[cfg(test)]`) in the source files they cover. GPUI bin
 - `UI_UX.md` — UX patterns and interaction design
 - `VERSIONING.md` — SemVer policy, release process
 - `apps/<app>/PLAN.md` — per-app phased roadmap to ≥85% Adobe parity
-- `apps/pigment-gpui/ARCHITECTURE.md` — Pigment module/data-flow detail
+- `apps/pigment/ARCHITECTURE.md` — Pigment module/data-flow detail

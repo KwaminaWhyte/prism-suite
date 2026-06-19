@@ -33,8 +33,9 @@ jobs:
       - name: Cargo check (all crates)
         run: cargo check --workspace
 
-      - name: Tests (logic crates)
+      - name: Tests
         run: |
-          cargo test -p contour-app
-          cargo test -p pulse-app --no-default-features
-          cargo test -p reel-gpui
+          cargo test -p pigment
+          cargo test -p contour
+          cargo test -p pulse
+          cargo test -p reel

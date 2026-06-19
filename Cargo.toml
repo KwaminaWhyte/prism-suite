@@ -8,19 +8,17 @@ members = [
     "shared/prism-io",
     "shared/prism-media",
     "shared/prism-ui",
-    # App crates (logic libraries + GPUI host binaries)
-    "apps/contour-app",
-    "apps/pulse-app",
-    "apps/pigment-gpui",
-    "apps/contour-gpui",
-    "apps/pulse-gpui",
-    "apps/reel-gpui",
+    # App crates
+    "apps/pigment",
+    "apps/contour",
+    "apps/pulse",
+    "apps/reel",
 ]
 default-members = [
-    "apps/pigment-gpui",
-    "apps/contour-gpui",
-    "apps/pulse-gpui",
-    "apps/reel-gpui",
+    "apps/pigment",
+    "apps/contour",
+    "apps/pulse",
+    "apps/reel",
 ]
 
 [workspace.package]
@@ -37,8 +35,6 @@ prism-core    = { path = "shared/prism-core" }
 prism-io      = { path = "shared/prism-io" }
 prism-media   = { path = "shared/prism-media" }
 prism-ui      = { path = "shared/prism-ui" }
-contour-app   = { path = "apps/contour-app" }
-pulse-app     = { path = "apps/pulse-app", default-features = false }
 
 # ── Shared third-party ────────────────────────────────────────────────────────
 glam          = "0.29"

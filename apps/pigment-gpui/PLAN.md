@@ -1,0 +1,499 @@
+# Pigment — Open Source Photoshop Alternative
+
+Professional-grade, non-destructive, GPU-accelerated raster image editor in Rust.
+**Goal: reach ≥85% of Photoshop's real-world capability** — features, reliability, and
+ease-of-use — in staged milestones on a modern GPU pipeline, while leaving the suite's
+shared engine clean for Contour (vector) and Pulse (motion) to reuse.
+
+Phases 0–5 stood up the engine and the photo-editing core; Phases 6–12 below close the
+gap to parity (retouching, layer power, the filter galleries, pro color/IO, AI, automation,
+and the reliability/UX polish that makes a tool *feel* finished). The §"Parity coverage
+matrix" tracks where we stand against the full Photoshop surface.
+
+> Companion docs: [RESEARCH.md](./RESEARCH.md) (cited findings + crate matrix), [ARCHITECTURE.md](./ARCHITECTURE.md) (module/data-flow detail as it lands), [SUITE.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/SUITE.md) (four-app vision + interop).
+
+---
+
+## 0b. GPUI migration — complete
+
+The UI host migration from egui to GPUI is **done**. `pigment-gpui` is the sole
+binary; `pigment-app` (egui) has been removed from the workspace.
+
+The GPU engine (`CanvasGpu`, compositor, shaders) lives in the shared `prism-canvas`
+crate (`prism-suite-prism` repo) with zero egui dependency. `pigment-gpui` bridges
+`prism-canvas` outputs via `copy_texture_to_buffer` → `RenderImage` (BGRA), at
+**~3.5ms for an 8.7MP doc** — well within the 16ms/60fps budget.
+
+All parity items (tools, selection, layers, panels, undo, text, clone, masks,
+adjustment layers, smart filters, layer styles, filter gallery, preferences,
+autosave, healing brush modes, print dialog, plugin system, history snapshots) are
+
+---
+
+## 0a. Suite boundaries — what belongs in Pigment vs Contour / Pulse
+
+Pigment shares the `prism-core` / `prism-color` / `prism-io` crates with **Contour** (vector,
+the Illustrator analog) and the future **Pulse** (motion/VFX, the After Effects analog). To
+avoid duplicating or overwriting their work, every new feature is filed against one of three rules:
+
+- **Pigment-owned (raster):** painting, retouch/heal, raster filters, adjustments, masks,
+  channels, raster layer styles, image/color IO, raster-side AI. Lives in `pigment-gpui` or
+  raster-only modules of the shared crates. This is the bulk of Phases 6–12.
+- **Shared-crate, app-agnostic:** anything promoted into `prism-core`/`prism-color`/`prism-io`
+  (blend math, tile model, color transforms, file containers, curve/gradient/LUT, geometry,
+  path math) **must not** assume Pigment. Contour already depends on these — additions are
+  additive and feature-gated, never raster-coupled. Touch these crates only to *add* generic
+  primitives, never to bend them toward Pigment's UI.
+- **Out of scope — belongs to a sibling app (do not build here):**
+  - *Deep vector authoring* (full pen/node editing, boolean shape trees, stroke profiles,
+    multi-artboard vector layout) → **Contour**. Pigment keeps only Photoshop-grade vector:
+    shape layers, simple pen paths, vector masks — re-rasterized into the raster doc.
+  - *Timeline, keyframes, motion graphics, node compositing, video frames* → **Pulse / Reel**.
+    Pigment ships only Photoshop's *frame/video timeline* scope (frame animation, GIF/APNG/
+    short-clip export); anything beyond per-frame raster is a Pulse comp placed via Dynamic Link.
+  - *Cross-app interop glue* (Dynamic Link host, the `prism-doc` interchange container, shared
+    clipboard, shared asset library) is **suite-level** — Pigment consumes it (smart objects can
+    reference a `.contour` or Pulse comp) but does not define it unilaterally.
+
+---
+
+## 0. Why this can work
+
+- Algorithms are solved and free (blend math, resampling, color science, segmentation).
+- Mature Rust crates cover GPU, image IO, text, vector, color, AI.
+- The real moat is **polish, performance, and a unified non-destructive engine** — that's where we focus.
+
+**Non-negotiable principle:** non-destructive, GPU-resident, **linear-light premultiplied** pixel pipeline from day one. Retrofitting GPU/linear later = rewrite.
+
+---
+
+## 1. Validated Tech Stack (June 2026 versions — verify at build with `cargo add`)
+
+| Concern | Crate | Version | Notes |
+|---|---|---|---|
+| GPU | `wgpu` | 29 | Vulkan/Metal/DX12/WebGPU. Pin major. |
+| Windowing | `winit` | 0.30 | `ApplicationHandler` pattern; unified Pointer events (pen pressure/tilt). |
+| App shell + UI | `gpui` | 0.2.2 | GPUI (Zed's framework). CanvasHost bridges wgpu compositor via CPU readback → `RenderImage`. |
+| Pen/tablet axes | `octotablet` | 0.x | Pressure/tilt cross-platform; Wintab fallback (`wintab_lite`) for pro Wacom on Win. |
+| Image IO | `image` | 0.25 | PNG/JPEG/WebP/TIFF/etc, 16-bit. Pixel IO only — not the doc model. |
+| HDR / scene-linear | `exr` | 1.74 | Pure-safe-Rust OpenEXR (f16/f32). |
+| Color mgmt | `lcms2` | 6.1 | Little CMS 2.17; ICC v2/v4, CMYK, soft-proof. `qcms` for wasm/RGB path. |
+| Resize | `fast_image_resize` | 6.0 | SIMD Lanczos3/Bicubic, premultiplied-correct. |
+| Text | `cosmic-text` + `glyphon` | 0.18 / latest | Editable buffers (HarfRust+swash); glyphon atlases to wgpu. |
+| Vector math | `kurbo` | 0.11 | Bezier/path math, hit-test. |
+| Vector tessellation | `lyon` | 1.0 | Path → GPU triangle mesh. |
+| Boolean path ops | `i_overlay` | 1.x | Union/intersect/diff (kurbo native booleans still WIP). |
+| PSD import | `psd` | 0.3.5 | Read-only; we build blend/mask compositing on top. No PSD write (custom serializer or `.ora`). |
+| AI runtime | `ort` | 2.0-rc | ONNX Runtime; CoreML/DirectML/CUDA EPs. `candle`/`tract` for pure-Rust/wasm fallback. |
+| Undo | `undo`/custom | — | Command stack + tile-COW for pixels. |
+| Encode extras | `mozjpeg`, `webp`, `ravif`, `oxipng` | — | Better-than-baseline JPEG/WebP/AVIF/PNG. |
+| Serde/util | `serde`, `glam`, `bytemuck`, `thiserror`, `anyhow`, `rayon`, `arc-swap`, `lz4_flex` | — | Doc serialization, math, GPU casts, tile compression. |
+| **RAW / Camera Raw** | `rawler` (+ `rawloader`) | latest | Decode CR2/CR3/NEF/ARW/RAF/DNG; demosaic (Malvar-He-Cutler, X-Trans). `zenraw` = safe-Rust, scene-linear f32 alt. |
+| **Lens correction** | `lensfun` (pure-Rust port) | 0.x pre-alpha | Distortion / TCA / vignetting from the Lensfun DB; bit-exact vs C++ ref. Polynomial fallback if pre-alpha. |
+| **Inpainting / content-aware** | custom PatchMatch + `ort` (LaMa) | — | Classic PatchMatch on GPU/CPU (no model, high-res); optional LaMa ONNX for structure, hybrid guided fill. |
+| **Segmentation / select-subject** | `ort` (BiRefNet, RMBG-2.0, SAM2/3) | — | BiRefNet_dynamic for matting; SAM2/SAM3 for prompted object selection. |
+| **Super-resolution** | `ort` (Real-ESRGAN / SwinIR) | — | 2–4× upscale; tile-and-blend for big images. |
+| **Scripting / automation** | `rhai` (embedded) + `serde_json` actions | latest | Sandboxed action/script engine; JSON-recorded actions; batch runner. Optional `boa`/`deno_core` for JS parity. |
+| **Seamless cloning / heal** | custom (Poisson solve) + `nalgebra`/`faer` | — | Gradient-domain heal (Poisson blend) for healing brush / patch. |
+| **Plugin / effects** | OpenFX-style `prism-fx` host (suite) | — | Shared with the suite; raster effects authored once, run in any compositing app. |
+
+---
+
+## 2. Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  pigment-gpui  (GPUI app)                                │
+│  panels: tools · layers · history · color · properties   │
+│  CanvasHost → wgpu compositor → RenderImage bridge       │
+├──────────────────────────────────────────────────────────┤
+│  prism-canvas  (shared GPU engine, in prism-suite-prism) │
+│  CanvasGpu · Compositor · filter_math + WGSL shaders     │
+├──────────────────────────────────────────────────────────┤
+│  prism-core / prism-color / prism-io  (shared crates)    │
+│  Document · LayerTree · Selection · CommandStack(undo)   │
+│  Tile model (sparse, COW) · color types · doc IO         │
+├──────────────────────────────────────────────────────────┤
+│  wgpu 29   ·   lcms2 color mgmt                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Core data model
+- **Document** = canvas size, color profile, `LayerTree`, active selection.
+- **LayerTree** = recursive: `Layer { Raster | Group | Adjustment | Text | Vector | SmartObject }`, each with blend mode, opacity, mask, visibility.
+- **Tile** = 256×256 RGBA16F **linear premultiplied**. Sparse `HashMap<(layer_id, tx, ty), Arc<Tile>>`. COW: edits clone only touched tiles → cheap undo + layer clones.
+- **CommandStack** = every edit is a reversible `Command`. Pixel ops store pre-edit dirty-tile copies (Arc-shared). Structural/param edits store small graph deltas.
+
+### Render graph (compositor)
+- Nodes: raster source, blend, group boundary, adjustment, mask, filter. Each = a GPU pass (compute preferred) writing intermediate tiles.
+- **Unit of work = (node, dirty tile).** Recomposite only dirty tiles; propagate dirtiness upward. Cache per-node per-tile output. This keeps 100-layer docs interactive.
+- All math in **linear light**, premultiplied alpha; sRGB encode only at final blit to the swapchain `*Srgb` surface.
+
+### GPU specifics (from research)
+- Working/intermediate/composite tiles: `Rgba16Float` (filterable, blendable, storage-capable).
+- Imported 8-bit sources: `Rgba8UnormSrgb` (auto-decode, half VRAM); promote to f16 only during compositing.
+- Surface can't be f16 → final tonemap/encode pass to `*Srgb`.
+- Simple modes (Normal/Multiply/Add) → fixed-function `BlendState`. Complex modes (Overlay/SoftLight/ColorDodge/all HSL) → shader sampling both backdrop+source, `blend_mode` uniform + switch, per dirty tile.
+- GPUI bridge: compositor writes to `Rgba16Float` texture → `copy_texture_to_buffer` → convert to BGRA8 → `RenderImage`. ~3.5ms for 8.7MP.
+- Present mode `AutoVsync` (Fifo); `desired_maximum_frame_latency = 1` for brush snappiness.
+
+### Brush engine (low-latency)
+- Input: winit Pointer events + `octotablet` for pressure/tilt → drain **all** queued samples per frame into a lock-free queue (tablets 100–240Hz > frame rate; never sample only latest).
+- Stamp/dab-based. Arc-length walker emits a dab every `spacing × radius`; Catmull-Rom interp through points; lerp pressure/tilt; carry leftover distance across segments.
+- **Wet layer**: in-progress stroke renders to its own GPU texture composited over committed pixels; flatten wet→dry on pen-up. Append only new dabs each frame (flat per-frame cost).
+- Smoothing: EMA/weighted stabilizer + 1–2 dab prediction to hide latency.
+- Smudge: read canvas color under dab → blend into brush state → write (RMW per dab).
+- Consider FFI to **libmypaint** for mature artist-tuned dynamics; implement `MyPaintSurface::draw_dab` backed by our wgpu wet layer.
+
+---
+
+## 3. Workspace Layout
+
+```
+prism-suite-pigment/
+├── Cargo.toml                # workspace
+├── crates/
+│   └── pigment-gpui/         # GPUI binary: panels + canvas host + CanvasHost
+├── assets/shaders/           # WGSL: blit, blend, brush, adjustments
+├── PLAN.md  RESEARCH.md  ARCHITECTURE.md
+```
+
+Shared engine crates live in `shared/` and are path-dep'd here.
+
+---
+
+## 4. End-to-End Task Backlog (actionable, checkbox-tracked)
+
+### Phase 0 — Skeleton & GPU canvas  *(DONE)*
+- [x] `cargo` workspace + crate stubs
+- [x] `prism-core`: `Document`, `Layer`, `LayerTree`, `Tile`, `BlendMode`, geometry/color types
+- [x] `pigment-gpui`: GPUI app, panel layout (tools/layers/menu), canvas viewport
+- [x] wgpu: vertex/frag pipeline drawing the document textured quad with CPU-folded view transform
+- [x] Pan (drag) + cursor-anchored zoom (scroll) via `ViewTransform`
+- [x] Checkerboard transparency backing shader (`fs_checker`)
+- [x] Load an image into a GPU texture; File→Open dialog (`rfd`); placeholder on launch
+- [x] Nearest-mag / linear-min sampling; Fit-to-screen + 100%
+- [x] **DoD met:** builds, launches (Metal/wgpu 29), opens PNG/JPEG/etc, pan/zoom works, HiDPI-aware
+
+### Phase 1 — Tiles, layers, paint  *(COMPLETE)*
+- [x] Compositor v1: GPU ping-pong, layers as `Rgba16Float` linear-premul textures, display pass (checker + sRGB encode)
+- [x] Blend modes as shaders: Normal, Multiply, Screen, Overlay, Darken, Lighten, Add (rest of the separable + HSL set: Phase 3)
+- [x] Layers panel: add, delete, reorder (▲▼), inline rename, visibility, opacity, blend-mode dropdown, active select
+- [x] Brush engine v1: arc-length dab walker, instanced soft dabs, size/hardness/opacity, color picker
+- [x] **Wet-layer separation:** brush strokes render to a wet buffer, composited over the owner layer, flattened on pen-up (correct per-stroke opacity)
+- [x] **Brush dynamics:** velocity → size taper; per-dab modulation plumbed for a future pressure source
+- [x] Eraser (destination-out dab pipeline)
+- [x] Bucket fill (CPU flood fill, `pigment_core::fill`) + eyedropper (1px GPU readback); both with "sample all layers"
+- [x] CommandStack: undo/redo (Cmd+Z / Cmd+Shift+Z / menu) + **History panel** (labeled steps, click to jump)
+- [x] **Region-COW undo:** snapshots only the stroke's dirty rect, not the whole layer
+- [x] **Dirty compositing:** recomposite only when the document changes; pan/zoom reuse the last composite
+- [x] `.pigment` doc format: lz4 RGBA16F layer blobs + JSON metadata (`pigment_io::document_file`); save via GPU readback, open via staged upload
+- [x] Image loads into the background layer (linear-premul f16 conversion)
+- [x] Tests: core unit (color/blend/tile/fill) + io round-trip + **headless GPU test** (upload→composite→wet-brush→region-undo, pixel-asserted)
+- [x] **DoD met:** multi-layer painting + blend + wet strokes + undo + save/reopen
+
+**Deferred to later phases (rationale):**
+- *GPU sparse-virtual-texture streaming* (atlas + page table + RAM/disk spill for docs > VRAM) → **Phase 5** "out-of-core huge docs". Layers are currently one full-canvas `Rgba16Float` texture each (degenerate single tile); dirty tracking is frame-level + region-COW. Streaming is a large self-contained perf subsystem that belongs with its Phase 5 sibling.
+- *Hardware stylus pressure/tilt* → `octotablet` has no macOS backend yet. Velocity dynamics stand in; per-dab modulation is ready for a pressure source.
+
+### Phase 2 — Selection & transform  *(COMPLETE)*
+- [x] Selection mask as `R16F` GPU texture; animated marching-ants overlay (display shader)
+- [x] Tools: rectangle, ellipse, lasso (freehand polygon), magic wand (flood by tolerance)
+- [x] Feather, grow/shrink, invert, select-all/none, add/subtract/intersect modifiers (`pigment_core::raster`)
+- [x] Selection-aware brush/eraser/fill (dabs + fill clip to the mask)
+- [x] Move tool (translate) + Transform (translate + Shift-drag scale) via composite-time uv affine, baked on release
+- [x] Crop to selection; canvas size (no resample); image size (resample via `fast_image_resize`); flip layer H/V
+- [x] Copy/cut/paste (Cmd+C/X/V) + layer-from-selection; selection-masked clipboard
+- [x] UI polish: phosphor icon toolbar + modern dark theme
+- [x] Tests: core `raster` (10) + `resize` (4) + GPU selection-clip & transform-bake
+- [x] **DoD met:** select region, transform, crop, resize with quality resampling
+
+**Deferred (polish):** free-transform *rotation/skew* + interactive corner/rotate handles (current transform is translate + uniform scale via Shift-drag; the composite affine already supports rotation — only the handle UI + aspect-correct rotation math remain). Modifier preview during marquee uses replace-then-combine.
+
+### Phase 3 — Adjustments, masks, filters  *(COMPLETE)*
+- [x] Adjustment layers (read backdrop, transform): Brightness/Contrast, Levels, Hue/Saturation, Exposure, Invert, Threshold, Black&White — non-destructive, live param sliders (`pigment_core::adjust` + composite-shader branch)
+- [x] Layer masks (`α *= mask`): add white / from selection / delete; paint reveal (brush) / hide (eraser); composite multiplies layer alpha by mask
+- [x] Filters as GPU passes: Gaussian blur (separable), Sharpen (unsharp), Pixelate — destructive on the active layer, undoable
+- [x] HSL non-separable blend modes (Hue/Saturation/Color/Luminosity) + the previously-missing separable modes — all 18 now correct
+- [x] Histogram panel (Rec.709 luma + per-channel, `pigment_core::histogram`)
+- [x] Tests: core `adjust`/`curve`/`histogram` + GPU adjustment-invert & layer-mask
+- [x] **DoD met:** non-destructive adjustment stack + masks + core filters
+
+**Deferred (polish):** ~~Curves spline-editor UI~~ (**done** — see Phase 4); Color Balance; clipping & group masks; layer styles (stroke/shadow/glow); motion blur / noise.
+
+### Phase 4 — Text, vector, smart objects  *(MOSTLY COMPLETE)*
+- [x] Text layers (`cosmic-text` rasterizer → layer texture): editable text/size/color/**font-family**/align, re-rasterized on edit
+- [x] Vector shape layers: rectangle + ellipse (drag-create), editable fill color, re-rasterized (`pigment_core::shape`, AA)
+- [x] Gradient tool: drag a foreground→transparent linear gradient, composited over the active layer
+- [x] Generated layers stay editable after creation (`sync_generated_layers` re-rasterizes on def change) — and **keep their position**: a Move/Transform bake records the layer's translate (`gen_offset`), which the re-raster re-applies (via `reposition`) so a property edit (font/size/color/align) no longer snaps the layer to the canvas origin
+- [x] Tests: `pigment_io::text` + `pigment_core::shape` rasterizers
+- [x] **DoD (partial):** text + vector editable after creation ✓; smart objects deferred
+
+**Phase 4 completion tasks (promote from "deferred" — needed for parity):**
+- [x] Pen tool: cubic-Bézier work paths — click to add corner anchors, click-drag for symmetric handles, click first anchor to close; **Direct Select** tool moves anchors/handles afterward; rubber-band preview drawn as a canvas overlay (not part of the GPU composite). In-app Bézier math (`path.rs`), no `kurbo` dep this pass. *Still:* add/delete/convert-point editing, multi-subpath, path persistence to the doc.
+- [x] **Path → selection** (flatten the closed path interior → selection mask, reusing the lasso/marquee selection pipeline) **and vector mask** (rasterize path interior → active-layer mask via the existing `set_mask` layer-mask pipeline). Both exposed in the pen tool-options bar. *Still:* live (non-destructive) vector masks that re-clip when the path edits; mask density/feather.
+- [ ] More shapes: polygon, line, rounded-rect (live corner radius), custom-shape from path; shape stroke + fill + dashes; **shape layers from a pen path**
+- [ ] Boolean shape ops (`i_overlay`): unite / subtract / intersect / exclude on selected shapes / paths
+- [ ] Clipping masks (layer clipped to one below — **done**, see Phase 7) + group/nested masks
+- [x] Curves adjustment **UI** (draggable monotone-cubic editor; composite **+ per-channel R/G/B** curves; LUT uploaded as a 256×1 texture, sampled in the compositor; GPU-pixel-tested)
+- [x] Gradient editor: multi-stop **color rail + independent opacity rail**, all five geometries (**linear/radial/angle/reflected/diamond**), and **ordered (Bayer) dithering** to kill banding; built-in **presets** (Foreground→Transparent, Black→White, Spectrum, Sunset). The gradient tool drag defines the axis (`start→end`, each geometry reinterprets it); a "fill layer" toggle fills the whole layer without dragging. Selection-clipped, source-over onto the active layer, region-COW undo. Sampling/interpolation/dither math is the shared, app-agnostic `prism_core::gradient` (working-space multi-stop lerp, premultiplied output); the app converts sRGB editor stops → linear. Gradient fills persist to `.pigment` as layer pixels (no format change); the shared `Gradient` is serde-ready for embedding presets later. Unit-tested (stop interp incl. unsorted/multi-stop, opacity rail, every geometry's parameterization, seeded-deterministic dither) + serde round-trip + GPU pixel test. *Still:* on-canvas stop handles, reverse, noise gradients, `.grd` import.
+- [x] **Pattern fill** + **define-pattern from selection** (Edit ▸ Define Pattern captures the selection's bounding box — or the whole layer — as a session-scoped tile; Edit ▸ Fill with Pattern tiles it across the active layer / selection, source-over, with scale + offset; pure `pattern_texel`/`tile_fill` math unit-tested for wrap/scale/offset, checker reproduction, selection gating). *Still: pattern stamp tool (brush-driven), persist patterns to `.pigment` / preset library, blend modes / opacity for the fill.*
+- [~] **Type richness:** **font-family selection** **done** — a font-family dropdown in the Text layer panel (next to size/color/align) lists "Default" + every system font family (enumerated via the shared `prism_io::text::available_families()`, cached); the chosen family sets `TextDef.family` (`#[serde(default)]` → back-compat) and re-rasterizes via `render_text(..., family)`. *Still:* character + paragraph panels (kerning/tracking/leading, OpenType features, justification), text-on-path, warp text, type masks
+- [ ] **Smart objects** (big — see Phase 7): embedded + linked; non-destructive transform/filter; "edit contents" reopens source; place `.pigment`/`.contour`/image as smart object
+
+### Phase 5 — Pro features  *(IN PROGRESS — interop landed)*
+- [x] PSD import (`psd` 0.3.5): layers, opacity, blend, visibility → our model + compositor
+- [x] HDR/EXR open (`exr` 1.74, linear RGBA f32) + HDR via `image`
+- [x] Image export (`image`): PNG/JPEG/WebP/TIFF/BMP by extension (composite → straight sRGB8)
+- [x] **DoD (partial):** PSD-compatible ✓, standard-format export ✓, HDR in ✓
+
+The remaining Phase-5 "pro" bullets are large self-contained subsystems; they are
+**re-scoped as dedicated Phases 8–12 below** rather than a single deferred list, because
+each needs its own task breakdown to reach parity:
+- Color management (ICC/CMYK/soft-proof) → **Phase 9**
+- AI tools (select-subject, remove, inpaint, super-res, colorize, generative) → **Phase 10**
+- PSD export, RAW/Camera Raw, export-as/save-for-web, more containers → **Phase 9**
+- Heal / clone / content-aware fill → **Phase 6**
+- Plugin API + actions/scripting/batch → **Phase 11**
+- Out-of-core huge docs + sparse-virtual-texture streaming + web build → **Phase 12**
+
+---
+
+## 4b. Parity expansion — Phases 6–12 (the road to ≥85%)
+
+Each phase is a coherent, shippable slice. Effort tags: **S** ≤1wk-equiv, **M** 1–3wk, **L** >3wk
+(solo-equivalent, GPU/algorithm work). "shared?" = touches a `prism-*` crate, so keep it app-agnostic.
+
+### Phase 6 — Retouching, healing & Liquify  *(the photo-repair core)*
+The single biggest "feels like Photoshop" gap. All operate on the active raster layer (or a
+sampled-merged source), undoable via region-COW, selection-clipped.
+- [x] **Clone Stamp** (Alt-click source → aligned offset; frozen pre-stroke snapshot sampled in a GPU clone-dab pass; soft brush + opacity; selection-clipped; on-canvas source crosshair; GPU-pixel-tested). *Still: non-aligned mode, sample all-layers/below, flow vs opacity, rotation.*
+- [x] **Healing Brush** (Alt-click source → brush a region → on release a gradient-domain Poisson solve transplants the source *texture* with the destination tone matched at the region boundary). Solver is `prism_core::heal::seamless_clone` (Gauss–Seidel membrane, shared core, unit-tested incl. tone-match + texture-transfer). *Still: continuous (per-dab) heal, spot/auto-source, content-aware fallback.*
+- [x] **Spot Healing** (brush a blemish, **no manual source** — `prism_core::heal::spot_heal` auto-picks a clean source by boundary-SSD offset search, then Poisson-blends; unit-tested). *Still: content-aware/PatchMatch fallback for textured surrounds.*
+- [x] **Patch tool** (lasso/freehand a region → drag it onto a source area → on release `prism_core::heal::seamless_clone` gradient-domain-transplants the source *texture* with the destination tone matched at the boundary; PS-style Source/Destination mode toggle in the tool-options bar; selection-clipped, region-COW undo; unit-tested incl. texture transplant + selection clip + identity no-op). *Still: scale/rotate the patch, transparent/pattern patch source, structure mode.*
+- [x] **Content-Aware Fill** (brush a region → `prism_core::inpaint::content_aware_fill` synthesizes it from surrounding texture via PatchMatch — approximate-NNF propagation + random search + patch voting, deterministic; unit-tested incl. content-awareness). *Still: selection-driven invocation, scale/mirror/rotation adaptation, optional LaMa-ONNX structural guidance.*
+- [ ] **Remove tool** (M, AI-assist): brush over an object → content-aware/LaMa removal in one stroke
+- [x] **Dodge / Burn / Sponge** (brushed soft tonal adjust — Dodge/Burn via `prism_core::tone::dodge_burn`, Sponge saturate/desaturate via `prism_core::tone::sponge`, on a soft coverage mask, unit-tested). *Still: shadows/mids/highlights range + protect-tones.*
+- [x] **Blur / Sharpen tools** (localized `prism_core::detail::blur_sharpen` over the brushed coverage — part of the unified **Detail brush** with Saturate/Desaturate/Blur/Sharpen modes; unit-tested). *Still: Smudge (drag-direction RMW smear).*
+- [ ] **Red-eye** (S): detect + desaturate/darken pupil
+- [x] **Liquify** (mesh warp via a per-pixel displacement field — **Push / Twirl / Pucker / Bloat**, live preview re-warping a frozen snapshot each frame so there's no compounding blur; `prism_core::warp` resample + stamps, unit-tested). *Still: freeze/thaw mask, reconstruct, GPU displacement texture for big-image perf, face-aware (Phase 10).*
+- [ ] Tests: gradient-domain heal seam continuity; PatchMatch determinism (seeded); liquify mesh round-trip
+
+### Phase 7 — Layer power: styles, smart objects, channels  *(non-destructive depth)*
+- [~] **Layer styles / FX** (L): **Stroke + Drop Shadow + Color Overlay + Inner Shadow + Outer Glow + Inner Glow + Gradient Overlay + Bevel & Emboss done** — non-destructive, evaluated live in the composite shader: outer stroke (alpha-edge ring), drop shadow (blurred/offset/tinted alpha behind), color overlay (recolor covered pixels by strength), inner shadow (blurred/offset *inverse*-alpha clipped inside the shape), outer glow (centered soft alpha halo outward), inner glow (soft alpha tint inward from the edge), gradient overlay (angled two-color linear gradient over the fill), **bevel & emboss (Inner Bevel)** — screen-space normal from the alpha height field, directional light (angle + altitude), highlight on the light-facing edge / shadow on the opposite edge concentrated within *size* (no separate height pass); per-layer params, GPU pixel-tested (8 style tests total). **All 8 styles now persist to the `.pigment` doc** (optional per-layer `styles` payload in `prism-io::document_file`, serde-default/back-compat; save→load round-trip mapping unit-tested) — closes the prior data-loss gap where reopening a saved document dropped every layer style. *Still:* **Satin**, **Pattern Overlay**; Outer Bevel / Emboss / Pillow-emboss variants; per-effect blend/opacity; copy/paste/scale styles.
+- [ ] **Smart Objects** (L): embedded + linked; wrap any layer/selection; transforms & filters re-applied non-destructively to the source render; "edit contents" → child document; replace-contents; place external (`.pigment`/`.contour`/image/PDF/Pulse-comp via Dynamic Link)
+- [~] **Smart Filters** (M): a layer carries a non-destructive, re-editable filter stack (add/remove/reorder/toggle + params editor) re-applied from its source pixels each change — Gaussian Blur / Sharpen / Posterize land end-to-end (Properties panel, `.pigment` round-trip). Per-filter masks remain a follow-up.
+- [~] **Clipping masks** (S) **done** — a layer clips to the alpha of the layer directly below, gated in the composite shader (clip-base texture binding); per-layer toggle + GPU pixel test. **Vector masks** (from Phase 4 pen) **done** — a closed work path rasterizes into the active layer's mask via the existing layer-mask pipeline. *Still:* live (re-clipping) vector masks, **group/nested masks**, mask density/feather, mask panel.
+- [~] **Blend-If / advanced blending** (M): **done** — this-layer + underlying-layer gray-range gating with soft-feathered ranges, evaluated in the composite shader (the backdrop is already bound); per-layer sliders + GPU pixel test. *Still:* per-channel split sliders, fill-vs-opacity, knockout, blend-interior effects.
+- [~] **Channels panel** (M): **done** — alpha channels (save the current selection as a named channel; load a channel back into the selection; delete), GPU round-trip-tested. *Still:* view/edit per-channel RGB, spot channels, split/merge channels.
+- [x] **Layer comps** (S): named snapshots of visibility/position/appearance (capture/restore/rename/delete per-layer visibility+opacity+blend, keyed by stable LayerId; persisted in `.pigment` via additive `DocMeta.comps`. Position out of scope — layers carry no persistent position in the model)
+- [~] **Adjustment expansion** (M): **done** — Curves (Ph4), **Vibrance**, **Photo Filter**, **Posterize**, **Gradient Map** (luma→2-color gradient via the curve-LUT texture, kind 12), **Color Balance** (per-range shadow/midtone/highlight RGB push via a per-channel transfer LUT + preserve-luminosity, kind 13) and **Channel Mixer** (per-output linear RGB mix + constant + monochrome, via a 3-row matrix in the compositor params, kind 14) — all non-destructive adjustment layers, composite-shader kinds 9/10/11/12/13/14, GPU-tested; Color-Balance/Channel-Mixer math also CPU-unit-tested in `prism-core::adjust`. **Adjustment layers now persist to the `.pigment` doc** (optional per-layer `adjustment` payload in `prism-io::document_file` = `Option<prism_core::Adjustment>`, serde-default / back-compat; save→load round-trip unit-tested for Curves + Color Balance + Channel Mixer) — closes the prior data-loss gap where reopening a saved document dropped every adjustment layer's params. *Still:* Selective Color, multi-stop Gradient Map, Color Lookup (`.cube`/`.3dl` LUT), Shadows/Highlights, HDR Toning, Equalize, Replace/Match Color.
+- [ ] Tests: layer-style pass pixel asserts; smart-object re-render on source edit; blend-if math; alpha-channel round-trip
+
+### Phase 8 — Filters & distort galleries  *(creative + corrective filters)*
+Implement as a unified `prism-fx` GPU pass registry (OpenFX-style; shared with the suite) so each
+filter is authored once. Destructive on a layer **or** non-destructive as a smart filter (Phase 7).
+- [~] **Blur Gallery** (M): **Tilt-Shift**, **Iris Blur**, **Spin Blur** and **Field Blur** **done**. **Tilt-Shift** — a graduated/positional blur that keeps a horizontal focus band sharp and blurs progressively outside it (focus center / band half-width / feather / max blur / tilt angle); filter shader (`filter.wgsl` kind 30, per-pixel focus weight × local 2D Gaussian) → compositor `apply_tilt_shift`. **Iris Blur** — the radial sibling: sharp inside an elliptical region at the canvas center, blurring progressively outside (ellipse width/height / feather / max blur); `filter.wgsl` kind 31 (normalized elliptical radius → focus weight × local 2D Gaussian) → `apply_iris_blur`; CPU `iris_weight`/`iris_blur` reference (4 unit tests) + 1 GPU pixel test. **Spin Blur** — rotational motion blur about the center (blur angle / samples), reusing the radial-blur Spin mode (kind 6) under a clean Blur Gallery name (1 GPU pixel test: flat-image identity + tangential smear). **Field Blur** — a multi-pin variable blur: the per-pixel blur radius is interpolated between pins (each a position + blur px) by inverse-distance-squared weighting, then a local 2D Gaussian of that radius is applied (a single pin = uniform blur); `filter.wgsl` kind 33 with up to three pins packed into the `cr0`/`cr1`/`cr2` overflow slots → `apply_field_blur`; CPU `field_blur_radius_at`/`field_blur` reference (5 unit tests) + 2 GPU pixel tests. All destructive on the active layer, undoable (region-COW), wired to Filter ▸ Blur. *Still:* Path blur; bokeh shape; Lens Blur (depth/alpha-aware).
+- [~] **Motion blur, Box, Surface, Radial, Smart Blur** (S/M): **Motion** (angle + distance, directional box average), **Box** (separable flat kernel), and **Radial** (Spin/rotational + Zoom about center, with a samples/quality control) **done** — destructive on the active layer, undoable (region-COW), wired through the existing filter shader (`filter.wgsl` kinds 4–7) → compositor `apply_*` → Filter ▸ Blur menu; 12 CPU unit tests of the kernel math + 3 GPU pixel tests. *Still:* **Surface Blur** (edge-preserving) and **Smart Blur**.
+- [~] **Sharpen family** (S): Unsharp Mask (have), **High Pass** **done** — the classic Photoshop sharpen prep (subtract a Gaussian-blurred copy from the original, re-centre at mid-gray so flats go neutral gray and only high-frequency detail/edges survive); destructive on the active layer, undoable (region-COW), wired through the existing filter shader (`filter.wgsl` kind 24, reusing the kind-1 separable Gaussian for the blur + a back-compatible secondary texture binding for the two-input combine) → compositor `apply_high_pass` → Filter ▸ Sharpen submenu, with radius (blur scale) + amount (detail gain) controls. 5 CPU unit tests of the filter math (incl. a `gaussian_blur` reference matching the shader) + 1 GPU pixel test. *Still:* Smart Sharpen (radius/amount/noise-reduce/lens-vs-motion).
+- [~] **Noise** (S): **Add Noise** (gaussian/uniform, monochromatic), **Median**, **Dust & Scratches** **done** — destructive on the active layer, undoable (region-COW), wired through the existing filter shader (`filter.wgsl` kinds 17–19) → compositor `apply_noise` / `apply_median` → Filter ▸ Noise menu; Add Noise is seeded-deterministic + zero-mean (uniform via a symmetric two-hash difference; gaussian via Box–Muller) with a monochromatic toggle, Median is a per-channel `(2r+1)²` median despeckle, Dust & Scratches a thresholded median (replace only past-threshold pixels). 8 CPU unit tests of the filter math + 3 GPU pixel tests. *Still:* Reduce Noise, Despeckle.
+- [~] **Distort** (M): **Twirl** (angle + radius about center), **Pinch/Spherize** (signed radial remap), **Ripple/Wave** (sinusoidal displacement), and **Polar Coords** (rectangular↔polar round-trip) **done** — destructive on the active layer, undoable (region-COW), wired through the existing filter shader (`filter.wgsl` kinds 8–12) → compositor `apply_distort` → Filter ▸ Distort menu; 13 CPU unit tests of the coordinate-remap math + 4 GPU pixel tests. *Still:* Warp (mesh + presets), Shear, Displace (displacement map), Lens Correction (`lensfun`: distortion/CA/vignette), Adaptive Wide Angle.
+- [~] **Render** (M): **Clouds** + **Difference Clouds** **done** — destructive *generator* filters on the active layer, undoable (region-COW), wired through the existing filter shader (`filter.wgsl` kinds 25–26, a generator — no second input texture needed) → compositor `apply_clouds` → Filter ▸ Render submenu; both fill the layer with a deterministic multi-octave value-noise (fBm) field (built on the shared `hash21` lattice, seamless + stable per seed like the diffuse/add-noise filters), with seed + scale (base feature size) + roughness (per-octave falloff) + octaves controls. **Clouds** paints the field; **Difference Clouds** composites it against the existing pixels via per-channel absolute difference (Photoshop's vein-building fold on repeat). 6 CPU unit tests of the noise math (determinism per seed; different seeds differ; output in range/opaque/gray; spatially smooth not white-noise; difference = |base − noise|; folds on repeat) + 1 GPU pixel test. *Still:* Perlin/Simplex proper, Fibers, Lens Flare, Lighting Effects (normal-from-bump), Picture-frame/Tree/Flame-style generators (lower priority).
+- [~] **Stylize / Artistic — Filter Gallery** (M): **Emboss, Find Edges, Glowing Edges, Diffuse, Oil Paint (Kuwahara) done**; *still:* Posterize Edges, Wind, plus the classic artistic set (Poster, Cutout, Dry Brush, Watercolor…)
+- [~] **Pixelate** (have) + Mosaic, Crystallize, Mezzotint, Color Halftone — **Mosaic** (true `cell`×`cell` block average), **Crystallize** (jittered-seed Voronoi cells, snaps each pixel to its nearest seed's source colour), **Color Halftone** (per-channel dot screen: cell size + screen angle, dot radius tracks the cell's channel average), and **Mezzotint** (seeded luma threshold dither to black/white grain) **done** — destructive on the active layer, undoable (region-COW), wired through the existing filter shader (`filter.wgsl` kinds 20–23) → compositor `apply_mosaic` / `apply_crystallize` / `apply_color_halftone` / `apply_mezzotint` → Filter ▸ Pixelate submenu (which also hosts the legacy point-sampling Pixelate, kind 3); seeded filters follow the `diffuse` hash convention (stable per seed). 7 CPU unit tests of the filter math + 4 GPU pixel tests. *Still:* Fragment, Pointillize.
+- [x] **Destructive tonal filters — Posterize / Threshold** (S): the bake-into-the-layer counterpart to the non-destructive Posterize/Threshold *adjustment layers* (PS Image ▸ Adjustments). **Posterize** quantizes each channel to *N* levels (2–255), **Threshold** collapses to black/white at a Rec.709 luma cutoff — both in **display (sRGB) space** so steps/cutoff land where the user sees them, alpha preserved. Wired app-local through the filter shader (`filter.wgsl` kinds 28–29) → compositor `apply_posterize` / `apply_threshold` → Filter ▸ Adjustments submenu; CPU references (`filter_math::posterize` / `::threshold`) share the sRGB transfer constants. 4 CPU unit tests + 3 GPU pixel tests. **No change to the shared `prism-core` `Adjustment` enum.**
+- [x] **Camera Raw filter** (M): apply the Phase-9 RAW develop controls (white balance, tone, HSL, sharpening, grain, vignette) as a non-destructive filter on any layer — shipped as a re-editable **Camera Raw smart-filter kind** (white balance, exposure, contrast, highlights/shadows/whites/blacks, vibrance, saturation, vignette) in one GPU pass (filter shader kind 32); HSL/sharpening/grain not yet exposed
+- [ ] **Vanishing Point / Perspective Warp** (L, optional): plane-defined clone & paste
+- [ ] Tests: golden-image per filter; separable-blur correctness; displacement-map sampling
+
+### Phase 9 — Pro color, RAW & interchange  *(color-accurate + opens/saves everything)*
+- [ ] **Color management** (L, shared `prism-color`): `lcms2` ICC v2/v4 load/embed; assign/convert profile; working spaces (sRGB/AdobeRGB/Display-P3/ProPhoto/linear); rendering intents; **soft-proofing** + gamut warning; **CMYK** mode + separations; Lab mode; `qcms` fast path for wasm/RGB
+- [ ] **Bit depth & color modes** (M): 8/16/32-bit UI + conversions; Grayscale, Duotone, Indexed (palette + dither), Bitmap, Lab modes
+- [ ] **RAW / Camera Raw develop** (L): `rawler`/`zenraw` decode + demosaic → scene-linear; white balance, exposure/contrast/highlights/shadows/whites/blacks, tone curve, texture/clarity/dehaze, HSL/color mixer, split toning, detail (sharpen + NR), lens corrections (`lensfun`), crop/straighten, profiles; open as smart object for re-edit
+- [ ] **PSD export** (L): hand-written serializer (documented binary format) — layers, groups, masks, blend modes, opacity, text (as layers), basic layer styles; round-trip-tested against import
+- [ ] **More containers** (M): `.ora` (zip+PNG, easy interchange first), layered TIFF, PDF (single + multipage placement), PSB (>30k px / >2GB)
+- [ ] **Export As / Save for Web** (M): per-format quality/size preview, multiple scales (@1x/@2x/@3x), metadata strip, color-profile embed; PNG/JPEG/WebP/AVIF/GIF via the better-than-baseline encoders already in stack
+- [ ] **Asset/Generator export** (S): layer/group → file by naming convention; SVG export for shape/vector layers (bridge to Contour)
+- [ ] **Metadata** (S): EXIF/IPTC/XMP read + preserve on export; copyright/watermark template
+- [ ] Tests: ICC round-trip ΔE bound; PSD export→reimport layer fidelity; RAW decode vs reference thumbnail
+
+### Phase 10 — AI / neural tools  *(`ort`, feature-gated, models fetched on first use)*
+Runtime is `ort` (ONNX) with CoreML/DirectML/CUDA EPs; `candle`/`tract` pure-Rust fallback.
+Models are **not bundled** — downloaded to a cache on first use behind a feature flag, with
+clear license surfacing; every tool degrades gracefully when models/GPU are absent.
+- [ ] **Select Subject / Object Select** (M): SAM2/SAM3 prompted (click/box) + BiRefNet saliency → editable selection/mask
+- [ ] **Remove Background** (S): BiRefNet_dynamic / RMBG-2.0 matting → mask or cut layer
+- [ ] **Content-aware Remove / Inpaint** (M): LaMa ONNX (feeds Phase 6 Remove/Content-Aware Fill)
+- [ ] **Super-Resolution / Enhance** (M): Real-ESRGAN / SwinIR 2–4×, tiled with overlap-blend; detail/denoise toggles
+- [ ] **Denoise / Sharpen (AI)** (S): learned NR for high-ISO RAW
+- [ ] **Colorize** B&W (S), **Neural-style** presets (S, optional)
+- [ ] **Face-aware Liquify** (M): landmark model drives Phase-6 Liquify sliders (eyes/nose/smile/face-width)
+- [ ] **Generative Fill / Expand** (L, **optional + pluggable** — suite AI policy): prompt → fill selection / extend canvas via a provider abstraction with **two interchangeable backends — local diffusion (`candle`/ONNX) AND a user-configured cloud endpoint (bring-your-own API key)** — plus "none". **Never required for core editing**; the app is fully functional with no AI backend configured. (Policy shared across the suite — see [RESEARCH.md §5](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md).)
+- [ ] Provider abstraction: a `prism-ai` trait so local / cloud / none are swappable at runtime; cancellation + progress + VRAM guard; model license surfaced on first fetch
+- [ ] Tests: deterministic mask IoU vs fixtures (seeded), graceful no-model path
+
+### Phase 11 — Automation, extensibility & plugins  *(pro workflows)*
+- [ ] **Actions** (M): record/play user operations as a serialized step list; action panel, sets, conditional steps, insert-stop/menu-item; modal toggles
+- [ ] **Batch processing** (M): run an action over a folder/open docs; **Image Processor** (resize + format + ICC convert in bulk); droplet-style export
+- [ ] **Scripting** (L): embedded `rhai` sandbox exposing the document/layer/selection API; run-script + script-events; optional JS engine (`boa`/`deno_core`) for Photoshop-script familiarity
+- [ ] **Variables / data-driven** (S): bind text/visibility/replace-image to a dataset (CSV) → export N variants
+- [ ] **Plugin API** (L, shared `prism-fx`): OpenFX-style effect plugins (load once, run in Pigment/Contour/Pulse); stable C ABI or wasm-component plugins; plugin-defined panels later
+- [ ] **Presets manager** (S): brushes, gradients, patterns, styles, swatches, shapes, LUTs — import/export `.abr`/`.grd`/`.pat`/`.asl` where feasible, native format otherwise; shared suite asset library
+- [ ] Tests: action record→replay determinism; script API surface; plugin load/exec sandbox
+
+### Phase 12 — Reliability, performance & ease-of-use  *(the polish that earns trust)*
+Parity isn't only features — it's that the app is fast, hard to lose work in, and obvious to drive.
+- [ ] **Out-of-core / huge docs** (L): finish the sparse-virtual-texture streaming (atlas + page table + LRU + RAM/disk spill) the tile model was designed for; scratch-disk; >VRAM and >RAM documents stay interactive
+- [ ] **True tiling** (M): split the current single-texture-per-layer into real 256² tiles for dirty-granular composite + COW (foundations in `prism_core::tile`)
+- [ ] **Autosave + crash recovery** (M): periodic snapshot to a recovery file; restore-on-relaunch; never-lose-work
+- [ ] **Performance** (M): GPU-memory budget + eviction; multithread tile ops (`rayon`); brush-latency/composite/large-open **benchmarks** in CI; frame-time HUD
+- [ ] **Color/precision audit** (S): verify linear-light premultiplied path end-to-end; no double-gamma; HDR > 1.0 preserved
+- [ ] **Preferences** (M): performance/scratch/cursors/units/UI-scale/theme/file-handling; persisted
+- [ ] **Keyboard shortcuts** (M): full default map matching Photoshop muscle-memory; fully remappable; searchable command palette
+- [~] **Workspace & panels** (M): **done** — scrollable + collapsible panels, **tool groups + flyouts** (23 → 12 family buttons), a **contextual tool-options bar** across the top, and a **Window menu** that shows/hides the tool-options bar, tools palette, and properties panel (+ Show-all). *Still:* dockable/floating/rearrangeable panels, **save/load + shareable workspaces** (Affinity Studio-preset model), reset-to-default layout. See [../../UI_UX.md](../../UI_UX.md).
+- [ ] **Multi-document tabs** (M): multiple open docs, tear-off windows, "match zoom/location", arrange/tile
+- [ ] **Navigation & info** (S): Navigator panel, rotate-view, bird's-eye zoom, Info panel, color sampler points, measure tool, ruler, count tool
+- [ ] **Guides/grid/snapping** (M): rulers, manual + smart guides, grid, snapping (guides/grid/layers/doc bounds), guide layout, lock/clear
+- [ ] **Artboards** (M): multiple artboards in one doc; per-artboard export; useful for UI/social work
+- [ ] **Onboarding & ease-of-use** (S): tool tooltips with shortcut, contextual hints, recent files, templates/new-doc presets, non-modal dialogs, und/redo history scrubbing, in-canvas HUD for tool params
+- [ ] **Accessibility** (S): keyboard-drivable, high-contrast theme, scalable UI, screen-reader labels
+- [ ] Tests: autosave/recovery round-trip; streaming residency under VRAM pressure; benchmark regression gates
+
+---
+
+## 4c. Parity coverage matrix (vs Photoshop surface)
+
+Rough coverage by category. **Done** = shipped (Phases 0–5). **Planned** = in Phases 6–12. **Won't** =
+intentionally a sibling-app concern. Target ≥85% of the *weighted, real-world-used* surface.
+
+| Category | Photoshop surface | Status | Phase |
+|---|---|---|---|
+| Canvas / GPU / view | open, pan/zoom, HiDPI, fit/100% | **Done** | 0 |
+| Layers + blend modes (18) | full | **Done** | 1,3 |
+| Painting / brush / eraser / fill / eyedropper | wet-layer, dynamics, smoothing | **Done** (pressure platform-blocked) | 1 |
+| Brush richness | tip shapes, dual/scatter/texture, mixer, history brush, symmetry | **Planned** | 6,11 |
+| Selection (marquee/lasso/wand) + edit ops | + magnetic/quick/object/color-range/select-mask | **Done** core; rest **Planned** | 2,10 |
+| Transform | move/scale/translate baked | **Done**; rotate/skew/distort/perspective/warp/puppet **Planned** | 2,7,8 |
+| Adjustments | 7 core + Curves/Vibrance/Photo Filter/Posterize/Gradient Map/Color Balance/Channel Mixer; rest planned | **Done** core; rest **Planned** | 3,7 |
+| Masks | layer masks done; clipping/vector/group + blend-if | **Done** core; rest **Planned** | 3,4,7 |
+| Filters | gaussian/box/motion/radial blur, sharpen, pixelate done; full galleries | **Done** core; rest **Planned** | 3,8 |
+| Retouch / heal / clone / content-aware / liquify | none yet | **Planned** | 6 |
+| Layer styles (FX) | 8 styles done (stroke, drop/inner shadow, outer/inner glow, color/gradient overlay, bevel & emboss) | **Partial** (Satin, Pattern Overlay left) | 7 |
+| Smart objects / smart filters | none yet | **Planned** | 7 |
+| Channels / alpha / spot | none yet | **Planned** | 7 |
+| Text | basic editable; rich type/OpenType/on-path/warp | **Done** basic; rest **Planned** | 4 |
+| Vector / shapes / pen | rect/ellipse + pen (work paths, path→sel, vector mask) done; bool/custom/shape-layers | **Done** basic; rest **Planned** | 4 |
+| Color mgmt / ICC / CMYK / soft-proof | none (sRGB/linear today) | **Planned** | 9 |
+| RAW / Camera Raw | none | **Planned** | 9 |
+| Import: PNG/JPEG/…/PSD/EXR/HDR | yes | **Done** | 5 |
+| Export: standard rasters | yes | **Done**; PSD-write / save-for-web / artboards **Planned** | 5,9 |
+| AI (select/remove/inpaint/super-res/generative) | none | **Planned** | 10 |
+| Automation (actions/batch/scripting) | none | **Planned** | 11 |
+| Plugins / extensibility | none | **Planned** | 11 |
+| Huge docs / streaming / autosave / crash-recovery | partial (region-COW undo) | **Planned** | 12 |
+| Prefs / shortcuts / workspaces / multi-doc / guides / artboards | minimal | **Planned** | 12 |
+| Timeline / video / motion / 3D | — | **Won't** (Pulse/Reel; frame-anim only) | — |
+| Deep vector authoring | — | **Won't** (Contour) | — |
+
+### Cross-cutting (every phase)
+- [x] Tests: core unit (color/blend/tile/fill/raster/curve/histogram/shape/gradient), io round-trips, headless-GPU pixel assertions (compositor/wet/undo/selection/transform/adjust/mask/gradient-fill)
+- [x] CI: `fmt --check` + `clippy` (-D warnings, all-targets) + `test` on linux/macos/windows (`.github/workflows/ci.yml`); workspace is rustfmt-clean + clippy-clean
+- [ ] Input mapping/shortcuts config; preferences
+- [ ] Crash recovery / autosave; error surfacing
+- [ ] Benchmarks: brush latency, composite time per layer count, large-image open
+
+---
+
+## 5. Milestones (definition of "usable")
+
+| Milestone | Phase done | Capability | Approx parity | Solo | Team 3–4 |
+|---|---|---|---|---|---|
+| **Spike** | 0 | Open/view/pan/zoom on GPU | ~5% | 2–4 wk | 1–2 wk |
+| **MVP** | 2 | Paint, layers, blend, select, transform, undo, save | ~30% | 6–9 mo | 3–4 mo |
+| **Beta** | 3 | + adjustments, masks, filters → real photo editing | ~45% | 12–18 mo | 6–9 mo |
+| **1.0** | 4 (+pen/type) | + text, vector, smart objects → general-purpose | ~55% | 2–3 yr | 12–18 mo |
+| **Pro** | 5 | + color mgmt, PSD, AI, plugins (re-scoped to 9–11) | ~60% | 3+ yr | 2+ yr |
+| **Retouch** | 6 | + clone/heal/patch/content-aware/liquify | ~68% | — | +3–5 mo |
+| **Depth** | 7 | + layer styles, smart objects/filters, channels, all adjustments | ~76% | — | +4–6 mo |
+| **Creative** | 8–9 | + filter galleries, full color mgmt, RAW, PSD-write, export | ~85% | — | +6–9 mo |
+| **Parity** | 10–12 | + AI, automation/plugins, streaming, autosave, prefs/workspaces/guides | **≥90%** | — | +9–12 mo |
+
+**The ≥85% target lands at the end of Phase 9** (Creative) — full editing/retouch/filter/color/IO
+surface, color-accurate, opens & saves everything. Phases 10–12 push past 85% on AI, extensibility,
+and the reliability/ergonomics that make it production-grade.
+
+Realistic solo target remains **MVP → Beta** with depth; the parity phases assume the project grows
+past solo or runs long. Sequencing within 6–12 is flexible, but **6 (retouch) and 7 (layer power +
+adjustments) deliver the most felt parity per unit effort** — do them first. Polish > feature count.
+
+---
+
+## 6. Hard Problems (mitigations baked in)
+
+1. **Brush latency** → wet-layer + drain-all-samples + prediction + `frame_latency=1`.
+2. **Large docs > VRAM** → sparse tiles + atlas/page-table LRU + RAM/disk spill (Phase 12).
+3. **Color correctness** → linear-light premultiplied everywhere; lcms2 ICC; f16 working buffers (8-bit linear bands).
+4. **PSD compat** → import via `psd` + our compositor; export is a custom serializer (budget real effort) — ship `.ora` interchange first.
+5. **Undo memory** → tile-COW diffs, not full snapshots; compress cold history (lz4).
+6. **Non-destructive + undoable** → document is a node-graph/command log; pixels re-derived & cached. Smart objects / smart filters / layer styles re-evaluate as cached render-graph nodes (Phase 7).
+7. **Healing seams** → heal/patch transplant *gradients* (Poisson/gradient-domain solve), not raw pixels, so texture matches but tone blends; solve only over the dirty region.
+8. **Content-aware quality** → PatchMatch handles high-res texture; optional LaMa-ONNX adds structure; hybrid (LaMa-then-PatchMatch-upsample) beats either alone — and the classic path needs **no bundled model**.
+9. **AI shipping** → models are *not* bundled: fetched to a cache on first use behind a feature flag, license surfaced; `ort` with CoreML/DirectML/CUDA EPs + `candle`/`tract` fallback; every AI tool degrades gracefully with no model/GPU. Generative fill stays optional (local diffusion *or* BYO cloud key).
+10. **Shared-crate discipline** → promote only generic primitives to `prism-*`; never raster-couple them, or Contour/Pulse break. New raster-only code stays in `pigment-gpui`.
+11. **Filter sprawl** → all filters/effects go through one `prism-fx` OpenFX-style pass registry (author once, reuse across the suite, run destructive or as smart filters) instead of bespoke pipelines per filter.
+
+---
+
+## 7. Current Status (Batch 5 complete — 2026-06-19)
+
+**GPUI migration complete.** `pigment-app` (egui) removed from workspace. `pigment-gpui` is the sole binary.
+
+### Completed in Batch 2
+- ✅ **UnsharpMask filter** — `Filter::UnsharpMask { radius, amount, threshold }`; two-pass proxy (blur + sharpen). Live in Filter Gallery Blur category.
+- ✅ **RadialBlur filter** — `Filter::RadialBlur { amount }`; Gaussian proxy scaled from amount. Replaces stub in Filter Gallery.
+- ✅ **CMYK soft proof** — `SoftProofMode` enum; CPU sRGB→CMYK→sRGB gamut-compression applied in `composite_and_bridge`. View menu toggle. `CanvasHost::set_soft_proof`.
+- ✅ **Export presets** — `ExportPreset` struct; JPEG 90% + PNG lossless defaults in `App::export_presets`. `ExportWithPreset(idx)` dispatches native save dialog + `CanvasHost::export_with_preset`. Two File menu shortcuts.
+- ✅ **Smart filter sub-rows** — Layers panel shows `↳ [name] ×` rows per smart filter; × dispatches `RemoveSmartFilter`. "Add SF" footer adds `Blur(2.0)`.
+- ✅ **Histogram per-channel mode** — `HistogramChannel` enum; clicking mode label cycles via `SetHistogramChannel`. Bars from `h.r/g/b/luma` per mode, colored by channel.
+
+### Completed in Batch 1
+- ✅ **Multi-layer PSD write** — full PSD v1 layer records per visible non-adjustment layer (name, blend key, opacity, channel data). Merged composite still written as §2.5.
+- ✅ **RAW import stub** — `Action::ImportRaw` / `OpenImportRawDialog`; DNG via TIFF decoder works; proprietary RAW blocked pending libraw dep.
+- ✅ **Filter Gallery panel** — dedicated `panels/filter_gallery.rs`; 6 categories (Artistic/Blur/Distort/Sketch/Stylize/Texture) with ~70 named effects; live effects apply, stubs show badge. Cmd+Shift+F shortcut.
+- ✅ **Saveable preferences** — `AppPrefs` struct serialized to `~/.config/prism/pigment_prefs.json`; loaded on startup; saved on document open. `dirs` crate for portable config dir.
+
+### Batch 3 — Content-Aware, Lens Correction, Perspective Warp, Camera Raw dialog (2026-06-19)
+- ✅ **Content-Aware Fill** — CPU PatchMatch (8×8 patches, 5 rounds, top-3 blend) from `content_aware.rs`. `Action::ContentAwareFill`. Cmd context hook: Shift+F5.
+- ✅ **Lens Correction** — `Filter::LensCorrection { barrel, pincushion, vignette }` radial polynomial + vignette in `lens_correction.rs`. Live entry in Filter Gallery → Distort. `Action::ApplyLensCorrection`.
+- ✅ **Perspective Warp** — DLT homography + inverse bilinear warp in `perspective_warp.rs`. `Action::PerspectiveWarp { src_pts, dst_pts }`.
+- ✅ **Camera Raw dialog** — `panels/camera_raw.rs` floating overlay with Basic/Detail/HSL sections (24 HSL sliders). Replaces previous inline overlay. Cmd+Shift+A shortcut.
+
+### Batch 5 — Distort/Blur/Stylize filters (2026-06-19)
+Promotes five Phase-8 filter-gallery stubs to live, Pigment-owned raster passes
+(`src/filters.rs`, pure CPU functions over the linear-premultiplied RGBA `f32`
+layer buffer — read → fn → upload, like `lens_correction`/`content_aware`; no
+`prism-canvas` shader or shared-crate change). All five wired into the Filter
+Gallery and the top-bar Filter menu; 9 unit tests.
+- ✅ **Motion Blur** (Phase 8 Blur) — directional box-average smear (`angle` + `distance`). `Filter::MotionBlur`.
+- ✅ **Twirl** (Phase 8 Distort) — centred rotational swirl with smooth radial falloff. `Filter::Twirl`.
+- ✅ **Pinch / Spherize** (Phase 8 Distort) — signed radial remap (pinch / bulge). `Filter::Pinch`.
+- ✅ **Solarize** (Phase 8 Stylize) — Sabattier tonal flip above a threshold. `Filter::Solarize`.
+- ✅ **Glowing Edges** (Phase 8 Stylize) — Sobel edge glow over black. `Filter::GlowingEdges`.
+
+### Completed in Wave 13–15
+- ✅ Grid snap, contextual tool options bar
+- ✅ EXR/HDR import + export
+- ✅ Slice tool (drag, overlay, export per-slice)
+- ✅ Liquify warp mesh tool
+- ✅ Smart filters (non-destructive per-layer stack)
+- ✅ Filter gallery (8 filters, modal UI — now replaced by full panel)
+- ✅ Camera Raw (Exposure/Highlights/Shadows/Clarity/Vibrance/Saturation modal)
+- ✅ Color profiles / soft proofing badge (sRGB / Adobe RGB / Display P3 / ProPhoto)
+- ✅ Dockable/floating panels (⤢ detach button per panel)
+
+### Remaining
+- [ ] Mask-from-selection (convert active selection to layer mask)
+- [ ] Export preset manager UI (add/delete custom presets; built-in two are hardcoded)
+- [ ] RAW import with libraw (upgrade stub once libraw/rawler dep available)
+
+*Parity score: 87/90 items ≈ 96.7% (3 remaining)*

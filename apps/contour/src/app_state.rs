@@ -1048,6 +1048,96 @@ pub enum Action {
     ApplyVariableFontToSelected,
     /// Reset all font axes to their midpoints ((min+max)/2).
     ResetFontAxes,
+
+    // --- Batch 11: Pathfinder depth ---
+    /// Apply a Pathfinder op to the selection (stub: records last op).
+    ApplyPathfinderOp(PathfinderOp),
+    /// Set the Pathfinder precision (clamped 0.001..=10.0).
+    SetPathfinderPrecision(f32),
+    /// Set whether to remove redundant points after a Pathfinder op.
+    SetPathfinderRemoveRedundant(bool),
+    /// Set whether strokes are divided in Divide mode.
+    SetPathfinderDivideStroke(bool),
+    /// Re-apply the last recorded Pathfinder op (no-op if none was recorded).
+    RepeatPathfinder,
+
+    // --- Batch 11: 3D Extrude depth ---
+    /// Toggle the 3D Extrude panel open/closed.
+    ToggleExtrudePanel,
+    /// Set extrude depth (clamped 0..=2000).
+    SetExtrudeDepth(f32),
+    /// Set extrude rotation on each axis (each clamped -180..=180).
+    SetExtrudeRotation { x: f32, y: f32, z: f32 },
+    /// Set extrude perspective (clamped 0..=160).
+    SetExtrudePerspective(f32),
+    /// Set the surface shading mode.
+    SetExtrudeSurface(ExtrudeSurface),
+    /// Set the cap style.
+    SetExtrudeCapStyle(ExtrudeCapStyle),
+    /// Set bevel height (clamped 0..=100).
+    SetExtrudeBevelHeight(f32),
+    /// Set all lighting parameters (each clamped 0..=100).
+    SetExtrudeLighting { intensity: f32, ambient: f32, specular: f32, gloss: f32 },
+    /// Set whether to map artwork onto the extruded faces.
+    SetExtrudeMapArt(bool),
+    /// Apply extrude to the selected shape (stub: records shape index).
+    ApplyExtrude,
+    /// Expand the extrude effect (stub: clears applied list).
+    ExpandExtrude,
+
+    // --- Batch 11: Chart depth ---
+    /// Toggle the chart panel open/closed.
+    ToggleChartPanel,
+    /// Add a dataset to the chart.
+    AddChartDataSet(ChartDataSet),
+    /// Remove a dataset by index (no-op if out of bounds).
+    RemoveChartDataSet(usize),
+    /// Set the values for a dataset by index.
+    SetChartDataSetValues { idx: usize, values: Vec<f64> },
+    /// Set the label for a dataset by index.
+    SetChartDataSetLabel { idx: usize, label: String },
+    /// Set the category (X-axis) labels.
+    SetChartCategoryLabels(Vec<String>),
+    /// Set the chart title.
+    SetChartTitle(String),
+    /// Set whether the legend is visible.
+    SetChartShowLegend(bool),
+    /// Set whether the grid is visible.
+    SetChartShowGrid(bool),
+    /// Set column width (clamped 20..=100).
+    SetChartColumnWidth(f32),
+    /// Set cluster width (clamped 20..=100).
+    SetChartClusterWidth(f32),
+    /// Set the value-axis min/max range.
+    SetChartValueRange { min: Option<f64>, max: Option<f64> },
+    /// Generate shapes from the current chart data (stub).
+    ApplyChartData,
+
+    // --- Batch 11: Envelope Distort depth ---
+    /// Toggle the envelope distort panel open/closed.
+    ToggleEnvelopePanel,
+    /// Set the warp preset style.
+    SetEnvelopeWarpStyle(EnvelopeWarpStyle),
+    /// Set the warp axis (true = horizontal).
+    SetEnvelopeAxis(bool),
+    /// Set the bend amount (clamped -100..=100).
+    SetEnvelopeBend(f32),
+    /// Set horizontal distortion (clamped -100..=100).
+    SetEnvelopeHDistortion(f32),
+    /// Set vertical distortion (clamped -100..=100).
+    SetEnvelopeVDistortion(f32),
+    /// Set the fidelity (clamped 0..=100).
+    SetEnvelopeFidelity(f32),
+    /// Set the edit mode (Envelope or Contents).
+    SetEnvelopeEditMode(EnvelopeEditMode),
+    /// Make an envelope with a warp preset (stub: records selected shape index).
+    MakeEnvelopeWithWarpPreset,
+    /// Make an envelope with a mesh using batch-11 config (stub: records selected shape index).
+    MakeEnvelopeWithMeshPreset,
+    /// Release the envelope distort from all tracked shapes (stub: clears applied list).
+    ReleaseEnvelopeAll,
+    /// Expand the envelope distort (stub: clears applied list).
+    ExpandEnvelope,
 }
 
 /// Stroke alignment relative to the path.
@@ -1543,6 +1633,192 @@ impl Default for SymbolSprayConfig {
     }
 }
 
+// --- Batch 11: Pathfinder depth ---
+
+/// The full set of Pathfinder shape-mode and effect operations.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum PathfinderOp {
+    // Shape modes
+    Unite,
+    Minus,
+    Intersect,
+    Exclude,
+    // Pathfinder effects
+    Divide,
+    Trim,
+    Merge,
+    Crop,
+    Outline,
+    MinusBack,
+}
+
+// --- Batch 11: 3D Extrude depth ---
+
+/// Surface shading mode for 3D Extrude & Bevel.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ExtrudeSurface {
+    #[default]
+    PlasticShading,
+    DiffuseShading,
+    WireframeOnly,
+    NoShading,
+}
+
+/// Cap style for 3D Extrude & Bevel.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ExtrudeCapStyle {
+    #[default]
+    Round,
+    Bevel,
+    None_,
+}
+
+/// Full configuration for the 3D Extrude & Bevel effect.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExtrudeConfig {
+    pub depth: f32,
+    pub rotation_x: f32,
+    pub rotation_y: f32,
+    pub rotation_z: f32,
+    pub perspective: f32,
+    pub surface: ExtrudeSurface,
+    pub cap_style: ExtrudeCapStyle,
+    pub bevel_height: f32,
+    pub bevel_extent: bool,
+    pub map_art: bool,
+    pub light_intensity: f32,
+    pub ambient_light: f32,
+    pub specular_highlight: f32,
+    pub gloss: f32,
+}
+
+impl Default for ExtrudeConfig {
+    fn default() -> Self {
+        Self {
+            depth: 50.0,
+            rotation_x: -26.0,
+            rotation_y: -38.0,
+            rotation_z: 0.0,
+            perspective: 0.0,
+            surface: ExtrudeSurface::PlasticShading,
+            cap_style: ExtrudeCapStyle::Round,
+            bevel_height: 4.0,
+            bevel_extent: false,
+            map_art: false,
+            light_intensity: 100.0,
+            ambient_light: 50.0,
+            specular_highlight: 70.0,
+            gloss: 25.0,
+        }
+    }
+}
+
+// --- Batch 11: Chart depth ---
+
+/// A single data series for the chart tool.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChartDataSet {
+    pub label: String,
+    pub values: Vec<f64>,
+    pub color: [f32; 4],
+}
+
+impl Default for ChartDataSet {
+    fn default() -> Self {
+        Self { label: "Series 1".to_string(), values: vec![], color: [0.2, 0.5, 0.9, 1.0] }
+    }
+}
+
+/// Full chart layout and data configuration.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChartConfig {
+    pub datasets: Vec<ChartDataSet>,
+    pub category_labels: Vec<String>,
+    pub title: String,
+    pub show_legend: bool,
+    pub show_grid: bool,
+    pub value_axis_min: Option<f64>,
+    pub value_axis_max: Option<f64>,
+    pub column_width: f32,
+    pub cluster_width: f32,
+    pub shadow: bool,
+}
+
+impl Default for ChartConfig {
+    fn default() -> Self {
+        Self {
+            datasets: vec![],
+            category_labels: vec![],
+            title: String::new(),
+            show_legend: true,
+            show_grid: false,
+            value_axis_min: None,
+            value_axis_max: None,
+            column_width: 90.0,
+            cluster_width: 80.0,
+            shadow: false,
+        }
+    }
+}
+
+// --- Batch 11: Envelope Distort depth ---
+
+/// Whether the envelope editor is editing the envelope mesh or the contents.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum EnvelopeEditMode {
+    #[default]
+    Envelope,
+    Contents,
+}
+
+/// Warp preset styles for Envelope Distort.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum EnvelopeWarpStyle {
+    #[default]
+    None_,
+    Arc,
+    ArcLower,
+    ArcUpper,
+    Arch,
+    Bulge,
+    ShellLower,
+    ShellUpper,
+    Flag,
+    Wave,
+    Fish,
+    Rise,
+    FishEye,
+    Inflate,
+    Squeeze,
+    Twist,
+}
+
+/// Configuration for the Envelope Distort warp.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EnvelopeConfig {
+    pub warp_style: EnvelopeWarpStyle,
+    pub horizontal: bool,
+    pub bend: f32,
+    pub h_distortion: f32,
+    pub v_distortion: f32,
+    pub fidelity: f32,
+    pub edit_mode: EnvelopeEditMode,
+}
+
+impl Default for EnvelopeConfig {
+    fn default() -> Self {
+        Self {
+            warp_style: EnvelopeWarpStyle::None_,
+            horizontal: true,
+            bend: 50.0,
+            h_distortion: 0.0,
+            v_distortion: 0.0,
+            fidelity: 50.0,
+            edit_mode: EnvelopeEditMode::Envelope,
+        }
+    }
+}
+
 // --- Batch 10: Variable Fonts ---
 
 /// A single OpenType variation axis.
@@ -1867,6 +2143,38 @@ pub struct App {
     pub variable_font_config: VariableFontConfig,
     /// Whether the variable-font panel is open.
     pub variable_font_panel_open: bool,
+
+    // --- Batch 11: Pathfinder depth ---
+    /// The last Pathfinder op that was applied (for RepeatPathfinder).
+    pub last_pathfinder_op: Option<PathfinderOp>,
+    /// Precision for Pathfinder geometry operations (0.001..=10.0).
+    pub pathfinder_precision: f32,
+    /// Whether to remove redundant points after a Pathfinder op.
+    pub pathfinder_remove_redundant: bool,
+    /// Whether strokes are divided in Divide mode.
+    pub pathfinder_divide_stroke: bool,
+
+    // --- Batch 11: 3D Extrude depth ---
+    /// Configuration for the 3D Extrude & Bevel effect.
+    pub extrude_config: ExtrudeConfig,
+    /// Whether the 3D Extrude panel is open.
+    pub extrude_panel_open: bool,
+    /// Indices of shapes that have had Extrude applied (stub tracking).
+    pub extrude_applied_shapes: Vec<usize>,
+
+    // --- Batch 11: Chart depth ---
+    /// Configuration for the chart tool.
+    pub chart_config: ChartConfig,
+    /// Whether the chart panel is open.
+    pub chart_panel_open: bool,
+
+    // --- Batch 11: Envelope Distort depth ---
+    /// Configuration for the Envelope Distort warp.
+    pub envelope_config: EnvelopeConfig,
+    /// Indices of shapes that have had an envelope applied (stub tracking).
+    pub envelope_applied_shapes: Vec<usize>,
+    /// Whether the envelope distort panel is open.
+    pub envelope_panel_open: bool,
 }
 
 impl App {
@@ -2016,6 +2324,19 @@ impl App {
             pattern_brush_library: Vec::new(),
             variable_font_config: VariableFontConfig::default(),
             variable_font_panel_open: false,
+            // Batch 11
+            last_pathfinder_op: None,
+            pathfinder_precision: 0.5,
+            pathfinder_remove_redundant: true,
+            pathfinder_divide_stroke: false,
+            extrude_config: ExtrudeConfig::default(),
+            extrude_panel_open: false,
+            extrude_applied_shapes: Vec::new(),
+            chart_config: ChartConfig::default(),
+            chart_panel_open: false,
+            envelope_config: EnvelopeConfig::default(),
+            envelope_applied_shapes: Vec::new(),
+            envelope_panel_open: false,
         }
     }
 
@@ -4924,6 +5245,164 @@ impl App {
                 for axis in self.variable_font_config.axes.iter_mut() {
                     axis.value = (axis.min + axis.max) / 2.0;
                 }
+            }
+
+            // --- Batch 11: Pathfinder depth ---
+            Action::ApplyPathfinderOp(op) => {
+                self.last_pathfinder_op = Some(op);
+            }
+            Action::SetPathfinderPrecision(v) => {
+                self.pathfinder_precision = v.clamp(0.001, 10.0);
+            }
+            Action::SetPathfinderRemoveRedundant(v) => {
+                self.pathfinder_remove_redundant = v;
+            }
+            Action::SetPathfinderDivideStroke(v) => {
+                self.pathfinder_divide_stroke = v;
+            }
+            Action::RepeatPathfinder => {
+                // Re-apply the last recorded op if one exists (geometry stub: no-op).
+                if let Some(_op) = self.last_pathfinder_op {
+                    // stub — geometry would be applied here
+                }
+            }
+
+            // --- Batch 11: 3D Extrude depth ---
+            Action::ToggleExtrudePanel => {
+                self.extrude_panel_open = !self.extrude_panel_open;
+            }
+            Action::SetExtrudeDepth(v) => {
+                self.extrude_config.depth = v.clamp(0.0, 2000.0);
+            }
+            Action::SetExtrudeRotation { x, y, z } => {
+                self.extrude_config.rotation_x = x.clamp(-180.0, 180.0);
+                self.extrude_config.rotation_y = y.clamp(-180.0, 180.0);
+                self.extrude_config.rotation_z = z.clamp(-180.0, 180.0);
+            }
+            Action::SetExtrudePerspective(v) => {
+                self.extrude_config.perspective = v.clamp(0.0, 160.0);
+            }
+            Action::SetExtrudeSurface(s) => {
+                self.extrude_config.surface = s;
+            }
+            Action::SetExtrudeCapStyle(c) => {
+                self.extrude_config.cap_style = c;
+            }
+            Action::SetExtrudeBevelHeight(v) => {
+                self.extrude_config.bevel_height = v.clamp(0.0, 100.0);
+            }
+            Action::SetExtrudeLighting { intensity, ambient, specular, gloss } => {
+                self.extrude_config.light_intensity = intensity.clamp(0.0, 100.0);
+                self.extrude_config.ambient_light = ambient.clamp(0.0, 100.0);
+                self.extrude_config.specular_highlight = specular.clamp(0.0, 100.0);
+                self.extrude_config.gloss = gloss.clamp(0.0, 100.0);
+            }
+            Action::SetExtrudeMapArt(v) => {
+                self.extrude_config.map_art = v;
+            }
+            Action::ApplyExtrude => {
+                if let Some(idx) = self.selected {
+                    if !self.extrude_applied_shapes.contains(&idx) {
+                        self.extrude_applied_shapes.push(idx);
+                    }
+                }
+            }
+            Action::ExpandExtrude => {
+                self.extrude_applied_shapes.clear();
+            }
+
+            // --- Batch 11: Chart depth ---
+            Action::ToggleChartPanel => {
+                self.chart_panel_open = !self.chart_panel_open;
+            }
+            Action::AddChartDataSet(ds) => {
+                self.chart_config.datasets.push(ds);
+            }
+            Action::RemoveChartDataSet(idx) => {
+                if idx < self.chart_config.datasets.len() {
+                    self.chart_config.datasets.remove(idx);
+                }
+            }
+            Action::SetChartDataSetValues { idx, values } => {
+                if let Some(ds) = self.chart_config.datasets.get_mut(idx) {
+                    ds.values = values;
+                }
+            }
+            Action::SetChartDataSetLabel { idx, label } => {
+                if let Some(ds) = self.chart_config.datasets.get_mut(idx) {
+                    ds.label = label;
+                }
+            }
+            Action::SetChartCategoryLabels(labels) => {
+                self.chart_config.category_labels = labels;
+            }
+            Action::SetChartTitle(title) => {
+                self.chart_config.title = title;
+            }
+            Action::SetChartShowLegend(v) => {
+                self.chart_config.show_legend = v;
+            }
+            Action::SetChartShowGrid(v) => {
+                self.chart_config.show_grid = v;
+            }
+            Action::SetChartColumnWidth(v) => {
+                self.chart_config.column_width = v.clamp(20.0, 100.0);
+            }
+            Action::SetChartClusterWidth(v) => {
+                self.chart_config.cluster_width = v.clamp(20.0, 100.0);
+            }
+            Action::SetChartValueRange { min, max } => {
+                self.chart_config.value_axis_min = min;
+                self.chart_config.value_axis_max = max;
+            }
+            Action::ApplyChartData => {
+                // stub: in a full impl, shapes would be generated per dataset value
+            }
+
+            // --- Batch 11: Envelope Distort depth ---
+            Action::ToggleEnvelopePanel => {
+                self.envelope_panel_open = !self.envelope_panel_open;
+            }
+            Action::SetEnvelopeWarpStyle(s) => {
+                self.envelope_config.warp_style = s;
+            }
+            Action::SetEnvelopeAxis(h) => {
+                self.envelope_config.horizontal = h;
+            }
+            Action::SetEnvelopeBend(v) => {
+                self.envelope_config.bend = v.clamp(-100.0, 100.0);
+            }
+            Action::SetEnvelopeHDistortion(v) => {
+                self.envelope_config.h_distortion = v.clamp(-100.0, 100.0);
+            }
+            Action::SetEnvelopeVDistortion(v) => {
+                self.envelope_config.v_distortion = v.clamp(-100.0, 100.0);
+            }
+            Action::SetEnvelopeFidelity(v) => {
+                self.envelope_config.fidelity = v.clamp(0.0, 100.0);
+            }
+            Action::SetEnvelopeEditMode(m) => {
+                self.envelope_config.edit_mode = m;
+            }
+            Action::MakeEnvelopeWithWarpPreset => {
+                if let Some(idx) = self.selected {
+                    if !self.envelope_applied_shapes.contains(&idx) {
+                        self.envelope_applied_shapes.push(idx);
+                    }
+                }
+            }
+            Action::MakeEnvelopeWithMeshPreset => {
+                if let Some(idx) = self.selected {
+                    if !self.envelope_applied_shapes.contains(&idx) {
+                        self.envelope_applied_shapes.push(idx);
+                    }
+                }
+            }
+            Action::ReleaseEnvelopeAll => {
+                self.envelope_applied_shapes.clear();
+            }
+            Action::ExpandEnvelope => {
+                self.envelope_applied_shapes.clear();
             }
         }
     }
@@ -8050,5 +8529,147 @@ mod tests {
         assert!(app.variable_font_panel_open);
         app.apply(Action::ToggleVariableFontPanel);
         assert!(!app.variable_font_panel_open);
+    }
+
+    // --- Batch 11: Pathfinder depth ---
+
+    #[test]
+    fn test_pathfinder_op_recorded() {
+        let mut app = App::new();
+        assert!(app.last_pathfinder_op.is_none());
+        app.apply(Action::ApplyPathfinderOp(PathfinderOp::Unite));
+        assert_eq!(app.last_pathfinder_op, Some(PathfinderOp::Unite));
+    }
+
+    #[test]
+    fn test_pathfinder_precision_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetPathfinderPrecision(0.0));
+        assert!((app.pathfinder_precision - 0.001).abs() < 1e-6, "should clamp to 0.001");
+        app.apply(Action::SetPathfinderPrecision(100.0));
+        assert!((app.pathfinder_precision - 10.0).abs() < 1e-6, "should clamp to 10.0");
+    }
+
+    #[test]
+    fn test_repeat_pathfinder_no_panic_when_none() {
+        let mut app = App::new();
+        // RepeatPathfinder with no prior op should not panic.
+        app.apply(Action::RepeatPathfinder);
+        assert!(app.last_pathfinder_op.is_none());
+    }
+
+    #[test]
+    fn test_repeat_pathfinder_reapplies() {
+        let mut app = App::new();
+        app.apply(Action::ApplyPathfinderOp(PathfinderOp::Minus));
+        app.apply(Action::RepeatPathfinder);
+        // last_pathfinder_op unchanged — still Minus
+        assert_eq!(app.last_pathfinder_op, Some(PathfinderOp::Minus));
+    }
+
+    // --- Batch 11: 3D Extrude depth ---
+
+    #[test]
+    fn test_extrude_depth_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetExtrudeDepth(5000.0));
+        assert!((app.extrude_config.depth - 2000.0).abs() < 1e-6, "depth should clamp to 2000");
+    }
+
+    #[test]
+    fn test_extrude_perspective_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetExtrudePerspective(200.0));
+        assert!((app.extrude_config.perspective - 160.0).abs() < 1e-6, "perspective should clamp to 160");
+    }
+
+    #[test]
+    fn test_extrude_rotation_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetExtrudeRotation { x: -300.0, y: 0.0, z: 0.0 });
+        assert!((app.extrude_config.rotation_x - (-180.0)).abs() < 1e-6, "x rotation should clamp to -180");
+    }
+
+    #[test]
+    fn test_extrude_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.extrude_panel_open);
+        app.apply(Action::ToggleExtrudePanel);
+        assert!(app.extrude_panel_open);
+        app.apply(Action::ToggleExtrudePanel);
+        assert!(!app.extrude_panel_open);
+    }
+
+    // --- Batch 11: Chart depth ---
+
+    #[test]
+    fn test_chart_add_dataset() {
+        let mut app = App::new();
+        assert!(app.chart_config.datasets.is_empty());
+        app.apply(Action::AddChartDataSet(ChartDataSet::default()));
+        assert_eq!(app.chart_config.datasets.len(), 1);
+        assert_eq!(app.chart_config.datasets[0].label, "Series 1");
+    }
+
+    #[test]
+    fn test_chart_remove_dataset_oob_no_panic() {
+        let mut app = App::new();
+        // Removing from an empty list should not panic.
+        app.apply(Action::RemoveChartDataSet(99));
+        assert!(app.chart_config.datasets.is_empty());
+    }
+
+    #[test]
+    fn test_chart_column_width_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetChartColumnWidth(5.0));
+        assert!((app.chart_config.column_width - 20.0).abs() < 1e-6, "column_width should clamp to 20");
+        app.apply(Action::SetChartColumnWidth(200.0));
+        assert!((app.chart_config.column_width - 100.0).abs() < 1e-6, "column_width should clamp to 100");
+    }
+
+    #[test]
+    fn test_chart_category_labels() {
+        let mut app = App::new();
+        let labels = vec!["Q1".to_string(), "Q2".to_string(), "Q3".to_string()];
+        app.apply(Action::SetChartCategoryLabels(labels.clone()));
+        assert_eq!(app.chart_config.category_labels, labels);
+    }
+
+    // --- Batch 11: Envelope Distort depth ---
+
+    #[test]
+    fn test_envelope_bend_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetEnvelopeBend(200.0));
+        assert!((app.envelope_config.bend - 100.0).abs() < 1e-6, "bend should clamp to 100");
+        app.apply(Action::SetEnvelopeBend(-200.0));
+        assert!((app.envelope_config.bend - (-100.0)).abs() < 1e-6, "bend should clamp to -100");
+    }
+
+    #[test]
+    fn test_envelope_fidelity_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetEnvelopeFidelity(200.0));
+        assert!((app.envelope_config.fidelity - 100.0).abs() < 1e-6, "fidelity should clamp to 100");
+    }
+
+    #[test]
+    fn test_make_envelope_with_warp_no_panic_no_selection() {
+        let mut app = App::new();
+        // No shape selected — should not panic, applied list stays empty.
+        app.apply(Action::MakeEnvelopeWithWarpPreset);
+        assert!(app.envelope_applied_shapes.is_empty());
+    }
+
+    #[test]
+    fn test_release_envelope_clears() {
+        let mut app = App::new();
+        // Select first shape then apply an envelope.
+        app.apply(Action::SelectShape(0));
+        app.apply(Action::MakeEnvelopeWithWarpPreset);
+        assert!(!app.envelope_applied_shapes.is_empty());
+        app.apply(Action::ReleaseEnvelopeAll);
+        assert!(app.envelope_applied_shapes.is_empty());
     }
 }

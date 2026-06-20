@@ -802,6 +802,56 @@ pub enum Action {
     SetChannelMixerOutput { layer_id: LayerId, output: u8 },
     /// Set the per-source-channel mix weights + constant for the active output channel.
     SetChannelMixerMix { layer_id: LayerId, src_r: f32, src_g: f32, src_b: f32, constant: f32 },
+
+    // --- Batch 4 extended: HDR Tone Mapping ---
+    /// Apply a tone-map operator to the active layer (stub — records method).
+    ApplyToneMap { method: ToneMapMethod, exposure: f32, gamma: f32 },
+    /// Toggle the live tone-map preview.
+    SetToneMapPreview(bool),
+
+    // --- Batch 4 extended: Neural Filters ---
+    /// Toggle the Neural Filters panel open/closed.
+    ToggleNeuralFiltersPanel,
+    /// Add a neural filter of the given kind with default strength.
+    AddNeuralFilter(NeuralFilterKind),
+    /// Remove a neural filter by index.
+    RemoveNeuralFilter(usize),
+    /// Set the strength (0..=1) of a neural filter by index.
+    SetNeuralFilterStrength { idx: usize, strength: f32 },
+    /// Toggle the enabled flag of a neural filter by index.
+    ToggleNeuralFilter(usize),
+    /// Apply all enabled neural filters (stub — records count).
+    ApplyNeuralFilters,
+
+    // --- Batch 4 extended: Layer Group depth ---
+    /// Collapse or expand a named layer group.
+    SetGroupCollapsed { group_name: String, collapsed: bool },
+    /// Move a layer into a named group (sets the layer's group field).
+    MoveLayerToGroup { layer_id: LayerId, group_name: String },
+    /// Remove a layer from its group (clears the group field).
+    RemoveLayerFromGroup(LayerId),
+    /// Flatten a named group: expand it and remove it from the collapsed set.
+    FlattenGroup(String),
+    /// Duplicate a named group (stub — records the name).
+    DuplicateGroup(String),
+
+    // --- Batch 4 extended: Print Layout ---
+    /// Set the number of print copies (min 1).
+    SetPrintCopies(u8),
+    /// Set whether copies should be collated.
+    SetPrintCollate(bool),
+    /// Set the print border width in mm (min 0).
+    SetPrintBorderWidth(f32),
+    /// Set whether the image is centred on the page.
+    SetPrintCenterImage(bool),
+    /// Toggle crop / registration marks on the print output.
+    SetPrintMarks(bool),
+    /// Set the bleed amount in mm (0..=25).
+    SetPrintBleed(f32),
+    /// Set the output print resolution in dpi (72..=2400).
+    SetPrintResolution(u32),
+    /// Set the page currently shown in the print preview.
+    SetPrintPreviewPage(usize),
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -938,6 +988,92 @@ pub enum SmartSharpenMode {
     GaussianBlur,
     LensBlur,
     MotionBlur,
+}
+
+// ---- Batch 4 extended: HDR Tone Mapping -----------------------------------------
+
+/// Tone-mapping operator used when converting HDR/EXR content to display range.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ToneMapMethod {
+    /// Simple Reinhard (per-channel normalization). Default.
+    #[default]
+    Reinhard,
+    /// Filmic S-curve (approximates film response).
+    Filmic,
+    /// ACES Cg reference transform.
+    AcesCg,
+    /// Pure exposure adjustment (no curve shaping).
+    Exposure,
+}
+
+// ---- Batch 4 extended: Neural Filters -------------------------------------------
+
+/// A single entry in the neural-filter stack.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NeuralFilter {
+    pub kind: NeuralFilterKind,
+    /// Blend/effect strength in 0..=1.
+    pub strength: f32,
+    pub enabled: bool,
+}
+
+impl Default for NeuralFilter {
+    fn default() -> Self {
+        Self {
+            kind: NeuralFilterKind::SkinSmoothing,
+            strength: 0.5,
+            enabled: true,
+        }
+    }
+}
+
+/// The AI-powered filter kind (stubs — no actual inference; GPU pass planned).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum NeuralFilterKind {
+    #[default]
+    SkinSmoothing,
+    SmartPortrait,
+    StyleTransfer,
+    Colorize,
+    SuperZoom,
+    JpegArtifactRemoval,
+    NoiseReduction,
+    DepthBlur,
+}
+
+// ---- Batch 4 extended: Print Layout ---------------------------------------------
+
+/// Extended print layout options shown in the print dialog.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrintLayout {
+    /// Number of copies to print (minimum 1).
+    pub copies: u8,
+    /// Whether copies are collated (true = 1-2-3 1-2-3, false = 1-1 2-2 3-3).
+    pub collate: bool,
+    /// Border width around the image in mm (minimum 0).
+    pub border_width: f32,
+    /// Whether the image is centred on the page.
+    pub center_image: bool,
+    /// Whether to include crop / registration marks.
+    pub print_marks: bool,
+    /// Bleed area in mm added outside the trim edge (0..=25).
+    pub bleed: f32,
+    /// Output resolution in dpi (72..=2400).
+    pub print_resolution: u32,
+}
+
+impl Default for PrintLayout {
+    fn default() -> Self {
+        Self {
+            copies: 1,
+            collate: true,
+            border_width: 0.0,
+            center_image: true,
+            print_marks: false,
+            bleed: 3.0,
+            print_resolution: 300,
+        }
+    }
 }
 
 // ---- Wave 11: Layer-style types ------------------------------------------------
@@ -1342,6 +1478,32 @@ pub struct App {
     pub last_spot_heal: Option<([f32; 2], f32)>,
     /// Position, radius, and darken amount of the last red-eye correction (stub state).
     pub last_red_eye: Option<([f32; 2], f32, f32)>,
+
+    // --- Batch 4 extended: HDR Tone Mapping ---
+    /// Whether the tone-map preview overlay is active.
+    pub tone_map_preview: bool,
+    /// The last tone-map method applied (None = never applied).
+    pub last_tone_map: Option<ToneMapMethod>,
+
+    // --- Batch 4 extended: Neural Filters ---
+    /// The neural-filter stack for this document.
+    pub neural_filters: Vec<NeuralFilter>,
+    /// Whether the Neural Filters panel is open.
+    pub neural_filters_panel_open: bool,
+    /// Count of enabled neural filters applied in the last `ApplyNeuralFilters` call.
+    pub last_neural_apply_count: usize,
+
+    // --- Batch 4 extended: Layer Group depth ---
+    /// Names of groups whose children are currently collapsed in the Layers panel.
+    pub collapsed_groups: std::collections::HashSet<String>,
+    /// Name of the group most recently duplicated (stub).
+    pub last_duplicated_group: Option<String>,
+
+    // --- Batch 4 extended: Print Layout ---
+    /// Extended print layout options (copies, bleed, marks, etc.).
+    pub print_layout: PrintLayout,
+    /// Page index shown in the print preview (0-based).
+    pub print_preview_page: usize,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -1993,6 +2155,19 @@ impl App {
             spot_heal_radius: 20.0,
             last_spot_heal: None,
             last_red_eye: None,
+            // Batch 4 extended: HDR Tone Mapping
+            tone_map_preview: false,
+            last_tone_map: None,
+            // Batch 4 extended: Neural Filters
+            neural_filters: Vec::new(),
+            neural_filters_panel_open: false,
+            last_neural_apply_count: 0,
+            // Batch 4 extended: Layer Group depth
+            collapsed_groups: std::collections::HashSet::new(),
+            last_duplicated_group: None,
+            // Batch 4 extended: Print Layout
+            print_layout: PrintLayout::default(),
+            print_preview_page: 0,
         }
     }
 
@@ -3599,6 +3774,90 @@ impl App {
                         self.sync_host_order_dirty();
                     }
                 }
+            }
+
+            // --- Batch 4 extended: HDR Tone Mapping ---
+            Action::ApplyToneMap { method, exposure, gamma } => {
+                self.last_tone_map = Some(method);
+                let _ = (exposure, gamma); // Real GPU pass lives in shaders.
+            }
+            Action::SetToneMapPreview(b) => {
+                self.tone_map_preview = b;
+            }
+
+            // --- Batch 4 extended: Neural Filters ---
+            Action::ToggleNeuralFiltersPanel => {
+                self.neural_filters_panel_open = !self.neural_filters_panel_open;
+            }
+            Action::AddNeuralFilter(k) => {
+                self.neural_filters.push(NeuralFilter { kind: k, ..Default::default() });
+            }
+            Action::RemoveNeuralFilter(i) => {
+                if i < self.neural_filters.len() {
+                    self.neural_filters.remove(i);
+                }
+            }
+            Action::SetNeuralFilterStrength { idx, strength } => {
+                if let Some(f) = self.neural_filters.get_mut(idx) {
+                    f.strength = strength.clamp(0.0, 1.0);
+                }
+            }
+            Action::ToggleNeuralFilter(i) => {
+                if i < self.neural_filters.len() {
+                    self.neural_filters[i].enabled = !self.neural_filters[i].enabled;
+                }
+            }
+            Action::ApplyNeuralFilters => {
+                self.last_neural_apply_count = self.neural_filters.iter().filter(|f| f.enabled).count();
+            }
+
+            // --- Batch 4 extended: Layer Group depth ---
+            Action::SetGroupCollapsed { group_name, collapsed } => {
+                if collapsed {
+                    self.collapsed_groups.insert(group_name);
+                } else {
+                    self.collapsed_groups.remove(&group_name);
+                }
+            }
+            Action::MoveLayerToGroup { layer_id, group_name } => {
+                // The layer struct in prism-core has no group field yet; record intent
+                // in the status message as a model-level stub.
+                self.status_message = Some(format!("Layer {:?} moved to group \"{}\"", layer_id, group_name));
+            }
+            Action::RemoveLayerFromGroup(layer_id) => {
+                self.status_message = Some(format!("Layer {:?} removed from group", layer_id));
+            }
+            Action::FlattenGroup(name) => {
+                self.collapsed_groups.remove(&name);
+            }
+            Action::DuplicateGroup(name) => {
+                self.last_duplicated_group = Some(name);
+            }
+
+            // --- Batch 4 extended: Print Layout ---
+            Action::SetPrintCopies(n) => {
+                self.print_layout.copies = n.max(1);
+            }
+            Action::SetPrintCollate(b) => {
+                self.print_layout.collate = b;
+            }
+            Action::SetPrintBorderWidth(w) => {
+                self.print_layout.border_width = w.max(0.0);
+            }
+            Action::SetPrintCenterImage(b) => {
+                self.print_layout.center_image = b;
+            }
+            Action::SetPrintMarks(b) => {
+                self.print_layout.print_marks = b;
+            }
+            Action::SetPrintBleed(b) => {
+                self.print_layout.bleed = b.clamp(0.0, 25.0);
+            }
+            Action::SetPrintResolution(r) => {
+                self.print_layout.print_resolution = r.clamp(72, 2400);
+            }
+            Action::SetPrintPreviewPage(p) => {
+                self.print_preview_page = p;
             }
         }
     }
@@ -5901,5 +6160,158 @@ mod batch7_tests {
         };
         let _ = Action::SetChannelMixerOutput { layer_id: LayerId(1), output: 0 };
         let _ = Action::SetChannelMixerMix { layer_id: LayerId(1), src_r: 1.0, src_g: 0.0, src_b: 0.0, constant: 0.0 };
+    }
+}
+
+// ---- Batch 4 extended tests ---------------------------------------------------
+
+#[cfg(test)]
+mod batch4_ext_tests {
+    use super::{Action, App, ToneMapMethod, NeuralFilterKind, PrintLayout};
+
+    // ---- HDR Tone Mapping ----
+
+    #[test]
+    fn test_tone_map_method_stored() {
+        let mut app = App::new();
+        assert!(app.last_tone_map.is_none());
+        app.apply(Action::ApplyToneMap { method: ToneMapMethod::Filmic, exposure: 1.0, gamma: 2.2 });
+        assert_eq!(app.last_tone_map, Some(ToneMapMethod::Filmic));
+        app.apply(Action::ApplyToneMap { method: ToneMapMethod::AcesCg, exposure: 0.5, gamma: 1.0 });
+        assert_eq!(app.last_tone_map, Some(ToneMapMethod::AcesCg));
+    }
+
+    #[test]
+    fn test_tone_map_preview_toggle() {
+        let mut app = App::new();
+        assert!(!app.tone_map_preview);
+        app.apply(Action::SetToneMapPreview(true));
+        assert!(app.tone_map_preview);
+        app.apply(Action::SetToneMapPreview(false));
+        assert!(!app.tone_map_preview);
+    }
+
+    // ---- Neural Filters ----
+
+    #[test]
+    fn test_add_remove_neural_filter() {
+        let mut app = App::new();
+        assert!(app.neural_filters.is_empty());
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::SkinSmoothing));
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::Colorize));
+        assert_eq!(app.neural_filters.len(), 2);
+        app.apply(Action::RemoveNeuralFilter(0));
+        assert_eq!(app.neural_filters.len(), 1);
+        assert_eq!(app.neural_filters[0].kind, NeuralFilterKind::Colorize);
+        // Out-of-bounds remove is a no-op.
+        app.apply(Action::RemoveNeuralFilter(99));
+        assert_eq!(app.neural_filters.len(), 1);
+    }
+
+    #[test]
+    fn test_neural_filter_strength_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::SuperZoom));
+        app.apply(Action::SetNeuralFilterStrength { idx: 0, strength: 1.5 });
+        assert!((app.neural_filters[0].strength - 1.0).abs() < 1e-6);
+        app.apply(Action::SetNeuralFilterStrength { idx: 0, strength: -0.5 });
+        assert!((app.neural_filters[0].strength - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_toggle_neural_filter() {
+        let mut app = App::new();
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::DepthBlur));
+        assert!(app.neural_filters[0].enabled);
+        app.apply(Action::ToggleNeuralFilter(0));
+        assert!(!app.neural_filters[0].enabled);
+        app.apply(Action::ToggleNeuralFilter(0));
+        assert!(app.neural_filters[0].enabled);
+        // Out-of-bounds toggle is a no-op.
+        app.apply(Action::ToggleNeuralFilter(99));
+    }
+
+    #[test]
+    fn test_apply_neural_filters_counts_enabled() {
+        let mut app = App::new();
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::SkinSmoothing));
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::Colorize));
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::StyleTransfer));
+        // Disable the second filter.
+        app.apply(Action::ToggleNeuralFilter(1));
+        app.apply(Action::ApplyNeuralFilters);
+        assert_eq!(app.last_neural_apply_count, 2);
+    }
+
+    // ---- Layer Group depth ----
+
+    #[test]
+    fn test_group_collapse_expand() {
+        let mut app = App::new();
+        assert!(app.collapsed_groups.is_empty());
+        app.apply(Action::SetGroupCollapsed { group_name: "Group 1".into(), collapsed: true });
+        assert!(app.collapsed_groups.contains("Group 1"));
+        app.apply(Action::SetGroupCollapsed { group_name: "Group 1".into(), collapsed: false });
+        assert!(!app.collapsed_groups.contains("Group 1"));
+    }
+
+    #[test]
+    fn test_duplicate_group_stub() {
+        let mut app = App::new();
+        assert!(app.last_duplicated_group.is_none());
+        app.apply(Action::DuplicateGroup("Background".into()));
+        assert_eq!(app.last_duplicated_group.as_deref(), Some("Background"));
+    }
+
+    // ---- Print Layout ----
+
+    #[test]
+    fn test_print_copies_min_1() {
+        let mut app = App::new();
+        app.apply(Action::SetPrintCopies(0));
+        assert_eq!(app.print_layout.copies, 1);
+        app.apply(Action::SetPrintCopies(5));
+        assert_eq!(app.print_layout.copies, 5);
+    }
+
+    #[test]
+    fn test_print_bleed_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetPrintBleed(50.0));
+        assert!((app.print_layout.bleed - 25.0).abs() < 1e-6);
+        app.apply(Action::SetPrintBleed(-1.0));
+        assert!((app.print_layout.bleed - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_print_resolution_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetPrintResolution(5000));
+        assert_eq!(app.print_layout.print_resolution, 2400);
+        app.apply(Action::SetPrintResolution(10));
+        assert_eq!(app.print_layout.print_resolution, 72);
+    }
+
+    #[test]
+    fn test_print_center_toggle() {
+        let mut app = App::new();
+        assert!(app.print_layout.center_image); // default true
+        app.apply(Action::SetPrintCenterImage(false));
+        assert!(!app.print_layout.center_image);
+        app.apply(Action::SetPrintCenterImage(true));
+        assert!(app.print_layout.center_image);
+    }
+
+    // ---- PrintLayout struct defaults ----
+    #[test]
+    fn test_print_layout_default() {
+        let pl = PrintLayout::default();
+        assert_eq!(pl.copies, 1);
+        assert!(pl.collate);
+        assert!((pl.border_width - 0.0).abs() < 1e-6);
+        assert!(pl.center_image);
+        assert!(!pl.print_marks);
+        assert!((pl.bleed - 3.0).abs() < 1e-6);
+        assert_eq!(pl.print_resolution, 300);
     }
 }

@@ -1873,6 +1873,187 @@ pub struct NestedSequence {
     pub duration: f32,
 }
 
+// --- Batch 10: Essential Graphics (Motion Graphics Templates) ----------------
+
+#[derive(Debug, Clone)]
+pub enum MogrParamValue {
+    Text(String),
+    Color([f32; 4]),
+    Number(f32),
+    Boolean(bool),
+}
+
+impl Default for MogrParamValue {
+    fn default() -> Self { MogrParamValue::Text(String::new()) }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MogrParam {
+    pub name: String,
+    pub value: MogrParamValue,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MogrTemplate {
+    pub name: String,
+    pub file_path: std::path::PathBuf,
+    pub duration_frames: u32,
+    pub params: Vec<MogrParam>,
+}
+
+// --- Batch 10: Color Management ----------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum DisplayColorSpace {
+    #[default]
+    Rec709,
+    Rec2020,
+    P3D65,
+    P3DCI,
+    #[allow(non_camel_case_types)]
+    sRGB,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum WorkingColorSpace {
+    #[default]
+    Rec709,
+    Rec2020Hlg,
+    Rec2020Pq,
+    LogC,
+    SLog3,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ColorManagementConfig {
+    pub enabled: bool,
+    pub display_space: DisplayColorSpace,
+    pub working_space: WorkingColorSpace,
+    pub output_lut_path: Option<std::path::PathBuf>,
+    pub hdr_output: bool,
+    pub max_luminance_nits: f32,
+    pub apply_lut_on_export: bool,
+}
+
+impl ColorManagementConfig {
+    pub fn new() -> Self {
+        Self {
+            max_luminance_nits: 1000.0,
+            ..Default::default()
+        }
+    }
+}
+
+// --- Batch 10: Export Presets (new model) ------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ExportFormatB10 {
+    #[default]
+    H264,
+    H265,
+    ProRes,
+    DnxHd,
+    Av1,
+    Mp3,
+    Aac,
+    Wav,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ExportResolution {
+    FourK,
+    #[default]
+    FullHd1080,
+    Hd720,
+    Sd480,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportPresetB10 {
+    pub name: String,
+    pub format: ExportFormatB10,
+    pub resolution: ExportResolution,
+    pub frame_rate: f32,
+    pub bitrate_mbps: f32,
+    pub two_pass: bool,
+    pub audio_bitrate_kbps: u32,
+    pub use_max_render_quality: bool,
+    pub use_frame_blend: bool,
+    pub export_video: bool,
+    pub export_audio: bool,
+}
+
+impl Default for ExportPresetB10 {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            format: ExportFormatB10::default(),
+            resolution: ExportResolution::default(),
+            frame_rate: 29.97,
+            bitrate_mbps: 20.0,
+            two_pass: false,
+            audio_bitrate_kbps: 320,
+            use_max_render_quality: false,
+            use_frame_blend: false,
+            export_video: true,
+            export_audio: true,
+        }
+    }
+}
+
+impl ExportPresetB10 {
+    pub fn h264_1080p() -> Self {
+        Self {
+            name: "H.264 1080p".to_string(),
+            format: ExportFormatB10::H264,
+            resolution: ExportResolution::FullHd1080,
+            frame_rate: 29.97,
+            bitrate_mbps: 20.0,
+            audio_bitrate_kbps: 320,
+            export_video: true,
+            export_audio: true,
+            ..Default::default()
+        }
+    }
+}
+
+// --- Batch 10: Proxy Workflow ------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ProxyFormat {
+    #[default]
+    ProRes422Proxy,
+    H264Proxy,
+    DnxHd36,
+    Mjpeg,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProxySettings {
+    pub format: ProxyFormat,
+    pub scale: f32,
+    pub destination: std::path::PathBuf,
+    pub create_in_background: bool,
+}
+
+impl Default for ProxySettings {
+    fn default() -> Self {
+        Self {
+            format: ProxyFormat::default(),
+            scale: 0.25,
+            destination: std::path::PathBuf::from("Proxies"),
+            create_in_background: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ClipProxy {
+    pub clip_idx: usize,
+    pub proxy_path: std::path::PathBuf,
+    pub attached: bool,
+}
+
 /// Every panel→state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -2361,6 +2542,54 @@ pub enum Action {
     ExitNestedSequence,
     RenameNestedSequence { idx: usize, name: String },
     DuplicateNestedSequence(usize),
+
+    // --- Batch 10: Essential Graphics (Motion Graphics Templates) ------------
+    ToggleMogrLibrary,
+    AddMogrTemplate(MogrTemplate),
+    RemoveMogrTemplate(usize),
+    SetActiveMogr(Option<usize>),
+    SetMogrParamText { template_idx: usize, param_idx: usize, text: String },
+    SetMogrParamNumber { template_idx: usize, param_idx: usize, value: f32 },
+    SetMogrParamColor { template_idx: usize, param_idx: usize, color: [f32; 4] },
+    ApplyMogrToClip { clip_idx: usize, template_idx: usize },
+    DetachMogrFromClip { clip_idx: usize },
+
+    // --- Batch 10: Color Management ------------------------------------------
+    ToggleColorManagementPanel,
+    SetColorManagementEnabled(bool),
+    SetDisplayColorSpace(DisplayColorSpace),
+    SetWorkingColorSpace(WorkingColorSpace),
+    SetOutputLutPath(Option<std::path::PathBuf>),
+    SetHdrOutput(bool),
+    SetMaxLuminance(f32),
+    SetApplyLutOnExport(bool),
+    ResetColorManagement,
+
+    // --- Batch 10: Export Presets (new model) --------------------------------
+    ToggleExportPanel,
+    AddExportPresetB10(ExportPresetB10),
+    RemoveExportPresetB10(usize),
+    SetActiveExportPreset(usize),
+    SetExportFormatB10(ExportFormatB10),
+    SetExportResolution(ExportResolution),
+    SetExportFrameRate(f32),
+    SetExportBitrate(f32),
+    SetExportAudioBitrate(u32),
+    SetExportTwoPass(bool),
+    SetExportPath(std::path::PathBuf),
+    StartExport,
+
+    // --- Batch 10: Proxy Workflow --------------------------------------------
+    ToggleProxyIngestPanel,
+    SetProxyFormat(ProxyFormat),
+    SetProxyScale(f32),
+    SetProxyDestination(std::path::PathBuf),
+    SetProxyCreateInBackground(bool),
+    CreateProxies { clip_indices: Vec<usize> },
+    AttachProxy { clip_idx: usize, path: std::path::PathBuf },
+    DetachProxy { clip_idx: usize },
+    ToggleProxyPlayback,
+    DeleteProxies { clip_indices: Vec<usize> },
 }
 
 /// The laid-out screen bounds of the timeline's scrub region (the lane body,
@@ -2676,6 +2905,28 @@ pub struct App {
     // --- Batch 9: Nest Sequence (extended) -----------------------------------
     pub nested_sequences: Vec<NestedSequence>,
     pub active_nested_seq: Option<usize>,
+
+    // --- Batch 10: Essential Graphics (Motion Graphics Templates) ------------
+    pub mogr_templates: Vec<MogrTemplate>,
+    pub mogr_library_open: bool,
+    pub active_mogr: Option<usize>,
+    pub mogr_applied_clips: Vec<(usize, usize)>,
+
+    // --- Batch 10: Color Management ------------------------------------------
+    pub color_management: ColorManagementConfig,
+    pub color_management_open: bool,
+
+    // --- Batch 10: Export Presets (new model) --------------------------------
+    pub export_presets_b10: Vec<ExportPresetB10>,
+    pub active_export_preset: usize,
+    pub export_panel_open: bool,
+    pub last_export_path: Option<std::path::PathBuf>,
+
+    // --- Batch 10: Proxy Workflow --------------------------------------------
+    pub proxy_settings: ProxySettings,
+    pub proxy_ingest_open: bool,
+    pub clip_proxies: Vec<ClipProxy>,
+    pub toggle_proxy_enabled: bool,
 }
 
 /// Collect snap candidate times: all clip edges + playhead + work area in/out.
@@ -2809,6 +3060,20 @@ impl App {
             sequence_settings_open: false,
             nested_sequences: Vec::new(),
             active_nested_seq: None,
+            mogr_templates: Vec::new(),
+            mogr_library_open: false,
+            active_mogr: None,
+            mogr_applied_clips: Vec::new(),
+            color_management: ColorManagementConfig::new(),
+            color_management_open: false,
+            export_presets_b10: vec![ExportPresetB10::h264_1080p()],
+            active_export_preset: 0,
+            export_panel_open: false,
+            last_export_path: None,
+            proxy_settings: ProxySettings::default(),
+            proxy_ingest_open: false,
+            clip_proxies: Vec::new(),
+            toggle_proxy_enabled: false,
         }
     }
 
@@ -4753,6 +5018,155 @@ impl App {
                     self.nested_sequences.push(clone);
                 }
             }
+
+            // --- Batch 10: Essential Graphics ----------------------------------------
+            Action::ToggleMogrLibrary => { self.mogr_library_open = !self.mogr_library_open; }
+            Action::AddMogrTemplate(t) => { self.mogr_templates.push(t); }
+            Action::RemoveMogrTemplate(idx) => {
+                if idx < self.mogr_templates.len() {
+                    self.mogr_templates.remove(idx);
+                    // fix up applied clips that referenced this template
+                    self.mogr_applied_clips.retain(|&(_, ti)| ti != idx);
+                    // adjust indices above the removed one
+                    for entry in &mut self.mogr_applied_clips {
+                        if entry.1 > idx { entry.1 -= 1; }
+                    }
+                    if let Some(a) = self.active_mogr {
+                        if a == idx {
+                            self.active_mogr = None;
+                        } else if a > idx {
+                            self.active_mogr = Some(a - 1);
+                        }
+                    }
+                }
+            }
+            Action::SetActiveMogr(opt) => { self.active_mogr = opt; }
+            Action::SetMogrParamText { template_idx, param_idx, text } => {
+                if let Some(t) = self.mogr_templates.get_mut(template_idx) {
+                    if let Some(p) = t.params.get_mut(param_idx) {
+                        p.value = MogrParamValue::Text(text);
+                    }
+                }
+            }
+            Action::SetMogrParamNumber { template_idx, param_idx, value } => {
+                if let Some(t) = self.mogr_templates.get_mut(template_idx) {
+                    if let Some(p) = t.params.get_mut(param_idx) {
+                        p.value = MogrParamValue::Number(value);
+                    }
+                }
+            }
+            Action::SetMogrParamColor { template_idx, param_idx, color } => {
+                if let Some(t) = self.mogr_templates.get_mut(template_idx) {
+                    if let Some(p) = t.params.get_mut(param_idx) {
+                        p.value = MogrParamValue::Color(color);
+                    }
+                }
+            }
+            Action::ApplyMogrToClip { clip_idx, template_idx } => {
+                // replace existing entry for this clip or push new
+                if let Some(entry) = self.mogr_applied_clips.iter_mut().find(|(ci, _)| *ci == clip_idx) {
+                    entry.1 = template_idx;
+                } else {
+                    self.mogr_applied_clips.push((clip_idx, template_idx));
+                }
+            }
+            Action::DetachMogrFromClip { clip_idx } => {
+                self.mogr_applied_clips.retain(|&(ci, _)| ci != clip_idx);
+            }
+
+            // --- Batch 10: Color Management ------------------------------------------
+            Action::ToggleColorManagementPanel => { self.color_management_open = !self.color_management_open; }
+            Action::SetColorManagementEnabled(v) => { self.color_management.enabled = v; }
+            Action::SetDisplayColorSpace(s) => { self.color_management.display_space = s; }
+            Action::SetWorkingColorSpace(s) => { self.color_management.working_space = s; }
+            Action::SetOutputLutPath(p) => { self.color_management.output_lut_path = p; }
+            Action::SetHdrOutput(v) => { self.color_management.hdr_output = v; }
+            Action::SetMaxLuminance(v) => { self.color_management.max_luminance_nits = v.clamp(100.0, 10000.0); }
+            Action::SetApplyLutOnExport(v) => { self.color_management.apply_lut_on_export = v; }
+            Action::ResetColorManagement => { self.color_management = ColorManagementConfig::new(); }
+
+            // --- Batch 10: Export Presets (new model) --------------------------------
+            Action::ToggleExportPanel => { self.export_panel_open = !self.export_panel_open; }
+            Action::AddExportPresetB10(p) => { self.export_presets_b10.push(p); }
+            Action::RemoveExportPresetB10(idx) => {
+                if self.export_presets_b10.len() > 1 && idx < self.export_presets_b10.len() {
+                    self.export_presets_b10.remove(idx);
+                    if self.active_export_preset >= self.export_presets_b10.len() {
+                        self.active_export_preset = self.export_presets_b10.len() - 1;
+                    }
+                }
+            }
+            Action::SetActiveExportPreset(idx) => {
+                self.active_export_preset = idx.min(self.export_presets_b10.len().saturating_sub(1));
+            }
+            Action::SetExportFormatB10(f) => {
+                if let Some(p) = self.export_presets_b10.get_mut(self.active_export_preset) {
+                    p.format = f;
+                }
+            }
+            Action::SetExportResolution(r) => {
+                if let Some(p) = self.export_presets_b10.get_mut(self.active_export_preset) {
+                    p.resolution = r;
+                }
+            }
+            Action::SetExportFrameRate(v) => {
+                if let Some(p) = self.export_presets_b10.get_mut(self.active_export_preset) {
+                    p.frame_rate = v.clamp(1.0, 120.0);
+                }
+            }
+            Action::SetExportBitrate(v) => {
+                if let Some(p) = self.export_presets_b10.get_mut(self.active_export_preset) {
+                    p.bitrate_mbps = v.clamp(0.1, 800.0);
+                }
+            }
+            Action::SetExportAudioBitrate(v) => {
+                if let Some(p) = self.export_presets_b10.get_mut(self.active_export_preset) {
+                    p.audio_bitrate_kbps = v.clamp(64, 1536);
+                }
+            }
+            Action::SetExportTwoPass(v) => {
+                if let Some(p) = self.export_presets_b10.get_mut(self.active_export_preset) {
+                    p.two_pass = v;
+                }
+            }
+            Action::SetExportPath(path) => { self.last_export_path = Some(path); }
+            Action::StartExport => {
+                if self.last_export_path.is_none() {
+                    self.last_export_path = Some(std::path::PathBuf::from("export_output"));
+                }
+            }
+
+            // --- Batch 10: Proxy Workflow --------------------------------------------
+            Action::ToggleProxyIngestPanel => { self.proxy_ingest_open = !self.proxy_ingest_open; }
+            Action::SetProxyFormat(f) => { self.proxy_settings.format = f; }
+            Action::SetProxyScale(v) => { self.proxy_settings.scale = v.clamp(0.1, 1.0); }
+            Action::SetProxyDestination(p) => { self.proxy_settings.destination = p; }
+            Action::SetProxyCreateInBackground(v) => { self.proxy_settings.create_in_background = v; }
+            Action::CreateProxies { clip_indices } => {
+                for idx in clip_indices {
+                    let proxy_path = std::path::PathBuf::from(format!("Proxies/clip_{}.mp4", idx));
+                    if !self.clip_proxies.iter().any(|cp| cp.clip_idx == idx) {
+                        self.clip_proxies.push(ClipProxy { clip_idx: idx, proxy_path, attached: false });
+                    }
+                }
+            }
+            Action::AttachProxy { clip_idx, path } => {
+                if let Some(cp) = self.clip_proxies.iter_mut().find(|cp| cp.clip_idx == clip_idx) {
+                    cp.proxy_path = path;
+                    cp.attached = true;
+                } else {
+                    self.clip_proxies.push(ClipProxy { clip_idx, proxy_path: path, attached: true });
+                }
+            }
+            Action::DetachProxy { clip_idx } => {
+                if let Some(cp) = self.clip_proxies.iter_mut().find(|cp| cp.clip_idx == clip_idx) {
+                    cp.attached = false;
+                }
+            }
+            Action::ToggleProxyPlayback => { self.toggle_proxy_enabled = !self.toggle_proxy_enabled; }
+            Action::DeleteProxies { clip_indices } => {
+                self.clip_proxies.retain(|cp| !clip_indices.contains(&cp.clip_idx));
+            }
         }
     }
 }
@@ -6068,5 +6482,220 @@ mod tests {
         app.apply(Action::NestSelectedClipsB9 { name: "OldName".to_string() });
         app.apply(Action::RenameNestedSequence { idx: 0, name: "MySeq".to_string() });
         assert_eq!(app.nested_sequences[0].name, "MySeq");
+    }
+
+    // --- Batch 10: Essential Graphics -----------------------------------------
+
+    #[test]
+    fn test_add_remove_mogr_template() {
+        let mut app = App::new();
+        assert_eq!(app.mogr_templates.len(), 0);
+        app.apply(Action::AddMogrTemplate(MogrTemplate {
+            name: "Lower Third".to_string(),
+            file_path: std::path::PathBuf::from("templates/lower_third.mogrt"),
+            duration_frames: 90,
+            params: Vec::new(),
+        }));
+        assert_eq!(app.mogr_templates.len(), 1);
+        assert_eq!(app.mogr_templates[0].name, "Lower Third");
+        app.apply(Action::RemoveMogrTemplate(0));
+        assert_eq!(app.mogr_templates.len(), 0);
+        // Out-of-bounds remove is a no-op.
+        app.apply(Action::RemoveMogrTemplate(99));
+        assert_eq!(app.mogr_templates.len(), 0);
+    }
+
+    #[test]
+    fn test_apply_mogr_to_clip() {
+        let mut app = App::new();
+        app.apply(Action::AddMogrTemplate(MogrTemplate { name: "T1".to_string(), ..Default::default() }));
+        app.apply(Action::ApplyMogrToClip { clip_idx: 3, template_idx: 0 });
+        assert_eq!(app.mogr_applied_clips.len(), 1);
+        assert_eq!(app.mogr_applied_clips[0], (3, 0));
+        // Applying again to same clip replaces entry.
+        app.apply(Action::AddMogrTemplate(MogrTemplate { name: "T2".to_string(), ..Default::default() }));
+        app.apply(Action::ApplyMogrToClip { clip_idx: 3, template_idx: 1 });
+        assert_eq!(app.mogr_applied_clips.len(), 1);
+        assert_eq!(app.mogr_applied_clips[0], (3, 1));
+    }
+
+    #[test]
+    fn test_detach_mogr_from_clip() {
+        let mut app = App::new();
+        app.apply(Action::AddMogrTemplate(MogrTemplate { name: "T".to_string(), ..Default::default() }));
+        app.apply(Action::ApplyMogrToClip { clip_idx: 2, template_idx: 0 });
+        assert_eq!(app.mogr_applied_clips.len(), 1);
+        app.apply(Action::DetachMogrFromClip { clip_idx: 2 });
+        assert_eq!(app.mogr_applied_clips.len(), 0);
+        // Detaching a clip with no mogr is a no-op.
+        app.apply(Action::DetachMogrFromClip { clip_idx: 99 });
+        assert_eq!(app.mogr_applied_clips.len(), 0);
+    }
+
+    #[test]
+    fn test_mogr_library_toggle() {
+        let mut app = App::new();
+        assert!(!app.mogr_library_open);
+        app.apply(Action::ToggleMogrLibrary);
+        assert!(app.mogr_library_open);
+        app.apply(Action::ToggleMogrLibrary);
+        assert!(!app.mogr_library_open);
+    }
+
+    // --- Batch 10: Color Management -------------------------------------------
+
+    #[test]
+    fn test_max_luminance_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 100.
+        app.apply(Action::SetMaxLuminance(50.0));
+        assert_eq!(app.color_management.max_luminance_nits, 100.0);
+        // Above maximum → clamped to 10000.
+        app.apply(Action::SetMaxLuminance(20000.0));
+        assert_eq!(app.color_management.max_luminance_nits, 10000.0);
+        // Within range passes through.
+        app.apply(Action::SetMaxLuminance(4000.0));
+        assert_eq!(app.color_management.max_luminance_nits, 4000.0);
+    }
+
+    #[test]
+    fn test_color_mgmt_reset() {
+        let mut app = App::new();
+        app.apply(Action::SetColorManagementEnabled(true));
+        app.apply(Action::SetHdrOutput(true));
+        app.apply(Action::SetMaxLuminance(5000.0));
+        app.apply(Action::ResetColorManagement);
+        assert!(!app.color_management.enabled);
+        assert!(!app.color_management.hdr_output);
+        assert_eq!(app.color_management.max_luminance_nits, 1000.0);
+    }
+
+    #[test]
+    fn test_display_color_space_set() {
+        let mut app = App::new();
+        assert_eq!(app.color_management.display_space, DisplayColorSpace::Rec709);
+        app.apply(Action::SetDisplayColorSpace(DisplayColorSpace::P3D65));
+        assert_eq!(app.color_management.display_space, DisplayColorSpace::P3D65);
+        app.apply(Action::SetDisplayColorSpace(DisplayColorSpace::Rec2020));
+        assert_eq!(app.color_management.display_space, DisplayColorSpace::Rec2020);
+    }
+
+    // --- Batch 10: Export Presets ---------------------------------------------
+
+    #[test]
+    fn test_export_frame_rate_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 1.
+        app.apply(Action::SetExportFrameRate(0.0));
+        assert_eq!(app.export_presets_b10[0].frame_rate, 1.0);
+        // Above maximum → clamped to 120.
+        app.apply(Action::SetExportFrameRate(200.0));
+        assert_eq!(app.export_presets_b10[0].frame_rate, 120.0);
+    }
+
+    #[test]
+    fn test_export_bitrate_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 0.1.
+        app.apply(Action::SetExportBitrate(0.0));
+        assert_eq!(app.export_presets_b10[0].bitrate_mbps, 0.1);
+    }
+
+    #[test]
+    fn test_export_audio_bitrate_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 64.
+        app.apply(Action::SetExportAudioBitrate(10));
+        assert_eq!(app.export_presets_b10[0].audio_bitrate_kbps, 64);
+    }
+
+    #[test]
+    fn test_remove_last_preset_blocked() {
+        let mut app = App::new();
+        // Only one preset exists; removing it should be a no-op.
+        assert_eq!(app.export_presets_b10.len(), 1);
+        app.apply(Action::RemoveExportPresetB10(0));
+        assert_eq!(app.export_presets_b10.len(), 1);
+    }
+
+    #[test]
+    fn test_add_preset_and_set_active() {
+        let mut app = App::new();
+        app.apply(Action::AddExportPresetB10(ExportPresetB10 {
+            name: "4K ProRes".to_string(),
+            format: ExportFormatB10::ProRes,
+            resolution: ExportResolution::FourK,
+            ..Default::default()
+        }));
+        assert_eq!(app.export_presets_b10.len(), 2);
+        app.apply(Action::SetActiveExportPreset(1));
+        assert_eq!(app.active_export_preset, 1);
+        // Clamp out-of-bounds index.
+        app.apply(Action::SetActiveExportPreset(99));
+        assert_eq!(app.active_export_preset, 1);
+    }
+
+    // --- Batch 10: Proxy Workflow ---------------------------------------------
+
+    #[test]
+    fn test_proxy_scale_clamp() {
+        let mut app = App::new();
+        // Below minimum → 0.1.
+        app.apply(Action::SetProxyScale(0.0));
+        assert_eq!(app.proxy_settings.scale, 0.1);
+        // Above maximum → 1.0.
+        app.apply(Action::SetProxyScale(2.0));
+        assert_eq!(app.proxy_settings.scale, 1.0);
+        // Within range.
+        app.apply(Action::SetProxyScale(0.5));
+        assert_eq!(app.proxy_settings.scale, 0.5);
+    }
+
+    #[test]
+    fn test_create_proxies_pushes_entries() {
+        let mut app = App::new();
+        assert_eq!(app.clip_proxies.len(), 0);
+        app.apply(Action::CreateProxies { clip_indices: vec![0, 2, 5] });
+        assert_eq!(app.clip_proxies.len(), 3);
+        assert_eq!(app.clip_proxies[0].clip_idx, 0);
+        assert_eq!(app.clip_proxies[1].clip_idx, 2);
+        assert_eq!(app.clip_proxies[2].clip_idx, 5);
+        // All newly created proxies start unattached.
+        assert!(!app.clip_proxies[0].attached);
+        // Duplicate clip_idx should not add a second entry.
+        app.apply(Action::CreateProxies { clip_indices: vec![0] });
+        assert_eq!(app.clip_proxies.len(), 3);
+    }
+
+    #[test]
+    fn test_attach_proxy_sets_flag() {
+        let mut app = App::new();
+        let p = std::path::PathBuf::from("Proxies/clip_0.mp4");
+        app.apply(Action::AttachProxy { clip_idx: 0, path: p.clone() });
+        assert_eq!(app.clip_proxies.len(), 1);
+        assert!(app.clip_proxies[0].attached);
+        assert_eq!(app.clip_proxies[0].proxy_path, p);
+    }
+
+    #[test]
+    fn test_detach_proxy() {
+        let mut app = App::new();
+        app.apply(Action::AttachProxy {
+            clip_idx: 1,
+            path: std::path::PathBuf::from("Proxies/clip_1.mp4"),
+        });
+        assert!(app.clip_proxies[0].attached);
+        app.apply(Action::DetachProxy { clip_idx: 1 });
+        assert!(!app.clip_proxies[0].attached);
+    }
+
+    #[test]
+    fn test_toggle_proxy_playback() {
+        let mut app = App::new();
+        assert!(!app.toggle_proxy_enabled);
+        app.apply(Action::ToggleProxyPlayback);
+        assert!(app.toggle_proxy_enabled);
+        app.apply(Action::ToggleProxyPlayback);
+        assert!(!app.toggle_proxy_enabled);
     }
 }

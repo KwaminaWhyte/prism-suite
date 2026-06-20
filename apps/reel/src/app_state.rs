@@ -1504,6 +1504,166 @@ pub struct ExportPreset {
     pub bitrate_kbps: u32,
 }
 
+// --- Batch 9: Lumetri Color depth --------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum LumetriPanel {
+    #[default]
+    Basic,
+    Creative,
+    Curves,
+    ColorWheels,
+    HslSecondary,
+    Vignette,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ColorWheelMode {
+    #[default]
+    ThreeWay,
+    Compare,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LumetriColorConfig {
+    pub active_panel: LumetriPanel,
+    // Basic panel
+    pub exposure: f32,
+    pub contrast: f32,
+    pub highlights: f32,
+    pub shadows: f32,
+    pub whites: f32,
+    pub blacks: f32,
+    pub temp: f32,
+    pub tint: f32,
+    pub saturation: f32,
+    // Creative panel
+    pub faded_film: f32,
+    pub sharpen: f32,
+    pub vibrance: f32,
+    pub shadow_tint: [f32; 3],
+    pub highlight_tint: [f32; 3],
+    // Curves (5 control points)
+    pub luma_curve: Vec<[f32; 2]>,
+    // HSL Secondary
+    pub hsl_hue_range: [f32; 2],
+    pub hsl_sat_range: [f32; 2],
+    pub hsl_luma_range: [f32; 2],
+    pub hsl_hue_shift: f32,
+    pub hsl_sat_shift: f32,
+    pub hsl_luma_shift: f32,
+    // Vignette
+    pub vignette_amount: f32,
+    pub vignette_midpoint: f32,
+    pub vignette_roundness: f32,
+    pub vignette_feather: f32,
+}
+
+impl LumetriColorConfig {
+    pub fn new() -> Self {
+        let mut cfg = Self::default();
+        cfg.luma_curve = vec![[0.0, 0.0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1.0, 1.0]];
+        cfg.hsl_hue_range = [0.0, 360.0];
+        cfg.hsl_sat_range = [0.0, 100.0];
+        cfg.hsl_luma_range = [0.0, 100.0];
+        cfg.vignette_midpoint = 50.0;
+        cfg.vignette_feather = 50.0;
+        cfg
+    }
+}
+
+// --- Batch 9: Captions / Subtitles (extended model) --------------------------
+
+#[derive(Debug, Clone, Default)]
+pub struct CaptionB9 {
+    pub start_sec: f32,
+    pub end_sec: f32,
+    pub text: String,
+    pub speaker: String,
+    pub style_id: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CaptionStyleB9 {
+    pub name: String,
+    pub font_size: f32,
+    pub bold: bool,
+    pub italic: bool,
+    pub position: [f32; 2],
+    pub color: [f32; 4],
+    pub background_opacity: f32,
+}
+
+impl CaptionStyleB9 {
+    pub fn default_style() -> Self {
+        Self {
+            name: "Default".to_string(),
+            font_size: 36.0,
+            position: [0.5, 0.9],
+            color: [1.0, 1.0, 1.0, 1.0],
+            ..Default::default()
+        }
+    }
+}
+
+// --- Batch 9: Sequence Settings (extended model) -----------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum SeqFrameRate {
+    Fps23_976,
+    Fps24,
+    Fps25,
+    #[default]
+    Fps29_97,
+    Fps30,
+    Fps50,
+    Fps59_94,
+    Fps60,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum SeqPixelAspect {
+    #[default]
+    Square,
+    D1Ntsc,
+    D1Pal,
+    Anamorphic,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SequenceSettings {
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: SeqFrameRate,
+    pub pixel_aspect: SeqPixelAspect,
+    pub audio_sample_rate: u32,
+    pub audio_channels: u8,
+    pub preview_codec: String,
+}
+
+impl SequenceSettings {
+    pub fn hd_1080p() -> Self {
+        Self {
+            width: 1920,
+            height: 1080,
+            audio_sample_rate: 48000,
+            audio_channels: 2,
+            preview_codec: "I-Frame Only MPEG".to_string(),
+            ..Default::default()
+        }
+    }
+}
+
+// --- Batch 9: Nest Sequence (extended model) ---------------------------------
+
+#[derive(Debug, Clone, Default)]
+pub struct NestedSequence {
+    pub name: String,
+    pub clip_indices: Vec<usize>,
+    pub start_time: f32,
+    pub duration: f32,
+}
+
 /// Every panel→state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -1867,6 +2027,59 @@ pub enum Action {
     // --- Batch 5: group ripple trim ---
     GroupRippleTrimIn { clip_indices: Vec<usize>, delta: f32 },
     GroupRippleTrimOut { clip_indices: Vec<usize>, delta: f32 },
+
+    // --- Batch 9: Lumetri Color depth ----------------------------------------
+    SetLumetriPanel(LumetriPanel),
+    SetLumetriExposure(f32),
+    SetLumetriContrast(f32),
+    SetLumetriHighlights(f32),
+    SetLumetriShadows(f32),
+    SetLumetriWhites(f32),
+    SetLumetriBlacks(f32),
+    SetLumetriTemp(f32),
+    SetLumetriTint(f32),
+    SetLumetriSaturation(f32),
+    SetLumetriFadedFilm(f32),
+    SetLumetriSharpen(f32),
+    SetLumetriVibrance(f32),
+    SetLumetriHslHueRange([f32; 2]),
+    SetLumetriHslSatRange([f32; 2]),
+    SetLumetriHslShifts { hue: f32, sat: f32, luma: f32 },
+    SetLumetriVignette { amount: f32, midpoint: f32, roundness: f32, feather: f32 },
+    ResetLumetriPanel,
+    ApplyLumetriToClip { clip_idx: usize },
+    ToggleLumetriPanel,
+
+    // --- Batch 9: Captions / Subtitles (extended) ----------------------------
+    AddCaptionB9(CaptionB9),
+    RemoveCaptionB9(usize),
+    SetCaptionText { idx: usize, text: String },
+    SetCaptionTiming { idx: usize, start: f32, end: f32 },
+    SetCaptionSpeaker { idx: usize, speaker: String },
+    SetCaptionStyle { idx: usize, style_id: usize },
+    AddCaptionStyleB9(CaptionStyleB9),
+    ToggleCaptionTrack,
+    ExportSrtB9(std::path::PathBuf),
+    ImportSrtB9(std::path::PathBuf),
+    AutoTranscribe,
+
+    // --- Batch 9: Sequence Settings (extended) --------------------------------
+    ToggleSequenceSettingsPanel,
+    SetSeqResolution { w: u32, h: u32 },
+    SetSeqFrameRate(SeqFrameRate),
+    SetSeqPixelAspect(SeqPixelAspect),
+    SetSeqAudioSampleRate(u32),
+    SetSeqAudioChannels(u8),
+    SetSeqPreviewCodec(String),
+    ApplySequenceSettings,
+
+    // --- Batch 9: Nest Sequence (extended) -----------------------------------
+    NestSelectedClipsB9 { name: String },
+    UnnestSequence(usize),
+    EnterNestedSequence(usize),
+    ExitNestedSequence,
+    RenameNestedSequence { idx: usize, name: String },
+    DuplicateNestedSequence(usize),
 }
 
 /// The laid-out screen bounds of the timeline's scrub region (the lane body,
@@ -2130,6 +2343,25 @@ pub struct App {
     pub lufs_short_term: f32,
     pub lufs_integrated: f32,
     pub lufs_power_history: Vec<f32>,
+
+    // --- Batch 9: Lumetri Color depth ----------------------------------------
+    pub lumetri: LumetriColorConfig,
+    pub lumetri_panel_open: bool,
+    pub lumetri_applied_clip: Option<usize>,
+
+    // --- Batch 9: Captions / Subtitles (extended) ----------------------------
+    pub captions_b9: Vec<CaptionB9>,
+    pub caption_styles_b9: Vec<CaptionStyleB9>,
+    pub caption_track_visible: bool,
+    pub last_srt_export_path: Option<std::path::PathBuf>,
+
+    // --- Batch 9: Sequence Settings (extended) --------------------------------
+    pub sequence_settings: SequenceSettings,
+    pub sequence_settings_open: bool,
+
+    // --- Batch 9: Nest Sequence (extended) -----------------------------------
+    pub nested_sequences: Vec<NestedSequence>,
+    pub active_nested_seq: Option<usize>,
 }
 
 /// Collect snap candidate times: all clip edges + playhead + work area in/out.
@@ -2231,6 +2463,17 @@ impl App {
             lufs_short_term: -f32::INFINITY,
             lufs_integrated: -f32::INFINITY,
             lufs_power_history: Vec::new(),
+            lumetri: LumetriColorConfig::new(),
+            lumetri_panel_open: false,
+            lumetri_applied_clip: None,
+            captions_b9: Vec::new(),
+            caption_styles_b9: vec![CaptionStyleB9::default_style()],
+            caption_track_visible: true,
+            last_srt_export_path: None,
+            sequence_settings: SequenceSettings::hd_1080p(),
+            sequence_settings_open: false,
+            nested_sequences: Vec::new(),
+            active_nested_seq: None,
         }
     }
 
@@ -3728,6 +3971,181 @@ impl App {
                 }
                 self.host.mark_dirty();
             }
+
+            // --- Batch 9: Lumetri Color depth ----------------------------------------
+            Action::SetLumetriPanel(p) => { self.lumetri.active_panel = p; }
+            Action::SetLumetriExposure(v) => { self.lumetri.exposure = v.clamp(-5.0, 5.0); }
+            Action::SetLumetriContrast(v) => { self.lumetri.contrast = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriHighlights(v) => { self.lumetri.highlights = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriShadows(v) => { self.lumetri.shadows = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriWhites(v) => { self.lumetri.whites = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriBlacks(v) => { self.lumetri.blacks = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriTemp(v) => { self.lumetri.temp = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriTint(v) => { self.lumetri.tint = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriSaturation(v) => { self.lumetri.saturation = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriFadedFilm(v) => { self.lumetri.faded_film = v.clamp(0.0, 100.0); }
+            Action::SetLumetriSharpen(v) => { self.lumetri.sharpen = v.clamp(0.0, 100.0); }
+            Action::SetLumetriVibrance(v) => { self.lumetri.vibrance = v.clamp(-100.0, 100.0); }
+            Action::SetLumetriHslHueRange(r) => { self.lumetri.hsl_hue_range = r; }
+            Action::SetLumetriHslSatRange(r) => { self.lumetri.hsl_sat_range = r; }
+            Action::SetLumetriHslShifts { hue, sat, luma } => {
+                self.lumetri.hsl_hue_shift = hue;
+                self.lumetri.hsl_sat_shift = sat;
+                self.lumetri.hsl_luma_shift = luma;
+            }
+            Action::SetLumetriVignette { amount, midpoint, roundness, feather } => {
+                self.lumetri.vignette_amount = amount;
+                self.lumetri.vignette_midpoint = midpoint;
+                self.lumetri.vignette_roundness = roundness;
+                self.lumetri.vignette_feather = feather;
+            }
+            Action::ResetLumetriPanel => {
+                let fresh = LumetriColorConfig::new();
+                match self.lumetri.active_panel {
+                    LumetriPanel::Basic => {
+                        self.lumetri.exposure = fresh.exposure;
+                        self.lumetri.contrast = fresh.contrast;
+                        self.lumetri.highlights = fresh.highlights;
+                        self.lumetri.shadows = fresh.shadows;
+                        self.lumetri.whites = fresh.whites;
+                        self.lumetri.blacks = fresh.blacks;
+                        self.lumetri.temp = fresh.temp;
+                        self.lumetri.tint = fresh.tint;
+                        self.lumetri.saturation = fresh.saturation;
+                    }
+                    LumetriPanel::Creative => {
+                        self.lumetri.faded_film = fresh.faded_film;
+                        self.lumetri.sharpen = fresh.sharpen;
+                        self.lumetri.vibrance = fresh.vibrance;
+                        self.lumetri.shadow_tint = fresh.shadow_tint;
+                        self.lumetri.highlight_tint = fresh.highlight_tint;
+                    }
+                    LumetriPanel::Curves => {
+                        self.lumetri.luma_curve = fresh.luma_curve;
+                    }
+                    LumetriPanel::HslSecondary => {
+                        self.lumetri.hsl_hue_range = fresh.hsl_hue_range;
+                        self.lumetri.hsl_sat_range = fresh.hsl_sat_range;
+                        self.lumetri.hsl_luma_range = fresh.hsl_luma_range;
+                        self.lumetri.hsl_hue_shift = fresh.hsl_hue_shift;
+                        self.lumetri.hsl_sat_shift = fresh.hsl_sat_shift;
+                        self.lumetri.hsl_luma_shift = fresh.hsl_luma_shift;
+                    }
+                    LumetriPanel::Vignette => {
+                        self.lumetri.vignette_amount = fresh.vignette_amount;
+                        self.lumetri.vignette_midpoint = fresh.vignette_midpoint;
+                        self.lumetri.vignette_roundness = fresh.vignette_roundness;
+                        self.lumetri.vignette_feather = fresh.vignette_feather;
+                    }
+                    LumetriPanel::ColorWheels => {}
+                }
+            }
+            Action::ApplyLumetriToClip { clip_idx } => {
+                self.lumetri_applied_clip = Some(clip_idx);
+            }
+            Action::ToggleLumetriPanel => {
+                self.lumetri_panel_open = !self.lumetri_panel_open;
+            }
+
+            // --- Batch 9: Captions / Subtitles (extended) ----------------------------
+            Action::AddCaptionB9(cap) => { self.captions_b9.push(cap); }
+            Action::RemoveCaptionB9(idx) => {
+                if idx < self.captions_b9.len() { self.captions_b9.remove(idx); }
+            }
+            Action::SetCaptionText { idx, text } => {
+                if let Some(c) = self.captions_b9.get_mut(idx) { c.text = text; }
+            }
+            Action::SetCaptionTiming { idx, start, end } => {
+                if let Some(c) = self.captions_b9.get_mut(idx) {
+                    c.start_sec = start;
+                    c.end_sec = end;
+                }
+            }
+            Action::SetCaptionSpeaker { idx, speaker } => {
+                if let Some(c) = self.captions_b9.get_mut(idx) { c.speaker = speaker; }
+            }
+            Action::SetCaptionStyle { idx, style_id } => {
+                if let Some(c) = self.captions_b9.get_mut(idx) { c.style_id = style_id; }
+            }
+            Action::AddCaptionStyleB9(style) => { self.caption_styles_b9.push(style); }
+            Action::ToggleCaptionTrack => { self.caption_track_visible = !self.caption_track_visible; }
+            Action::ExportSrtB9(path) => { self.last_srt_export_path = Some(path); }
+            Action::ImportSrtB9(_path) => {
+                self.captions_b9.clear();
+                self.captions_b9.push(CaptionB9 {
+                    start_sec: 0.0,
+                    end_sec: 1.0,
+                    text: "[Imported SRT]".to_string(),
+                    speaker: String::new(),
+                    style_id: 0,
+                });
+            }
+            Action::AutoTranscribe => {
+                self.captions_b9.push(CaptionB9 {
+                    start_sec: 0.0,
+                    end_sec: 5.0,
+                    text: "[Auto-transcribed]".to_string(),
+                    speaker: String::new(),
+                    style_id: 0,
+                });
+            }
+
+            // --- Batch 9: Sequence Settings (extended) --------------------------------
+            Action::ToggleSequenceSettingsPanel => {
+                self.sequence_settings_open = !self.sequence_settings_open;
+            }
+            Action::SetSeqResolution { w, h } => {
+                self.sequence_settings.width = w.max(1);
+                self.sequence_settings.height = h.max(1);
+            }
+            Action::SetSeqFrameRate(fr) => { self.sequence_settings.frame_rate = fr; }
+            Action::SetSeqPixelAspect(pa) => { self.sequence_settings.pixel_aspect = pa; }
+            Action::SetSeqAudioSampleRate(rate) => { self.sequence_settings.audio_sample_rate = rate; }
+            Action::SetSeqAudioChannels(ch) => {
+                self.sequence_settings.audio_channels = ch.clamp(1, 8);
+            }
+            Action::SetSeqPreviewCodec(codec) => { self.sequence_settings.preview_codec = codec; }
+            Action::ApplySequenceSettings => {
+                // Stub: settings are already stored in sequence_settings; no-op.
+            }
+
+            // --- Batch 9: Nest Sequence (extended) -----------------------------------
+            Action::NestSelectedClipsB9 { name } => {
+                let n = self.project.clips.len();
+                let end = 2_usize.min(n);
+                let clip_indices: Vec<usize> = (0..end).collect();
+                let start_time = self.project.clips.first().map(|c| c.start).unwrap_or(0.0);
+                let duration = clip_indices.iter()
+                    .filter_map(|&i| self.project.clips.get(i))
+                    .map(|c| c.end())
+                    .fold(0.0_f32, f32::max) - start_time;
+                self.nested_sequences.push(NestedSequence {
+                    name,
+                    clip_indices,
+                    start_time,
+                    duration: duration.max(0.0),
+                });
+            }
+            Action::UnnestSequence(idx) => {
+                if idx < self.nested_sequences.len() {
+                    self.nested_sequences.remove(idx);
+                }
+            }
+            Action::EnterNestedSequence(idx) => {
+                if idx < self.nested_sequences.len() {
+                    self.active_nested_seq = Some(idx);
+                }
+            }
+            Action::ExitNestedSequence => { self.active_nested_seq = None; }
+            Action::RenameNestedSequence { idx, name } => {
+                if let Some(ns) = self.nested_sequences.get_mut(idx) { ns.name = name; }
+            }
+            Action::DuplicateNestedSequence(idx) => {
+                if idx < self.nested_sequences.len() {
+                    let clone = self.nested_sequences[idx].clone();
+                    self.nested_sequences.push(clone);
+                }
+            }
         }
     }
 }
@@ -4559,5 +4977,172 @@ mod tests {
         // Durations should have grown.
         assert!(app.project.clips[0].end() > end0 - 1e-4);
         assert!(app.project.clips[1].end() > end1 - 1e-4);
+    }
+
+    // --- Batch 9: Lumetri Color depth ----------------------------------------
+
+    #[test]
+    fn test_lumetri_exposure_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetLumetriExposure(10.0));
+        assert!((app.lumetri.exposure - 5.0).abs() < 1e-5);
+        app.apply(Action::SetLumetriExposure(-10.0));
+        assert!((app.lumetri.exposure - (-5.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lumetri_saturation_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetLumetriSaturation(200.0));
+        assert!((app.lumetri.saturation - 100.0).abs() < 1e-5);
+        app.apply(Action::SetLumetriSaturation(-200.0));
+        assert!((app.lumetri.saturation - (-100.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lumetri_apply_to_clip() {
+        let mut app = App::new();
+        assert!(app.lumetri_applied_clip.is_none());
+        app.apply(Action::ApplyLumetriToClip { clip_idx: 0 });
+        assert_eq!(app.lumetri_applied_clip, Some(0));
+    }
+
+    #[test]
+    fn test_lumetri_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.lumetri_panel_open);
+        app.apply(Action::ToggleLumetriPanel);
+        assert!(app.lumetri_panel_open);
+        app.apply(Action::ToggleLumetriPanel);
+        assert!(!app.lumetri_panel_open);
+    }
+
+    // --- Batch 9: Captions / Subtitles ---------------------------------------
+
+    #[test]
+    fn test_add_remove_caption() {
+        let mut app = App::new();
+        assert_eq!(app.captions_b9.len(), 0);
+        app.apply(Action::AddCaptionB9(CaptionB9 {
+            start_sec: 0.0, end_sec: 2.0, text: "Hello".to_string(),
+            speaker: "A".to_string(), style_id: 0,
+        }));
+        assert_eq!(app.captions_b9.len(), 1);
+        app.apply(Action::RemoveCaptionB9(0));
+        assert_eq!(app.captions_b9.len(), 0);
+    }
+
+    #[test]
+    fn test_caption_text_set() {
+        let mut app = App::new();
+        app.apply(Action::AddCaptionB9(CaptionB9::default()));
+        app.apply(Action::SetCaptionText { idx: 0, text: "Updated text".to_string() });
+        assert_eq!(app.captions_b9[0].text, "Updated text");
+    }
+
+    #[test]
+    fn test_export_srt_records_path() {
+        let mut app = App::new();
+        assert!(app.last_srt_export_path.is_none());
+        let p = std::path::PathBuf::from("/tmp/test.srt");
+        app.apply(Action::ExportSrtB9(p.clone()));
+        assert_eq!(app.last_srt_export_path, Some(p));
+    }
+
+    #[test]
+    fn test_auto_transcribe_adds_caption() {
+        let mut app = App::new();
+        assert_eq!(app.captions_b9.len(), 0);
+        app.apply(Action::AutoTranscribe);
+        assert_eq!(app.captions_b9.len(), 1);
+        assert_eq!(app.captions_b9[0].text, "[Auto-transcribed]");
+        assert!((app.captions_b9[0].start_sec).abs() < 1e-5);
+        assert!((app.captions_b9[0].end_sec - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_caption_track_toggle() {
+        let mut app = App::new();
+        assert!(app.caption_track_visible);
+        app.apply(Action::ToggleCaptionTrack);
+        assert!(!app.caption_track_visible);
+        app.apply(Action::ToggleCaptionTrack);
+        assert!(app.caption_track_visible);
+    }
+
+    // --- Batch 9: Sequence Settings ------------------------------------------
+
+    #[test]
+    fn test_seq_resolution_min_1() {
+        let mut app = App::new();
+        app.apply(Action::SetSeqResolution { w: 0, h: 0 });
+        assert_eq!(app.sequence_settings.width, 1);
+        assert_eq!(app.sequence_settings.height, 1);
+    }
+
+    #[test]
+    fn test_seq_audio_channels_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSeqAudioChannels(0));
+        assert_eq!(app.sequence_settings.audio_channels, 1);
+        app.apply(Action::SetSeqAudioChannels(10));
+        assert_eq!(app.sequence_settings.audio_channels, 8);
+    }
+
+    #[test]
+    fn test_seq_frame_rate_set() {
+        let mut app = App::new();
+        assert_eq!(app.sequence_settings.frame_rate, SeqFrameRate::Fps29_97);
+        app.apply(Action::SetSeqFrameRate(SeqFrameRate::Fps60));
+        assert_eq!(app.sequence_settings.frame_rate, SeqFrameRate::Fps60);
+        app.apply(Action::SetSeqFrameRate(SeqFrameRate::Fps24));
+        assert_eq!(app.sequence_settings.frame_rate, SeqFrameRate::Fps24);
+    }
+
+    // --- Batch 9: Nest Sequence -----------------------------------------------
+
+    #[test]
+    fn test_nest_adds_sequence() {
+        let mut app = App::new();
+        assert_eq!(app.nested_sequences.len(), 0);
+        app.apply(Action::NestSelectedClipsB9 { name: "MyNest".to_string() });
+        assert_eq!(app.nested_sequences.len(), 1);
+        assert_eq!(app.nested_sequences[0].name, "MyNest");
+    }
+
+    #[test]
+    fn test_unnest_removes() {
+        let mut app = App::new();
+        app.apply(Action::NestSelectedClipsB9 { name: "Nest1".to_string() });
+        app.apply(Action::NestSelectedClipsB9 { name: "Nest2".to_string() });
+        assert_eq!(app.nested_sequences.len(), 2);
+        app.apply(Action::UnnestSequence(0));
+        assert_eq!(app.nested_sequences.len(), 1);
+        assert_eq!(app.nested_sequences[0].name, "Nest2");
+        // Out-of-bounds is a no-op.
+        app.apply(Action::UnnestSequence(99));
+        assert_eq!(app.nested_sequences.len(), 1);
+    }
+
+    #[test]
+    fn test_enter_exit_nested() {
+        let mut app = App::new();
+        app.apply(Action::NestSelectedClipsB9 { name: "N".to_string() });
+        assert!(app.active_nested_seq.is_none());
+        app.apply(Action::EnterNestedSequence(0));
+        assert_eq!(app.active_nested_seq, Some(0));
+        app.apply(Action::ExitNestedSequence);
+        assert!(app.active_nested_seq.is_none());
+        // Out-of-bounds enter is a no-op.
+        app.apply(Action::EnterNestedSequence(99));
+        assert!(app.active_nested_seq.is_none());
+    }
+
+    #[test]
+    fn test_rename_nested() {
+        let mut app = App::new();
+        app.apply(Action::NestSelectedClipsB9 { name: "OldName".to_string() });
+        app.apply(Action::RenameNestedSequence { idx: 0, name: "MySeq".to_string() });
+        assert_eq!(app.nested_sequences[0].name, "MySeq");
     }
 }

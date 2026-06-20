@@ -922,6 +922,98 @@ pub enum Action {
     SetSelectSubjectRefine(bool),
     /// Invert the last Select Subject result (stub: toggles refine flag).
     InvertSelectSubject,
+
+    // --- Batch 6: Layer Effects Suite ---
+    /// Set or clear the FX panel target layer.
+    SetFxTargetLayer(Option<String>),
+    /// Replace the drop shadow on a layer.
+    SetDropShadow { layer: String, fx: DropShadowFx },
+    /// Enable or disable the drop shadow on a layer.
+    ToggleDropShadow { layer: String, enabled: bool },
+    /// Replace the outer glow on a layer.
+    SetOuterGlow { layer: String, fx: OuterGlowFx },
+    /// Enable or disable the outer glow on a layer.
+    ToggleOuterGlow { layer: String, enabled: bool },
+    /// Replace the bevel-and-emboss on a layer.
+    SetBevelEmboss { layer: String, fx: BevelEmbossFx },
+    /// Enable or disable bevel-and-emboss on a layer.
+    ToggleBevelEmboss { layer: String, enabled: bool },
+    /// Set the stroke effect size and color on a layer.
+    SetStroke { layer: String, size: f32, color: [f32; 4] },
+    /// Enable or disable the stroke effect on a layer.
+    ToggleStroke { layer: String, enabled: bool },
+    /// Set the color overlay color on a layer.
+    SetColorOverlay { layer: String, color: [f32; 4] },
+    /// Enable or disable the color overlay on a layer.
+    ToggleColorOverlay { layer: String, enabled: bool },
+    /// Remove all effects from a layer.
+    ClearLayerEffects { layer: String },
+    /// Toggle the Layer Effects panel open/closed.
+    ToggleFxPanel,
+    /// Copy the effects of the given layer into the fx clipboard.
+    CopyLayerEffects { from: String },
+    /// Paste the fx clipboard to the given layer.
+    PasteLayerEffects { to: String },
+
+    // --- Batch 6: Match Color (new) ---
+    /// Set the source layer name for Match Color.
+    SetMatchColorSource2(String),
+    /// Set Match Color luminance (clamped 0..=200).
+    SetMatchColorLuminance(f32),
+    /// Set Match Color color intensity (clamped 0..=200).
+    SetMatchColorIntensity(f32),
+    /// Set Match Color fade (clamped 0..=100).
+    SetMatchColorFade2(f32),
+    /// Toggle Match Color neutralize.
+    SetMatchColorNeutralize(bool),
+    /// Apply Match Color (stub: sets last_match_color_applied = true).
+    ApplyMatchColor,
+
+    // --- Batch 6: Camera Raw Filter (new) ---
+    /// Toggle the Camera Raw config panel open/closed.
+    ToggleCameraRawPanel,
+    /// Set white balance temperature (clamped 2000..=50000).
+    SetCameraRawTemp(f32),
+    /// Set white balance tint (clamped -150..=150).
+    SetCameraRawTint(f32),
+    /// Set exposure (clamped -5..=5).
+    SetCameraRawExposure(f32),
+    /// Set contrast (clamped -100..=100).
+    SetCameraRawContrast(f32),
+    /// Set highlights (clamped -100..=100).
+    SetCameraRawHighlights(f32),
+    /// Set shadows (clamped -100..=100).
+    SetCameraRawShadows(f32),
+    /// Set clarity (clamped -100..=100).
+    SetCameraRawClarity(f32),
+    /// Set dehaze (clamped -100..=100).
+    SetCameraRawDehaze(f32),
+    /// Set vibrance (clamped -100..=100).
+    SetCameraRawVibrance(f32),
+    /// Set sharpness (clamped 0..=150).
+    SetCameraRawSharpness(f32),
+    /// Set noise luminance (clamped 0..=100).
+    SetCameraRawNoiseL(f32),
+    /// Toggle lens correction.
+    SetCameraRawLensCorrection(bool),
+    /// Apply Camera Raw filter (stub: camera_raw_applied = true).
+    ApplyCameraRawFilter,
+    /// Reset Camera Raw config to defaults.
+    ResetCameraRaw,
+
+    // --- Batch 6: HDR Merge ---
+    /// Toggle the HDR Merge panel open/closed.
+    ToggleHdrMergePanel,
+    /// Set the HDR tone mapping method.
+    SetHdrToneMethod(HdrToneMappingMethod),
+    /// Toggle ghost-removal in HDR Merge.
+    SetHdrRemoveGhosts(bool),
+    /// Set the number of source exposures (clamped to min 2).
+    SetHdrSourceCount(usize),
+    /// Set the output bit depth (only 8, 16, 32 accepted; others ignored).
+    SetHdrBitDepth(u8),
+    /// Execute HDR Merge (stub: sets hdr_merge_result).
+    MergeToHdr,
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -1186,6 +1278,284 @@ pub struct LayerStyle {
     pub outer_glow: Option<Glow>,
     pub inner_glow: Option<Glow>,
     pub bevel_emboss: Option<Bevel>,
+}
+
+// ---- Batch 6: Layer Effects Suite -----------------------------------------------
+
+/// Full per-layer drop-shadow effect.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DropShadowFx {
+    pub enabled: bool,
+    pub blend_mode: BlendMode,
+    pub color: [f32; 4],
+    /// 0..=100, default 75
+    pub opacity: f32,
+    /// 0..=360, default 120
+    pub angle: f32,
+    /// 0..=30000, default 5
+    pub distance: f32,
+    /// 0..=100, default 0
+    pub spread: f32,
+    /// 0..=250, default 5
+    pub size: f32,
+    /// 0..=100, default 0
+    pub noise: f32,
+    pub layer_knocks_out: bool,
+}
+
+impl Default for DropShadowFx {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            blend_mode: BlendMode::Multiply,
+            color: [0.0, 0.0, 0.0, 1.0],
+            opacity: 75.0,
+            angle: 120.0,
+            distance: 5.0,
+            spread: 0.0,
+            size: 5.0,
+            noise: 0.0,
+            layer_knocks_out: true,
+        }
+    }
+}
+
+/// Full per-layer outer-glow effect.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OuterGlowFx {
+    pub enabled: bool,
+    pub blend_mode: BlendMode,
+    pub opacity: f32,
+    pub noise: f32,
+    pub color: [f32; 4],
+    pub spread: f32,
+    /// default 5
+    pub size: f32,
+    /// 1..=100, default 50
+    pub range: f32,
+    /// 0..=100, default 0
+    pub jitter: f32,
+}
+
+impl Default for OuterGlowFx {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            blend_mode: BlendMode::Screen,
+            opacity: 75.0,
+            noise: 0.0,
+            color: [1.0, 1.0, 0.8, 1.0],
+            spread: 0.0,
+            size: 5.0,
+            range: 50.0,
+            jitter: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum BevelStyle {
+    OuterBevel,
+    #[default]
+    InnerBevel,
+    Emboss,
+    PillowEmboss,
+    StrokeEmboss,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum BevelTechnique {
+    #[default]
+    SmoothB,
+    ChiselHard,
+    ChiselSoft,
+}
+
+/// Full per-layer bevel-and-emboss effect.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BevelEmbossFx {
+    pub enabled: bool,
+    pub style: BevelStyle,
+    pub technique: BevelTechnique,
+    /// 1..=1000, default 100
+    pub depth: f32,
+    /// true = up, false = down
+    pub direction_up: bool,
+    /// 0..=250, default 5
+    pub size: f32,
+    /// 0..=16, default 0
+    pub soften: f32,
+    pub angle: f32,
+    /// 0..=90, default 30
+    pub altitude: f32,
+    pub highlight_opacity: f32,
+    pub shadow_opacity: f32,
+}
+
+impl Default for BevelEmbossFx {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            style: BevelStyle::InnerBevel,
+            technique: BevelTechnique::SmoothB,
+            depth: 100.0,
+            direction_up: true,
+            size: 5.0,
+            soften: 0.0,
+            angle: 120.0,
+            altitude: 30.0,
+            highlight_opacity: 75.0,
+            shadow_opacity: 75.0,
+        }
+    }
+}
+
+/// All non-destructive per-layer effects for the Layer Effects panel.
+/// Keyed by layer id string in `App::layer_effects`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct LayerEffects {
+    pub drop_shadow: DropShadowFx,
+    pub inner_shadow_enabled: bool,
+    pub outer_glow: OuterGlowFx,
+    pub inner_glow_enabled: bool,
+    pub bevel_emboss: BevelEmbossFx,
+    pub satin_enabled: bool,
+    pub color_overlay_enabled: bool,
+    pub color_overlay_color: [f32; 4],
+    pub gradient_overlay_enabled: bool,
+    pub pattern_overlay_enabled: bool,
+    pub stroke_enabled: bool,
+    /// default 3
+    pub stroke_size: f32,
+    pub stroke_color: [f32; 4],
+}
+
+// ---- Batch 6: Match Color (new config struct) -----------------------------------
+
+/// Extended Match Color parameters (Batch 6).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MatchColorConfig {
+    pub source_layer_name: String,
+    /// 0..=200, default 100
+    pub luminance: f32,
+    /// 0..=200, default 100
+    pub color_intensity: f32,
+    /// 0..=100, default 0
+    pub fade: f32,
+    pub neutralize: bool,
+    pub use_selection_source: bool,
+    pub use_selection_target: bool,
+}
+
+impl Default for MatchColorConfig {
+    fn default() -> Self {
+        Self {
+            source_layer_name: String::new(),
+            luminance: 100.0,
+            color_intensity: 100.0,
+            fade: 0.0,
+            neutralize: false,
+            use_selection_source: false,
+            use_selection_target: false,
+        }
+    }
+}
+
+// ---- Batch 6: Camera Raw Filter (new config) ------------------------------------
+
+/// Full Camera Raw dialog parameters (Batch 6).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CameraRawConfig {
+    /// 2000..=50000, default 6500
+    pub temperature: f32,
+    /// -150..=150, default 0
+    pub tint: f32,
+    /// -5..=5, default 0
+    pub exposure: f32,
+    /// -100..=100, default 0
+    pub contrast: f32,
+    /// -100..=100, default 0
+    pub highlights: f32,
+    /// -100..=100, default 0
+    pub shadows: f32,
+    /// -100..=100, default 0
+    pub whites: f32,
+    /// -100..=100, default 0
+    pub blacks: f32,
+    /// -100..=100, default 0
+    pub clarity: f32,
+    /// -100..=100, default 0
+    pub dehaze: f32,
+    /// -100..=100, default 0
+    pub vibrance: f32,
+    /// -100..=100, default 0
+    pub saturation: f32,
+    /// 0..=100, default 0
+    pub noise_luminance: f32,
+    /// 0..=100, default 25
+    pub noise_color: f32,
+    /// 0..=150, default 40
+    pub sharpness: f32,
+    pub lens_correction: bool,
+    pub chromatic_aberration: bool,
+}
+
+impl Default for CameraRawConfig {
+    fn default() -> Self {
+        Self {
+            temperature: 6500.0,
+            tint: 0.0,
+            exposure: 0.0,
+            contrast: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+            clarity: 0.0,
+            dehaze: 0.0,
+            vibrance: 0.0,
+            saturation: 0.0,
+            noise_luminance: 0.0,
+            noise_color: 25.0,
+            sharpness: 40.0,
+            lens_correction: false,
+            chromatic_aberration: false,
+        }
+    }
+}
+
+// ---- Batch 6: HDR Merge ---------------------------------------------------------
+
+/// Tone-mapping method for HDR Merge.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum HdrToneMappingMethod {
+    #[default]
+    Local,
+    Equal,
+    Highlight,
+    Photoreceptor,
+}
+
+/// Configuration for the HDR Merge / Photomerge stub.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HdrMergeConfig {
+    pub method: HdrToneMappingMethod,
+    pub remove_ghosts: bool,
+    /// Number of source exposures to merge (default 0).
+    pub source_count: usize,
+    /// Output bit depth: 8, 16, or 32 (default 32).
+    pub bit_depth_output: u8,
+}
+
+impl Default for HdrMergeConfig {
+    fn default() -> Self {
+        Self {
+            method: HdrToneMappingMethod::Local,
+            remove_ghosts: true,
+            source_count: 0,
+            bit_depth_output: 32,
+        }
+    }
 }
 
 /// The single shared application state. Owns the host + document and all panel-
@@ -1613,6 +1983,33 @@ pub struct App {
     pub select_subject_refine: bool,
     /// Whether the Select and Mask panel is open.
     pub select_and_mask_open: bool,
+
+    // --- Batch 6: Layer Effects Suite ---
+    /// Per-layer effect stacks, keyed by layer id as string.
+    pub layer_effects: std::collections::HashMap<String, LayerEffects>,
+    /// Whether the Layer Effects panel is open.
+    pub fx_panel_open: bool,
+    /// The layer currently targeted in the FX panel.
+    pub fx_target_layer: Option<String>,
+    /// Clipboard for copy/paste of full LayerEffects.
+    pub fx_clipboard: Option<LayerEffects>,
+
+    // --- Batch 6: Match Color (new config) ---
+    pub match_color_config: MatchColorConfig,
+    /// True after ApplyMatchColor is called (stub flag).
+    pub last_match_color_applied: bool,
+
+    // --- Batch 6: Camera Raw Filter (new config) ---
+    pub camera_raw_config: CameraRawConfig,
+    pub camera_raw_panel_open: bool,
+    /// True after ApplyCameraRawFilter is called (stub flag).
+    pub camera_raw_applied: bool,
+
+    // --- Batch 6: HDR Merge ---
+    pub hdr_merge_config: HdrMergeConfig,
+    pub hdr_merge_panel_open: bool,
+    /// Stub result path set after MergeToHdr.
+    pub hdr_merge_result: Option<String>,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -2432,6 +2829,22 @@ impl App {
             last_select_subject: None,
             select_subject_refine: false,
             select_and_mask_open: false,
+            // Batch 6: Layer Effects Suite
+            layer_effects: std::collections::HashMap::new(),
+            fx_panel_open: false,
+            fx_target_layer: None,
+            fx_clipboard: None,
+            // Batch 6: Match Color (new)
+            match_color_config: MatchColorConfig::default(),
+            last_match_color_applied: false,
+            // Batch 6: Camera Raw Filter (new)
+            camera_raw_config: CameraRawConfig::default(),
+            camera_raw_panel_open: false,
+            camera_raw_applied: false,
+            // Batch 6: HDR Merge
+            hdr_merge_config: HdrMergeConfig::default(),
+            hdr_merge_panel_open: false,
+            hdr_merge_result: None,
         }
     }
 
@@ -4248,6 +4661,151 @@ impl App {
                 if self.last_select_subject.is_some() {
                     self.select_subject_refine = !self.select_subject_refine;
                 }
+            }
+
+            // ---- Batch 6: Layer Effects Suite ------------------------------------
+
+            Action::SetFxTargetLayer(layer) => {
+                self.fx_target_layer = layer;
+            }
+            Action::SetDropShadow { layer, fx } => {
+                self.layer_effects.entry(layer).or_default().drop_shadow = fx;
+            }
+            Action::ToggleDropShadow { layer, enabled } => {
+                self.layer_effects.entry(layer).or_default().drop_shadow.enabled = enabled;
+            }
+            Action::SetOuterGlow { layer, fx } => {
+                self.layer_effects.entry(layer).or_default().outer_glow = fx;
+            }
+            Action::ToggleOuterGlow { layer, enabled } => {
+                self.layer_effects.entry(layer).or_default().outer_glow.enabled = enabled;
+            }
+            Action::SetBevelEmboss { layer, fx } => {
+                self.layer_effects.entry(layer).or_default().bevel_emboss = fx;
+            }
+            Action::ToggleBevelEmboss { layer, enabled } => {
+                self.layer_effects.entry(layer).or_default().bevel_emboss.enabled = enabled;
+            }
+            Action::SetStroke { layer, size, color } => {
+                let e = self.layer_effects.entry(layer).or_default();
+                e.stroke_size = size;
+                e.stroke_color = color;
+            }
+            Action::ToggleStroke { layer, enabled } => {
+                self.layer_effects.entry(layer).or_default().stroke_enabled = enabled;
+            }
+            Action::SetColorOverlay { layer, color } => {
+                let e = self.layer_effects.entry(layer).or_default();
+                e.color_overlay_color = color;
+            }
+            Action::ToggleColorOverlay { layer, enabled } => {
+                self.layer_effects.entry(layer).or_default().color_overlay_enabled = enabled;
+            }
+            Action::ClearLayerEffects { layer } => {
+                self.layer_effects.remove(&layer);
+            }
+            Action::ToggleFxPanel => {
+                self.fx_panel_open = !self.fx_panel_open;
+            }
+            Action::CopyLayerEffects { from } => {
+                self.fx_clipboard = self.layer_effects.get(&from).cloned();
+            }
+            Action::PasteLayerEffects { to } => {
+                if let Some(fx) = self.fx_clipboard.clone() {
+                    self.layer_effects.insert(to, fx);
+                }
+            }
+
+            // ---- Batch 6: Match Color (new) -------------------------------------
+
+            Action::SetMatchColorSource2(name) => {
+                self.match_color_config.source_layer_name = name;
+            }
+            Action::SetMatchColorLuminance(v) => {
+                self.match_color_config.luminance = v.clamp(0.0, 200.0);
+            }
+            Action::SetMatchColorIntensity(v) => {
+                self.match_color_config.color_intensity = v.clamp(0.0, 200.0);
+            }
+            Action::SetMatchColorFade2(v) => {
+                self.match_color_config.fade = v.clamp(0.0, 100.0);
+            }
+            Action::SetMatchColorNeutralize(b) => {
+                self.match_color_config.neutralize = b;
+            }
+            Action::ApplyMatchColor => {
+                self.last_match_color_applied = true;
+            }
+
+            // ---- Batch 6: Camera Raw Filter (new) --------------------------------
+
+            Action::ToggleCameraRawPanel => {
+                self.camera_raw_panel_open = !self.camera_raw_panel_open;
+            }
+            Action::SetCameraRawTemp(v) => {
+                self.camera_raw_config.temperature = v.clamp(2000.0, 50000.0);
+            }
+            Action::SetCameraRawTint(v) => {
+                self.camera_raw_config.tint = v.clamp(-150.0, 150.0);
+            }
+            Action::SetCameraRawExposure(v) => {
+                self.camera_raw_config.exposure = v.clamp(-5.0, 5.0);
+            }
+            Action::SetCameraRawContrast(v) => {
+                self.camera_raw_config.contrast = v.clamp(-100.0, 100.0);
+            }
+            Action::SetCameraRawHighlights(v) => {
+                self.camera_raw_config.highlights = v.clamp(-100.0, 100.0);
+            }
+            Action::SetCameraRawShadows(v) => {
+                self.camera_raw_config.shadows = v.clamp(-100.0, 100.0);
+            }
+            Action::SetCameraRawClarity(v) => {
+                self.camera_raw_config.clarity = v.clamp(-100.0, 100.0);
+            }
+            Action::SetCameraRawDehaze(v) => {
+                self.camera_raw_config.dehaze = v.clamp(-100.0, 100.0);
+            }
+            Action::SetCameraRawVibrance(v) => {
+                self.camera_raw_config.vibrance = v.clamp(-100.0, 100.0);
+            }
+            Action::SetCameraRawSharpness(v) => {
+                self.camera_raw_config.sharpness = v.clamp(0.0, 150.0);
+            }
+            Action::SetCameraRawNoiseL(v) => {
+                self.camera_raw_config.noise_luminance = v.clamp(0.0, 100.0);
+            }
+            Action::SetCameraRawLensCorrection(b) => {
+                self.camera_raw_config.lens_correction = b;
+            }
+            Action::ApplyCameraRawFilter => {
+                self.camera_raw_applied = true;
+            }
+            Action::ResetCameraRaw => {
+                self.camera_raw_config = CameraRawConfig::default();
+            }
+
+            // ---- Batch 6: HDR Merge ---------------------------------------------
+
+            Action::ToggleHdrMergePanel => {
+                self.hdr_merge_panel_open = !self.hdr_merge_panel_open;
+            }
+            Action::SetHdrToneMethod(m) => {
+                self.hdr_merge_config.method = m;
+            }
+            Action::SetHdrRemoveGhosts(b) => {
+                self.hdr_merge_config.remove_ghosts = b;
+            }
+            Action::SetHdrSourceCount(n) => {
+                self.hdr_merge_config.source_count = n.max(2);
+            }
+            Action::SetHdrBitDepth(d) => {
+                if matches!(d, 8 | 16 | 32) {
+                    self.hdr_merge_config.bit_depth_output = d;
+                }
+            }
+            Action::MergeToHdr => {
+                self.hdr_merge_result = Some("merged_hdr.tif".to_string());
             }
         }
     }
@@ -6889,5 +7447,185 @@ mod batch5_new_tests {
         assert!(app.select_and_mask_open);
         app.apply(Action::ToggleSelectAndMask);
         assert!(!app.select_and_mask_open);
+    }
+
+}
+
+#[cfg(test)]
+mod batch6_tests {
+    use super::{
+        Action, App, DropShadowFx, HdrToneMappingMethod,
+    };
+
+    // ---- Layer Effects Suite ----
+
+    #[test]
+    fn test_set_drop_shadow_creates_entry() {
+        let mut app = App::new();
+        let layer = "layer1".to_string();
+        assert!(!app.layer_effects.contains_key(&layer));
+        let fx = DropShadowFx { enabled: true, opacity: 80.0, ..DropShadowFx::default() };
+        app.apply(Action::SetDropShadow { layer: layer.clone(), fx });
+        assert!(app.layer_effects.contains_key(&layer));
+        assert!((app.layer_effects[&layer].drop_shadow.opacity - 80.0).abs() < 1e-5);
+        assert!(app.layer_effects[&layer].drop_shadow.enabled);
+    }
+
+    #[test]
+    fn test_toggle_drop_shadow() {
+        let mut app = App::new();
+        let layer = "layer1".to_string();
+        app.apply(Action::ToggleDropShadow { layer: layer.clone(), enabled: true });
+        assert!(app.layer_effects[&layer].drop_shadow.enabled);
+        app.apply(Action::ToggleDropShadow { layer: layer.clone(), enabled: false });
+        assert!(!app.layer_effects[&layer].drop_shadow.enabled);
+    }
+
+    #[test]
+    fn test_clear_layer_effects() {
+        let mut app = App::new();
+        let layer = "layer1".to_string();
+        app.apply(Action::ToggleDropShadow { layer: layer.clone(), enabled: true });
+        assert!(app.layer_effects.contains_key(&layer));
+        app.apply(Action::ClearLayerEffects { layer: layer.clone() });
+        assert!(!app.layer_effects.contains_key(&layer));
+    }
+
+    #[test]
+    fn test_copy_paste_layer_effects() {
+        let mut app = App::new();
+        let src = "src".to_string();
+        let dst = "dst".to_string();
+        let fx = DropShadowFx { enabled: true, opacity: 60.0, ..DropShadowFx::default() };
+        app.apply(Action::SetDropShadow { layer: src.clone(), fx });
+        assert!(app.fx_clipboard.is_none());
+        app.apply(Action::CopyLayerEffects { from: src.clone() });
+        assert!(app.fx_clipboard.is_some());
+        app.apply(Action::PasteLayerEffects { to: dst.clone() });
+        assert!(app.layer_effects.contains_key(&dst));
+        assert!((app.layer_effects[&dst].drop_shadow.opacity - 60.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_toggle_fx_panel() {
+        let mut app = App::new();
+        assert!(!app.fx_panel_open);
+        app.apply(Action::ToggleFxPanel);
+        assert!(app.fx_panel_open);
+        app.apply(Action::ToggleFxPanel);
+        assert!(!app.fx_panel_open);
+    }
+
+    // ---- Match Color ----
+
+    #[test]
+    fn test_match_luminance_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMatchColorLuminance(300.0));
+        assert!((app.match_color_config.luminance - 200.0).abs() < 1e-5);
+        app.apply(Action::SetMatchColorLuminance(-10.0));
+        assert!((app.match_color_config.luminance - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_match_fade_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMatchColorFade2(150.0));
+        assert!((app.match_color_config.fade - 100.0).abs() < 1e-5);
+        app.apply(Action::SetMatchColorFade2(-5.0));
+        assert!((app.match_color_config.fade - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_apply_match_color_sets_flag() {
+        let mut app = App::new();
+        assert!(!app.last_match_color_applied);
+        app.apply(Action::ApplyMatchColor);
+        assert!(app.last_match_color_applied);
+    }
+
+    // ---- Camera Raw ----
+
+    #[test]
+    fn test_camera_raw_temp_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetCameraRawTemp(100.0));
+        assert!((app.camera_raw_config.temperature - 2000.0).abs() < 1e-5);
+        app.apply(Action::SetCameraRawTemp(100_000.0));
+        assert!((app.camera_raw_config.temperature - 50000.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_camera_raw_sharpness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetCameraRawSharpness(200.0));
+        assert!((app.camera_raw_config.sharpness - 150.0).abs() < 1e-5);
+        app.apply(Action::SetCameraRawSharpness(-5.0));
+        assert!((app.camera_raw_config.sharpness - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_camera_raw_apply_flag() {
+        let mut app = App::new();
+        assert!(!app.camera_raw_applied);
+        app.apply(Action::ApplyCameraRawFilter);
+        assert!(app.camera_raw_applied);
+    }
+
+    #[test]
+    fn test_camera_raw_reset() {
+        let mut app = App::new();
+        app.apply(Action::SetCameraRawTemp(3000.0));
+        assert!((app.camera_raw_config.temperature - 3000.0).abs() < 1e-5);
+        app.apply(Action::ResetCameraRaw);
+        assert!((app.camera_raw_config.temperature - 6500.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_camera_raw_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.camera_raw_panel_open);
+        app.apply(Action::ToggleCameraRawPanel);
+        assert!(app.camera_raw_panel_open);
+        app.apply(Action::ToggleCameraRawPanel);
+        assert!(!app.camera_raw_panel_open);
+    }
+
+    // ---- HDR Merge ----
+
+    #[test]
+    fn test_hdr_source_count_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetHdrSourceCount(0));
+        assert_eq!(app.hdr_merge_config.source_count, 2);
+        app.apply(Action::SetHdrSourceCount(1));
+        assert_eq!(app.hdr_merge_config.source_count, 2);
+        app.apply(Action::SetHdrSourceCount(5));
+        assert_eq!(app.hdr_merge_config.source_count, 5);
+    }
+
+    #[test]
+    fn test_hdr_bit_depth_invalid_ignored() {
+        let mut app = App::new();
+        assert_eq!(app.hdr_merge_config.bit_depth_output, 32);
+        app.apply(Action::SetHdrBitDepth(24));
+        assert_eq!(app.hdr_merge_config.bit_depth_output, 32);
+        app.apply(Action::SetHdrBitDepth(16));
+        assert_eq!(app.hdr_merge_config.bit_depth_output, 16);
+    }
+
+    #[test]
+    fn test_merge_to_hdr_sets_result() {
+        let mut app = App::new();
+        assert!(app.hdr_merge_result.is_none());
+        app.apply(Action::MergeToHdr);
+        assert_eq!(app.hdr_merge_result.as_deref(), Some("merged_hdr.tif"));
+    }
+
+    #[test]
+    fn test_hdr_tone_method() {
+        let mut app = App::new();
+        app.apply(Action::SetHdrToneMethod(HdrToneMappingMethod::Highlight));
+        assert_eq!(app.hdr_merge_config.method, HdrToneMappingMethod::Highlight);
     }
 }

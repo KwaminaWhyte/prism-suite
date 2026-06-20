@@ -444,7 +444,24 @@ adjustments) deliver the most felt parity per unit effort** — do them first. P
 
 ---
 
-## 7. Current Status (Batch 5 complete — 2026-06-19)
+## 7. Current Status (Batch 7 complete — 2026-06-20, ~80% parity)
+
+### Batch 7 — ToneMap, Neural Filters, Layer Group depth, Print Layout (2026-06-20)
+- ✅ **HDR Tone Mapping** — `ToneMapMethod` enum (Reinhard/Filmic/AcesCg/Exposure); `Action::ApplyToneMap/SetToneMapPreview`; `last_tone_map/tone_map_preview` on App.
+- ✅ **Neural Filters** — `NeuralFilter { kind, strength, enabled }`; `NeuralFilterKind` (8 variants); `neural_filters/panel_open/last_apply_count` on App. `Action::ToggleNeuralFiltersPanel/AddNeuralFilter/RemoveNeuralFilter/SetNeuralFilterStrength/ToggleNeuralFilter/ApplyNeuralFilters`.
+- ✅ **Layer Group depth** — `collapsed_groups: HashSet<String>`, `last_duplicated_group`. `Action::SetGroupCollapsed/MoveLayerToGroup/RemoveLayerFromGroup/FlattenGroup/DuplicateGroup`.
+- ✅ **Print Layout** — `PrintLayout { copies, collate, border_width, center_image, print_marks, bleed, print_resolution }`; `print_preview_page` on App. 8 new print actions with clamping.
+- 13 tests added → **101 total**
+
+### Batch 6 — Alpha Channels, Blend If, Spot Heal, Red Eye, Gradient Map (2026-06-20)
+- ✅ **Alpha Channels panel** — `AlphaChannel { name, mask, width, height }`; `alpha_channels: Vec<AlphaChannel>` on App. `Action::SaveSelectionAsChannel/LoadChannelAsSelection/DeleteChannel/DuplicateChannel`.
+- ✅ **Blend If** — `BlendIf { this_black/white, under_black/white }` per layer in `blend_if: HashMap<LayerId, BlendIf>`. `Action::SetBlendIf/ClearBlendIf`.
+- ✅ **Spot Heal** — `SpotHealMode` enum (ContentAware/TextureMatch/ProximityMatch); `spot_heal_mode/radius/last_spot_heal` on App. `Action::SetSpotHealMode/SetSpotHealRadius/SpotHeal`.
+- ✅ **Red Eye** — `Action::RedEye { center, radius, darken }`; records `last_red_eye` on App.
+- ✅ **Gradient Map stops** — `Action::SetGradientMapStops { layer_id, stops }` updates the gradient map adjustment.
+- ✅ **Channel Mixer control** — `Action::SetChannelMixerOutput/SetChannelMixerMix` for per-layer mixer params.
+
+
 
 **GPUI migration complete.** `pigment-app` (egui) removed from workspace. `pigment-gpui` is the sole binary.
 

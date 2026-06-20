@@ -8,10 +8,10 @@ Open-source creative suite: four desktop apps in Rust, each targeting ≥85% par
 
 | App | Adobe analog | Domain | Status |
 |-----|--------------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~72% |
-| **Contour** | Illustrator | CPU vector editor | ~48% |
-| **Pulse** | After Effects | CPU compositor / motion | ~40% |
-| **Reel** | Premiere Pro | NLE / video editor | ~28% |
+| **Pigment** | Photoshop | GPU raster editor | ~80% |
+| **Contour** | Illustrator | CPU vector editor | ~60% |
+| **Pulse** | After Effects | CPU compositor / motion | ~55% |
+| **Reel** | Premiere Pro | NLE / video editor | ~42% |
 
 Architectural bet: raster, vector, video frames, comp layers all reduce to compositing tiles through a DAG in linear light, cached by what's dirty. See `SUITE.md` for vision, `RESEARCH.md` for suite-level research.
 
@@ -22,9 +22,9 @@ prism-suite/
   Cargo.toml              # workspace root — pins ALL versions
   apps/
     pigment/               # [[bin]] — Pigment (GPUI host + inline GPU compositor)
-    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 572+ tests)
-    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 683+ tests)
-    reel/                  # [[bin]] — Reel (GPUI host + NLE logic)
+    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 614+ tests)
+    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 735+ tests)
+    reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 102+ tests)
   shared/
     prism-core/           # doc model, blend modes, adjustments, curves, shapes, histogram
     prism-canvas/         # wgpu GPU compositor: composite/display/dab/filter/selection passes
@@ -57,10 +57,10 @@ cargo check --workspace
 cargo test --workspace
 
 # Per-crate tests (most tests here)
-cargo test -p pigment          # 35: filters, lens, perspective
-cargo test -p contour          # 94: document, path, boolean ops
-cargo test -p pulse            # 633: compositor, keyframes, render
-cargo test -p reel
+cargo test -p pigment          # 101: filters, lens, perspective, channels, heal, tonemap, neural
+cargo test -p contour          # 614: document, path, boolean ops, graph, trace, symbolsprayer
+cargo test -p pulse            # 735: compositor, keyframes, render, rotobrush, echo, dof, expr
+cargo test -p reel             # 102: timeline, effects, motion, multicam, edl, audiосuite
 
 # Subset by name
 cargo test flood_fill

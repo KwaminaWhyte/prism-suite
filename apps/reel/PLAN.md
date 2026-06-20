@@ -1,6 +1,29 @@
 # Reel — Open Source Premiere Pro Alternative
 
-> **Status: ~28% parity (Phases 0–2 done, 3–5 partial). Target ≥85% by end of Phase 7.**
+> **Status: ~42% parity (Phases 0–5 done, 6–8 in progress). Target ≥85% by end of Phase 7.**
+
+## Batch 8 — Completed (2026-06-20)
+
+- [x] **Multicam depth** — `MulticamAngle { label, source_clip_idx, sync_offset, enabled }`; `MulticamSyncMode/MulticamDisplayMode` enums; `multicam_angles/active_angle/sync_mode/display_mode` on App. `Action::AddMulticamAngle/RemoveMulticamAngle/SetMulticamAngleLabel/SetMulticamAngleSyncOffset/ToggleMulticamAngle/SetMulticamSyncMode/SetMulticamDisplayMode/FlattenMulticam`.
+- [x] **EDL / XML interchange** — `EdlFormat` (Cmx3600/FcpXml/Aaf/Otio) + `EdlConfig { format, frame_rate, reel_name, include_audio, include_video }`. `Action::SetEdlFormat/SetEdlFrameRate/SetEdlReelName/SetEdlIncludeAudio/SetEdlIncludeVideo/ExportEdl/ImportEdl/ExportFcpXml/ImportFcpXml/ExportOtio`.
+- [x] **Audio Suite** — `AudioSuiteKind` (8 variants) + `AudioSuiteConfig { kind, gain_db, preserve_duration, process_in_place, clip_by_clip, target_level_db, pitch_semitones, stretch_ratio }`; `audio_suite_config/panel_open/preview` on App. 10 new actions with clamping.
+- [x] **Auto Reframe** — `ReframeMotion` enum + `AutoReframeConfig { target_aspect_w/h, motion_preset, keep_scale, analyze_on_import }`; `auto_reframe_config/panel_open/reframe_results` on App. `Action::ToggleAutoReframePanel/SetReframeAspect/SetReframeMotion/SetReframeKeepScale/SetReframeAnalyzeOnImport/AnalyzeReframe/ApplyReframe/ClearReframeResults`.
+- 16 tests added → **102 total**
+
+## Batch 7 — Completed (2026-06-20)
+
+- [x] **Per-clip video effects** — `ClipEffectKind` (GaussianBlur/Sharpen/Mosaic/DropShadow/Glow/ChromaticAberration) + `ClipEffect { kind, enabled, intensity, secondary, color }` on `Clip`. `Action::AddClipEffect/RemoveClipEffect/SetClipEffect/ToggleClipEffect/ReorderClipEffects/ClearClipEffects`.
+- [x] **Clip Motion (Transform effect)** — `motion_x/y/scale_x/scale_y/rotation` fields on `Clip`. `Action::SetClipMotion/SetClipMotionScale/SetClipMotionRotation/ResetClipMotion`.
+- [x] **Scene Edit Detection (stub)** — `SceneEditResult`, sensitivity param, `Action::SetSceneEditSensitivity/DetectSceneEdits/ApplySceneEditSplits`.
+- [x] **Project Management** — `project_name/path/recent_project_paths/notes/auto_save_enabled/auto_save_interval_sec` on `App`. `Action::SetProjectName/SetProjectPath/AddRecentProject/SetProjectNotes/SetAutoSaveEnabled/SetAutoSaveInterval/TriggerAutoSave`.
+
+## Batch 6 — Completed (2026-06-19)
+
+- [x] **Clipboard copy/paste clips** — `clipboard_clips: Vec<Clip>` on App; `Action::CopySelectedClips/CutSelectedClips/PasteClips/DuplicateSelectedClips`.
+- [x] **Clip transform** — `anchor_x/y`, `crop_left/right/top/bottom`, `ClipBlendMode` enum; `Action::SetClipAnchor/SetClipCrop/SetClipBlendMode/ResetClipTransform`.
+- [x] **Time remap** — `time_remap_enabled/keys` on Clip; `Action::SetTimeRemapEnabled/AddTimeRemapKey/MoveTimeRemapKey/RemoveTimeRemapKey/SetFreezeFrame`.
+- [x] **LUFS metering** — `lufs_short_term/integrated/power_history` on App; `Action::UpdateLufsMeters/ResetLufsIntegrated`.
+- [x] **Group ripple trim** — `Action::GroupRippleTrimIn/GroupRippleTrimOut`.
 
 ## Batch 5 — Completed (2026-06-19, depth & polish)
 

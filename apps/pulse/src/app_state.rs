@@ -323,6 +323,76 @@ pub struct MotionGraphicTemplate {
     pub controls: Vec<MoGrtControl>,
 }
 
+// ── Batch 4: Depth of Field / Camera ─────────────────────────────────────────
+
+/// Iris shape for the depth-of-field blur.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum IrisShape {
+    #[default]
+    Fast,
+    Hexagon,
+    Octagon,
+    Circle,
+    Square,
+    Blade(u8),
+}
+
+/// Depth-of-field settings attached to the active comp's camera.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DepthOfField {
+    pub enabled: bool,
+    pub focus_distance: f32,
+    pub aperture: f32,
+    pub blur_level: f32,
+    pub iris_shape: IrisShape,
+}
+
+impl Default for DepthOfField {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            focus_distance: 500.0,
+            aperture: 5.6,
+            blur_level: 100.0,
+            iris_shape: IrisShape::Fast,
+        }
+    }
+}
+
+// ── Batch 4: Expression Engine depth ─────────────────────────────────────────
+
+/// Script language used by the expression engine.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ExprLang {
+    #[default]
+    JavaScript,
+    Python,
+}
+
+// ── Batch 4: Collect Files / Package project ──────────────────────────────────
+
+/// Configuration for the Collect Files / Package project feature.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CollectFilesConfig {
+    pub destination: std::path::PathBuf,
+    pub include_footage: bool,
+    pub include_proxies: bool,
+    pub generate_report: bool,
+    pub reduce_project: bool,
+}
+
+impl Default for CollectFilesConfig {
+    fn default() -> Self {
+        Self {
+            destination: std::path::PathBuf::from("."),
+            include_footage: true,
+            include_proxies: false,
+            generate_report: true,
+            reduce_project: false,
+        }
+    }
+}
+
 /// Every panel->state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -853,6 +923,39 @@ pub enum Action {
     SetCameraTrackerProgress(f32),
     /// Clear all track points and the solved camera keyframes.
     ClearCameraTrack,
+
+    // --- Batch 4: 3D Camera depth (DoF + rig controls) ---
+    SetDepthOfField(DepthOfField),
+    SetDofEnabled(bool),
+    SetDofFocusDistance(f32),
+    SetDofAperture(f32),
+    SetDofBlurLevel(f32),
+    SetCameraZoom(f32),
+    SetCameraPointOfInterest([f32; 3]),
+    SetCameraOrbitSpeed(f32),
+    ResetCamera,
+
+    // --- Batch 4: Expression Engine depth ---
+    SetExpressionEnabled { layer_id: usize, prop: String, enabled: bool },
+    AddExpressionError { layer_id: usize, prop: String, error: String },
+    ClearExpressionErrors { layer_id: usize },
+    SetExpressionLanguage(ExprLang),
+    EvaluateExpression { layer_id: usize, prop: String, at_time: f32 },
+
+    // --- Batch 4: Brainstorm depth ---
+    SetBrainstormVariationCount(u8),
+    ExportBrainstormVariation { idx: usize, path: std::path::PathBuf },
+    CompareBrainstormVariations { a: usize, b: usize },
+    LockBrainstormVariation(usize),
+
+    // --- Batch 4: Collect Files / Package project ---
+    ToggleCollectFilesPanel,
+    SetCollectDestination(std::path::PathBuf),
+    SetCollectIncludeFootage(bool),
+    SetCollectIncludeProxies(bool),
+    SetCollectGenerateReport(bool),
+    SetCollectReduceProject(bool),
+    RunCollectFiles,
 }
 
 impl Action {
@@ -1131,6 +1234,44 @@ pub struct App {
     pub use_pre_render: bool,
     /// 2-point camera tracker state.
     pub camera_tracker: CameraTracker,
+
+    // --- Batch 4: 3D Camera depth ---
+    /// Depth-of-field settings for the active comp's camera.
+    pub dof: DepthOfField,
+    /// Camera zoom factor (default 1.0).
+    pub camera_zoom: f32,
+    /// Camera point of interest in comp-space XYZ (default [0, 0, 0]).
+    pub camera_point_of_interest: [f32; 3],
+    /// Camera orbit speed in degrees/sec (default 0.0 = no orbit).
+    pub camera_orbit_speed: f32,
+
+    // --- Batch 4: Expression Engine depth ---
+    /// Active expression scripting language.
+    pub expr_language: ExprLang,
+    /// Per-(layer, prop) expression error messages.
+    pub expr_errors: std::collections::HashMap<(usize, String), String>,
+    /// Per-(layer, prop) expression enabled flags.
+    pub expr_enabled: std::collections::HashMap<(usize, String), bool>,
+    /// Result of the most-recently evaluated expression (stub).
+    pub last_expr_result: Option<f32>,
+
+    // --- Batch 4: Brainstorm depth ---
+    /// Number of variations to generate (clamped 1–9).
+    pub brainstorm_variation_count: u8,
+    /// Per-variation lock state.
+    pub brainstorm_locked: Vec<bool>,
+    /// A/B comparison pair of variation indices.
+    pub brainstorm_comparison: Option<(usize, usize)>,
+    /// The variation index currently shown in the preview (set by Apply / Export).
+    pub active_brainstorm_variation: Option<usize>,
+
+    // --- Batch 4: Collect Files ---
+    /// Configuration for the Collect Files / Package dialog.
+    pub collect_files_config: CollectFilesConfig,
+    /// Whether the Collect Files panel is open.
+    pub collect_files_panel_open: bool,
+    /// Summary message from the last Collect Files run.
+    pub last_collect_result: Option<String>,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -1262,6 +1403,21 @@ impl App {
             pre_render_cache_dir: None,
             use_pre_render: false,
             camera_tracker: CameraTracker::default(),
+            dof: DepthOfField::default(),
+            camera_zoom: 1.0,
+            camera_point_of_interest: [0.0, 0.0, 0.0],
+            camera_orbit_speed: 0.0,
+            expr_language: ExprLang::default(),
+            expr_errors: std::collections::HashMap::new(),
+            expr_enabled: std::collections::HashMap::new(),
+            last_expr_result: None,
+            brainstorm_variation_count: 9,
+            brainstorm_locked: Vec::new(),
+            brainstorm_comparison: None,
+            active_brainstorm_variation: None,
+            collect_files_config: CollectFilesConfig::default(),
+            collect_files_panel_open: false,
+            last_collect_result: None,
         }
     }
 
@@ -3432,6 +3588,96 @@ impl App {
             Action::ClearCameraTrack => {
                 self.camera_tracker = CameraTracker::default();
             }
+
+            // --- Batch 4: 3D Camera depth ---
+            Action::SetDepthOfField(d) => {
+                self.dof = d;
+            }
+            Action::SetDofEnabled(b) => {
+                self.dof.enabled = b;
+            }
+            Action::SetDofFocusDistance(d) => {
+                self.dof.focus_distance = d.max(0.0);
+            }
+            Action::SetDofAperture(a) => {
+                self.dof.aperture = a.clamp(1.4, 22.0);
+            }
+            Action::SetDofBlurLevel(l) => {
+                self.dof.blur_level = l.clamp(0.0, 300.0);
+            }
+            Action::SetCameraZoom(z) => {
+                self.camera_zoom = z.max(0.01);
+            }
+            Action::SetCameraPointOfInterest(p) => {
+                self.camera_point_of_interest = p;
+            }
+            Action::SetCameraOrbitSpeed(s) => {
+                self.camera_orbit_speed = s;
+            }
+            Action::ResetCamera => {
+                self.dof = DepthOfField::default();
+                self.camera_zoom = 1.0;
+                self.camera_point_of_interest = [0.0, 0.0, 0.0];
+                self.camera_orbit_speed = 0.0;
+            }
+
+            // --- Batch 4: Expression Engine depth ---
+            Action::SetExpressionEnabled { layer_id, prop, enabled } => {
+                self.expr_enabled.insert((layer_id, prop), enabled);
+            }
+            Action::AddExpressionError { layer_id, prop, error } => {
+                self.expr_errors.insert((layer_id, prop), error);
+            }
+            Action::ClearExpressionErrors { layer_id } => {
+                self.expr_errors.retain(|k, _| k.0 != layer_id);
+            }
+            Action::SetExpressionLanguage(l) => {
+                self.expr_language = l;
+            }
+            Action::EvaluateExpression { layer_id, prop: _, at_time } => {
+                self.last_expr_result = Some(at_time * layer_id as f32);
+            }
+
+            // --- Batch 4: Brainstorm depth ---
+            Action::SetBrainstormVariationCount(n) => {
+                self.brainstorm_variation_count = n.clamp(1, 9);
+            }
+            Action::ExportBrainstormVariation { idx, path: _ } => {
+                self.active_brainstorm_variation = Some(idx);
+            }
+            Action::CompareBrainstormVariations { a, b } => {
+                self.brainstorm_comparison = Some((a, b));
+            }
+            Action::LockBrainstormVariation(i) => {
+                if self.brainstorm_locked.len() <= i {
+                    self.brainstorm_locked.resize(i + 1, false);
+                }
+                self.brainstorm_locked[i] = !self.brainstorm_locked[i];
+            }
+
+            // --- Batch 4: Collect Files ---
+            Action::ToggleCollectFilesPanel => {
+                self.collect_files_panel_open = !self.collect_files_panel_open;
+            }
+            Action::SetCollectDestination(p) => {
+                self.collect_files_config.destination = p;
+            }
+            Action::SetCollectIncludeFootage(b) => {
+                self.collect_files_config.include_footage = b;
+            }
+            Action::SetCollectIncludeProxies(b) => {
+                self.collect_files_config.include_proxies = b;
+            }
+            Action::SetCollectGenerateReport(b) => {
+                self.collect_files_config.generate_report = b;
+            }
+            Action::SetCollectReduceProject(b) => {
+                self.collect_files_config.reduce_project = b;
+            }
+            Action::RunCollectFiles => {
+                let dest = self.collect_files_config.destination.clone();
+                self.last_collect_result = Some(format!("Collected to {:?}", dest));
+            }
         }
     }
 
@@ -4634,5 +4880,168 @@ mod tests {
         let pos = kf.unwrap().1;
         assert!((pos[0] - 60.0).abs() < 1e-3);
         assert!((pos[1] - 70.0).abs() < 1e-3);
+    }
+
+    // ── Batch 4: DoF / Camera ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_dof_enabled_toggle() {
+        let mut app = App::new();
+        assert!(!app.dof.enabled);
+        app.apply(Action::SetDofEnabled(true));
+        assert!(app.dof.enabled);
+        app.apply(Action::SetDofEnabled(false));
+        assert!(!app.dof.enabled);
+    }
+
+    #[test]
+    fn test_dof_aperture_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 1.4
+        app.apply(Action::SetDofAperture(0.5));
+        assert!((app.dof.aperture - 1.4).abs() < 1e-4, "below min clamps to 1.4");
+        // Above maximum → clamped to 22.0
+        app.apply(Action::SetDofAperture(100.0));
+        assert!((app.dof.aperture - 22.0).abs() < 1e-4, "above max clamps to 22.0");
+    }
+
+    #[test]
+    fn test_dof_blur_clamp() {
+        let mut app = App::new();
+        // Above maximum → clamped to 300
+        app.apply(Action::SetDofBlurLevel(500.0));
+        assert!((app.dof.blur_level - 300.0).abs() < 1e-4, "above max clamps to 300");
+        // Below minimum → clamped to 0
+        app.apply(Action::SetDofBlurLevel(-10.0));
+        assert!((app.dof.blur_level - 0.0).abs() < 1e-4, "below min clamps to 0");
+    }
+
+    #[test]
+    fn test_camera_zoom_min() {
+        let mut app = App::new();
+        // Setting zoom to 0.0 should clamp to 0.01
+        app.apply(Action::SetCameraZoom(0.0));
+        assert!(app.camera_zoom >= 0.01, "zoom clamped to 0.01, got {}", app.camera_zoom);
+    }
+
+    #[test]
+    fn test_reset_camera() {
+        let mut app = App::new();
+        app.apply(Action::SetCameraZoom(5.0));
+        app.apply(Action::SetDofEnabled(true));
+        app.apply(Action::SetCameraPointOfInterest([100.0, 200.0, 50.0]));
+        app.apply(Action::SetCameraOrbitSpeed(45.0));
+        app.apply(Action::ResetCamera);
+        assert!((app.camera_zoom - 1.0).abs() < 1e-4, "zoom reset to 1.0");
+        assert!(!app.dof.enabled, "dof disabled after reset");
+        assert_eq!(app.camera_point_of_interest, [0.0, 0.0, 0.0]);
+        assert!((app.camera_orbit_speed - 0.0).abs() < 1e-4);
+    }
+
+    // ── Batch 4: Expressions ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_expr_language_set() {
+        let mut app = App::new();
+        assert_eq!(app.expr_language, ExprLang::JavaScript);
+        app.apply(Action::SetExpressionLanguage(ExprLang::Python));
+        assert_eq!(app.expr_language, ExprLang::Python);
+    }
+
+    #[test]
+    fn test_expr_enable_disable() {
+        let mut app = App::new();
+        app.apply(Action::SetExpressionEnabled { layer_id: 0, prop: "X".to_string(), enabled: true });
+        assert_eq!(app.expr_enabled.get(&(0, "X".to_string())), Some(&true));
+        app.apply(Action::SetExpressionEnabled { layer_id: 0, prop: "X".to_string(), enabled: false });
+        assert_eq!(app.expr_enabled.get(&(0, "X".to_string())), Some(&false));
+    }
+
+    #[test]
+    fn test_expr_clear_errors_for_layer() {
+        let mut app = App::new();
+        app.apply(Action::AddExpressionError { layer_id: 0, prop: "X".to_string(), error: "err1".to_string() });
+        app.apply(Action::AddExpressionError { layer_id: 0, prop: "Y".to_string(), error: "err2".to_string() });
+        app.apply(Action::AddExpressionError { layer_id: 1, prop: "X".to_string(), error: "err3".to_string() });
+        assert_eq!(app.expr_errors.len(), 3);
+        app.apply(Action::ClearExpressionErrors { layer_id: 0 });
+        assert_eq!(app.expr_errors.len(), 1);
+        assert!(app.expr_errors.contains_key(&(1, "X".to_string())));
+    }
+
+    #[test]
+    fn test_expr_evaluate_result() {
+        let mut app = App::new();
+        app.apply(Action::EvaluateExpression { layer_id: 2, prop: "Scale".to_string(), at_time: 3.0 });
+        // Stub: result = at_time * layer_id
+        assert_eq!(app.last_expr_result, Some(6.0));
+    }
+
+    // ── Batch 4: Brainstorm depth ─────────────────────────────────────────────
+
+    #[test]
+    fn test_brainstorm_count_clamp() {
+        let mut app = App::new();
+        // Below minimum → 1
+        app.apply(Action::SetBrainstormVariationCount(0));
+        assert_eq!(app.brainstorm_variation_count, 1);
+        // Above maximum → 9
+        app.apply(Action::SetBrainstormVariationCount(20));
+        assert_eq!(app.brainstorm_variation_count, 9);
+    }
+
+    #[test]
+    fn test_brainstorm_compare() {
+        let mut app = App::new();
+        assert!(app.brainstorm_comparison.is_none());
+        app.apply(Action::CompareBrainstormVariations { a: 1, b: 3 });
+        assert_eq!(app.brainstorm_comparison, Some((1, 3)));
+    }
+
+    #[test]
+    fn test_brainstorm_lock() {
+        let mut app = App::new();
+        assert!(app.brainstorm_locked.is_empty());
+        // Lock variation 2 — should extend the vec and set [2] to true
+        app.apply(Action::LockBrainstormVariation(2));
+        assert_eq!(app.brainstorm_locked.len(), 3);
+        assert!(app.brainstorm_locked[2]);
+        // Toggle again → false
+        app.apply(Action::LockBrainstormVariation(2));
+        assert!(!app.brainstorm_locked[2]);
+    }
+
+    // ── Batch 4: Collect Files ────────────────────────────────────────────────
+
+    #[test]
+    fn test_collect_files_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.collect_files_panel_open);
+        app.apply(Action::ToggleCollectFilesPanel);
+        assert!(app.collect_files_panel_open);
+        app.apply(Action::ToggleCollectFilesPanel);
+        assert!(!app.collect_files_panel_open);
+    }
+
+    #[test]
+    fn test_collect_run_sets_result() {
+        let mut app = App::new();
+        assert!(app.last_collect_result.is_none());
+        app.apply(Action::RunCollectFiles);
+        assert!(app.last_collect_result.is_some());
+        let result = app.last_collect_result.as_ref().unwrap();
+        assert!(result.contains("Collected"), "result should mention 'Collected': {result}");
+    }
+
+    #[test]
+    fn test_collect_destination() {
+        let mut app = App::new();
+        let dest = std::path::PathBuf::from("/tmp/my_project");
+        app.apply(Action::SetCollectDestination(dest.clone()));
+        assert_eq!(app.collect_files_config.destination, dest);
+        // Run and verify result mentions the path
+        app.apply(Action::RunCollectFiles);
+        let result = app.last_collect_result.as_ref().unwrap();
+        assert!(result.contains("my_project"), "result should reference destination: {result}");
     }
 }

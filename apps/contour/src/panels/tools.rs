@@ -35,6 +35,9 @@ fn tool_icon(t: Tool) -> Icon {
         Tool::LivePaint          => Icon::Shape,
         Tool::PerspectiveDistort => Icon::Wand,
         Tool::Envelope           => Icon::Wand,
+        Tool::Scallop            => Icon::Wand,
+        Tool::Crystallize        => Icon::Wand,
+        Tool::Wrinkle            => Icon::Wand,
     }
 }
 

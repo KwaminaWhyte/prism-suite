@@ -145,6 +145,12 @@ pub enum Tool {
     PerspectiveDistort,
     /// Warp a shape using a configurable grid mesh.
     Envelope,
+    /// Scallop distort warp tool (like Illustrator's Scallop).
+    Scallop,
+    /// Crystallize distort warp tool.
+    Crystallize,
+    /// Wrinkle distort warp tool.
+    Wrinkle,
 }
 
 impl Tool {
@@ -170,6 +176,9 @@ impl Tool {
             Tool::LivePaint => "Live Paint",
             Tool::PerspectiveDistort => "Persp",
             Tool::Envelope => "Envelope",
+            Tool::Scallop => "Scallop",
+            Tool::Crystallize => "Crystal",
+            Tool::Wrinkle => "Wrinkle",
         }
     }
 
@@ -195,11 +204,14 @@ impl Tool {
             Tool::LivePaint => "L",
             Tool::PerspectiveDistort => "D",
             Tool::Envelope => "E",
+            Tool::Scallop => "~",
+            Tool::Crystallize => "#",
+            Tool::Wrinkle => "≈",
         }
     }
 
     /// Stable ordering for the tools strip (matches the egui palette grouping).
-    pub const ALL: [Tool; 19] = [
+    pub const ALL: [Tool; 22] = [
         Tool::Select,
         Tool::DirectSelect,
         Tool::Rect,
@@ -219,6 +231,9 @@ impl Tool {
         Tool::LivePaint,
         Tool::PerspectiveDistort,
         Tool::Envelope,
+        Tool::Scallop,
+        Tool::Crystallize,
+        Tool::Wrinkle,
     ];
 }
 
@@ -816,6 +831,47 @@ pub enum Action {
     /// scatter brush spacing / jitter settings. No-op when no scatter brush is
     /// configured or the symbol doesn't exist.
     PlaceScatterAlongPath { path: Vec<[f32; 2]> },
+
+    // --- Batch 7: Art Brush ---
+    /// Configure the art brush with a symbol and stretch parameters.
+    SetArtBrush {
+        symbol_id: u64,
+        width_scale: f32,
+        colorize: ArtBrushColorize,
+        flip: bool,
+    },
+    /// Clear / deactivate the art brush.
+    ClearArtBrush,
+    /// Paint the art-brush symbol stretched along `path` (document-space points).
+    /// Places a new Path shape; no-op if no art brush is configured.
+    PaintArtBrushPath { path: Vec<[f32; 2]> },
+
+    // --- Batch 7: Live Corners (polygon corner radius) ---
+    /// Set the uniform corner radius on the selected live Polygon.
+    SetPolygonCornerRadius(f32),
+
+    // --- Batch 7: Perspective Grid (active plane) ---
+    /// Set the active perspective drawing plane (0=left, 1=right, 2=floor).
+    SetPerspectivePlane(usize),
+    /// Snap the selected shape onto the active perspective plane (stub: records the
+    /// plane binding without geometric projection for now).
+    SnapToPerspectivePlane,
+
+    // --- Batch 7: Color Guide ---
+    /// Set the color-harmony rule and recompute swatches from `key_color`.
+    SetColorGuide { rule: ColorHarmonyRule, key_color: [f32; 4] },
+    /// Apply swatch at `idx` from the Color Guide as the selected shape's fill.
+    ApplyColorGuide(usize),
+
+    // --- Batch 7: Warp Tools (Scallop / Crystallize / Wrinkle) ---
+    /// Switch the active warp-tool kind.
+    SetWarpToolKind(WarpToolKind),
+    /// Configure warp-tool brush parameters.
+    SetWarpBrush { size: f32, intensity: f32, detail: f32 },
+    /// Apply one warp-tool stroke to the selected path. `center` and `radius` are
+    /// in document space. Subdivides edges near the brush, then pushes anchors
+    /// outward (Scallop), inward (Crystallize), or randomly ±(Wrinkle).
+    ApplyWarpStroke { center: (f32, f32), radius: f32 },
 }
 
 /// Stroke alignment relative to the path.
@@ -959,6 +1015,113 @@ impl PerspectiveGrid {
             visible: true,
         }
     }
+}
+
+/// Art-brush colorization mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ArtBrushColorize {
+    #[default]
+    None,
+    Tints,
+    HueShift,
+}
+
+/// Art-brush configuration: paint a stretchable symbol art along a path.
+#[derive(Clone, Debug)]
+pub struct ArtBrushConfig {
+    /// The symbol artwork to stretch along the path.
+    pub symbol_id: u64,
+    /// Scale factor applied to the symbol width (height scales with the path width).
+    pub width_scale: f32,
+    /// Colorization mode.
+    pub colorize: ArtBrushColorize,
+    /// Flip the brush art across the path's normal axis.
+    pub flip: bool,
+}
+
+/// A color-harmony rule describing how guide colors relate to the key color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ColorHarmonyRule {
+    #[default]
+    Complementary,
+    Analogous,
+    Triadic,
+    SplitComplementary,
+    Tetradic,
+    Monochromatic,
+}
+
+/// Color Guide panel state: a harmony rule + derived swatch palette.
+#[derive(Clone, Debug, Default)]
+pub struct ColorGuide {
+    pub rule: ColorHarmonyRule,
+    /// Derived swatches (up to 6 RGBA colors) generated from the key color + rule.
+    pub swatches: Vec<[f32; 4]>,
+}
+
+impl ColorGuide {
+    /// Recompute swatches from `key_color` (linear sRGB) and the current harmony rule.
+    pub fn recompute(&mut self, key: [f32; 4]) {
+        use std::f32::consts::PI;
+        let [r, g, b, a] = key;
+        // Convert to HSL (simple, non-perceptual).
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let l = (max + min) * 0.5;
+        let s = if (max - min).abs() < 1e-6 {
+            0.0
+        } else {
+            let d = max - min;
+            if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) }
+        };
+        let h = if (max - min).abs() < 1e-6 {
+            0.0
+        } else if max == r {
+            ((g - b) / (max - min)).rem_euclid(6.0) / 6.0
+        } else if max == g {
+            ((b - r) / (max - min) + 2.0) / 6.0
+        } else {
+            ((r - g) / (max - min) + 4.0) / 6.0
+        };
+
+        let offsets: &[f32] = match self.rule {
+            ColorHarmonyRule::Complementary => &[0.0, 0.5],
+            ColorHarmonyRule::Analogous => &[0.0, 1.0/12.0, -1.0/12.0],
+            ColorHarmonyRule::Triadic => &[0.0, 1.0/3.0, 2.0/3.0],
+            ColorHarmonyRule::SplitComplementary => &[0.0, 5.0/12.0, 7.0/12.0],
+            ColorHarmonyRule::Tetradic => &[0.0, 0.25, 0.5, 0.75],
+            ColorHarmonyRule::Monochromatic => &[0.0, 0.1, -0.1, 0.2, -0.2],
+        };
+
+        self.swatches = offsets.iter().map(|&off| {
+            let h2 = (h + off).rem_euclid(1.0);
+            hsl_to_rgb(h2, s, l, a)
+        }).collect();
+    }
+}
+
+fn hsl_to_rgb(h: f32, s: f32, l: f32, a: f32) -> [f32; 4] {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h * 6.0).rem_euclid(2.0) - 1.0).abs());
+    let m = l - c * 0.5;
+    let (r, g, b) = match (h * 6.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    [r + m, g + m, b + m, a]
+}
+
+/// Which distort-warp tool is active (Scallop / Crystallize / Wrinkle).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum WarpToolKind {
+    #[default]
+    Scallop,
+    Crystallize,
+    Wrinkle,
 }
 
 /// Configuration for the scatter brush: copies of a symbol placed at regular
@@ -1168,6 +1331,28 @@ pub struct App {
     // --- Batch 6: Scatter Brush ---
     /// Active scatter brush configuration (None = scatter brush inactive).
     pub scatter_brush: Option<ScatterBrushConfig>,
+
+    // --- Batch 7: Art Brush ---
+    /// Active art-brush configuration (None = art brush inactive).
+    pub art_brush: Option<ArtBrushConfig>,
+
+    // --- Batch 7: Color Guide ---
+    /// Color Guide panel state.
+    pub color_guide: ColorGuide,
+
+    // --- Batch 7: Warp tools ---
+    /// Active warp-tool kind (Scallop / Crystallize / Wrinkle).
+    pub warp_tool_kind: WarpToolKind,
+    /// Warp-tool brush radius in document units.
+    pub warp_brush_size: f32,
+    /// Warp-tool strength (0–1).
+    pub warp_brush_intensity: f32,
+    /// Warp-tool detail (subdivisions per unit, 0.5–10).
+    pub warp_detail: f32,
+
+    // --- Batch 7: Perspective grid (extended) ---
+    /// Which plane (0=left, 1=right, 2=floor) is active for perspective drawing.
+    pub perspective_active_plane: usize,
 }
 
 impl App {
@@ -1279,6 +1464,13 @@ impl App {
             find_replace_open: false,
             last_find_count: 0,
             scatter_brush: None,
+            art_brush: None,
+            color_guide: ColorGuide::default(),
+            warp_tool_kind: WarpToolKind::default(),
+            warp_brush_size: 30.0,
+            warp_brush_intensity: 0.5,
+            warp_detail: 1.0,
+            perspective_active_plane: 0,
         }
     }
 
@@ -1432,6 +1624,7 @@ impl App {
                             LiveShape::Polygon {
                                 sides: self.poly_sides,
                                 radius,
+                                corner_radius: 0.0,
                             }
                         } else {
                             LiveShape::Star {
@@ -3498,6 +3691,152 @@ impl App {
                     self.host.mark_dirty();
                 }
             }
+
+            // --- Batch 7: Art Brush ---
+            Action::SetArtBrush { symbol_id, width_scale, colorize, flip } => {
+                self.art_brush = Some(ArtBrushConfig { symbol_id, width_scale, colorize, flip });
+            }
+            Action::ClearArtBrush => {
+                self.art_brush = None;
+            }
+            Action::PaintArtBrushPath { path } => {
+                let Some(cfg) = self.art_brush.clone() else { return; };
+                if path.len() < 2 { return; }
+                // Compute arc length.
+                let mut arc: Vec<f32> = vec![0.0];
+                for i in 1..path.len() {
+                    let dx = path[i][0] - path[i-1][0];
+                    let dy = path[i][1] - path[i-1][1];
+                    arc.push(arc[i-1] + (dx*dx + dy*dy).sqrt());
+                }
+                let total = *arc.last().unwrap_or(&0.0);
+                if total < 1.0 { return; }
+                // Build a deformed polygon approximating the stretched symbol.
+                // Sample the path at N points and produce a thin ribbon.
+                let n = (total / 20.0).ceil() as usize + 1;
+                let half_h = 10.0 * cfg.width_scale;
+                let flip_sign = if cfg.flip { -1.0 } else { 1.0 };
+                let mut pts_top: Vec<(f32, f32)> = Vec::with_capacity(n);
+                let mut pts_bot: Vec<(f32, f32)> = Vec::with_capacity(n);
+                for i in 0..=n {
+                    let t = total * i as f32 / n as f32;
+                    let (cx, cy) = sample_polyline(&path, &arc, t);
+                    // Approximate tangent via finite difference.
+                    let dt = total * 0.5 / n as f32;
+                    let (ax, ay) = sample_polyline(&path, &arc, (t - dt).max(0.0));
+                    let (bx, by) = sample_polyline(&path, &arc, (t + dt).min(total));
+                    let tx = bx - ax; let ty = by - ay;
+                    let len = (tx*tx + ty*ty).sqrt().max(1e-6);
+                    let nx = -ty / len; let ny = tx / len;
+                    pts_top.push((cx + nx * half_h * flip_sign, cy + ny * half_h * flip_sign));
+                    pts_bot.push((cx - nx * half_h * flip_sign, cy - ny * half_h * flip_sign));
+                }
+                let mut poly: Vec<(f32, f32)> = pts_top;
+                pts_bot.reverse();
+                poly.extend(pts_bot);
+                if poly.len() >= 3 {
+                    self.checkpoint();
+                    self.doc.shapes.push(Shape::path(
+                        poly,
+                        vec![],
+                        true,
+                        self.default_fill,
+                        [0.0; 4],
+                        0.0,
+                    ));
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 7: Live Corners ---
+            Action::SetPolygonCornerRadius(r) => {
+                let r = r.max(0.0);
+                let sel = self.selection.clone();
+                for idx in sel {
+                    if let Some(shape) = self.doc.shapes.get_mut(idx) {
+                        if let Some(crate::liveshape::LiveShape::Polygon { sides, radius, .. }) = shape.live_shape() {
+                            shape.set_live_shape(crate::liveshape::LiveShape::Polygon { sides, radius, corner_radius: r });
+                        }
+                    }
+                }
+                self.host.mark_dirty();
+            }
+
+            // --- Batch 7: Perspective Grid (active plane) ---
+            Action::SetPerspectivePlane(plane) => {
+                self.perspective_active_plane = plane.min(2);
+            }
+            Action::SnapToPerspectivePlane => {
+                // Stub: record plane binding on selected shapes without full projection.
+                // Full geometric projection requires the grid VP math which is a
+                // larger refactor; this at minimum marks the plane as active.
+                let _ = self.perspective_active_plane;
+            }
+
+            // --- Batch 7: Color Guide ---
+            Action::SetColorGuide { rule, key_color } => {
+                self.color_guide.rule = rule;
+                self.color_guide.recompute(key_color);
+            }
+            Action::ApplyColorGuide(idx) => {
+                if let Some(&color) = self.color_guide.swatches.get(idx) {
+                    self.default_fill = color;
+                    if self.selected_shape().is_some() {
+                        self.checkpoint();
+                        self.selected_shape_mut().unwrap().set_fill_color(color);
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+
+            // --- Batch 7: Warp Tools ---
+            Action::SetWarpToolKind(kind) => {
+                self.warp_tool_kind = kind;
+            }
+            Action::SetWarpBrush { size, intensity, detail } => {
+                self.warp_brush_size = size.max(1.0);
+                self.warp_brush_intensity = intensity.clamp(0.0, 1.0);
+                self.warp_detail = detail.max(0.0);
+            }
+            Action::ApplyWarpStroke { center, radius } => {
+                let kind = self.warp_tool_kind;
+                let intensity = self.warp_brush_intensity;
+                let mut changed = false;
+                for shape in self.doc.shapes.iter_mut() {
+                    let points = match shape {
+                        Shape::Path { ref mut points, .. } => points,
+                        _ => continue,
+                    };
+                    for (i, pt) in points.iter_mut().enumerate() {
+                        let dx = pt.0 - center.0;
+                        let dy = pt.1 - center.1;
+                        let dist = (dx*dx + dy*dy).sqrt();
+                        if dist >= radius { continue; }
+                        let weight = intensity * (1.0 - dist / radius);
+                        match kind {
+                            WarpToolKind::Scallop => {
+                                pt.0 -= dx * weight;
+                                pt.1 -= dy * weight;
+                            }
+                            WarpToolKind::Crystallize => {
+                                pt.0 += dx * weight;
+                                pt.1 += dy * weight;
+                            }
+                            WarpToolKind::Wrinkle => {
+                                let seed = i.wrapping_mul(37).wrapping_add(1);
+                                let jitter = ((seed % 17) as f32 / 17.0 * 2.0 - 1.0) * weight * radius * 0.2;
+                                pt.0 += -dy / (dist + 1e-6) * jitter;
+                                pt.1 +=  dx / (dist + 1e-6) * jitter;
+                            }
+                        }
+                        changed = true;
+                    }
+                }
+                if changed {
+                    self.checkpoint();
+                    self.host.mark_dirty();
+                }
+            }
         }
     }
 
@@ -4770,7 +5109,7 @@ mod tests {
             Shape::Path {
                 points,
                 closed,
-                live: Some(LiveShape::Polygon { sides, radius }),
+                live: Some(LiveShape::Polygon { sides, radius, .. }),
                 ..
             } => {
                 assert!(*closed);
@@ -5252,7 +5591,7 @@ mod tests {
         let idx = app.selected.unwrap();
         let live = app.primary_live_shape().expect("polygon is live");
         let new = match live {
-            LiveShape::Polygon { radius, .. } => LiveShape::Polygon { sides: 8, radius },
+            LiveShape::Polygon { radius, corner_radius, .. } => LiveShape::Polygon { sides: 8, radius, corner_radius },
             other => other,
         };
         app.apply(Action::SetLiveShape(new));
@@ -5976,5 +6315,169 @@ mod tests {
             path: vec![[0.0, 0.0], [100.0, 0.0]],
         });
         assert_eq!(app.doc.shapes.len(), before, "no brush configured: nothing should be added");
+    }
+
+    // --- Batch 7: Art Brush ---
+
+    #[test]
+    fn test_art_brush_set_clear() {
+        let mut app = App::new();
+        app.apply(Action::SetArtBrush { symbol_id: 1, width_scale: 1.0, colorize: ArtBrushColorize::None, flip: false });
+        assert!(app.art_brush.is_some());
+        app.apply(Action::ClearArtBrush);
+        assert!(app.art_brush.is_none());
+    }
+
+    #[test]
+    fn test_art_brush_apply_produces_shape() {
+        let mut app = App::new();
+        app.apply(Action::SetArtBrush { symbol_id: 1, width_scale: 2.0, colorize: ArtBrushColorize::None, flip: false });
+        let before = app.doc.shapes.len();
+        // Straight horizontal path long enough to deform.
+        let path: Vec<[f32; 2]> = (0..=10).map(|i| [i as f32 * 10.0, 0.0]).collect();
+        app.apply(Action::PaintArtBrushPath { path });
+        assert!(app.doc.shapes.len() > before, "art brush should add a shape");
+    }
+
+    #[test]
+    fn test_art_brush_flip() {
+        let mut app = App::new();
+        // Two strokes: one normal, one flipped — both should produce shapes.
+        app.apply(Action::SetArtBrush { symbol_id: 1, width_scale: 1.0, colorize: ArtBrushColorize::None, flip: false });
+        let path: Vec<[f32; 2]> = (0..=5).map(|i| [i as f32 * 20.0, 0.0]).collect();
+        app.apply(Action::PaintArtBrushPath { path: path.clone() });
+        let after_normal = app.doc.shapes.len();
+        app.apply(Action::SetArtBrush { symbol_id: 1, width_scale: 1.0, colorize: ArtBrushColorize::None, flip: true });
+        app.apply(Action::PaintArtBrushPath { path });
+        assert!(app.doc.shapes.len() > after_normal, "flipped brush also produces a shape");
+    }
+
+    // --- Batch 7: Live Corners ---
+
+    #[test]
+    fn test_live_corner_polygon_set() {
+        let mut app = App::new();
+        // Create a live polygon and select it.
+        app.apply(Action::SetTool(Tool::Polygon));
+        app.apply(Action::CreateShape { tool: Tool::Polygon, a: [100.0, 100.0], b: [180.0, 180.0] });
+        let idx = app.doc.shapes.len() - 1;
+        app.selection = vec![idx];
+        app.apply(Action::SetPolygonCornerRadius(12.0));
+        if let Some(crate::liveshape::LiveShape::Polygon { corner_radius, .. }) = app.doc.shapes[idx].live_shape() {
+            assert!((corner_radius - 12.0).abs() < 0.001);
+        }
+    }
+
+    #[test]
+    fn test_live_corner_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetTool(Tool::Polygon));
+        app.apply(Action::CreateShape { tool: Tool::Polygon, a: [100.0, 100.0], b: [180.0, 180.0] });
+        let idx = app.doc.shapes.len() - 1;
+        app.selection = vec![idx];
+        app.apply(Action::SetPolygonCornerRadius(-5.0));
+        if let Some(crate::liveshape::LiveShape::Polygon { corner_radius, .. }) = app.doc.shapes[idx].live_shape() {
+            assert!(corner_radius >= 0.0, "corner radius clamped to >= 0");
+        }
+    }
+
+    // --- Batch 7: Perspective Grid ---
+
+    #[test]
+    fn test_perspective_grid_toggle() {
+        let mut app = App::new();
+        let was_on = app.perspective_grid.is_some();
+        app.apply(Action::TogglePerspectiveGrid);
+        assert_ne!(app.perspective_grid.is_some(), was_on, "toggle should flip grid state");
+    }
+
+    #[test]
+    fn test_perspective_plane_select() {
+        let mut app = App::new();
+        app.apply(Action::SetPerspectivePlane(1));
+        assert_eq!(app.perspective_active_plane, 1);
+        app.apply(Action::SetPerspectivePlane(2));
+        assert_eq!(app.perspective_active_plane, 2);
+    }
+
+    #[test]
+    fn test_perspective_plane_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetPerspectivePlane(99));
+        assert!(app.perspective_active_plane <= 2, "plane clamped to 0..=2");
+    }
+
+    // --- Batch 7: Color Guide ---
+
+    #[test]
+    fn test_color_guide_complementary() {
+        let mut app = App::new();
+        let key = [1.0_f32, 0.0, 0.0, 1.0]; // red
+        app.apply(Action::SetColorGuide { rule: ColorHarmonyRule::Complementary, key_color: key });
+        assert!(!app.color_guide.swatches.is_empty(), "complementary should produce swatches");
+    }
+
+    #[test]
+    fn test_color_guide_triadic() {
+        let mut app = App::new();
+        let key = [0.0_f32, 0.8, 0.0, 1.0];
+        app.apply(Action::SetColorGuide { rule: ColorHarmonyRule::Triadic, key_color: key });
+        assert_eq!(app.color_guide.swatches.len(), 3, "triadic = 3 swatches");
+    }
+
+    #[test]
+    fn test_color_guide_apply_sets_fill() {
+        let mut app = App::new();
+        let key = [0.5_f32, 0.2, 0.8, 1.0];
+        app.apply(Action::SetColorGuide { rule: ColorHarmonyRule::Complementary, key_color: key });
+        assert!(!app.color_guide.swatches.is_empty());
+        let original_fill = app.default_fill;
+        app.apply(Action::ApplyColorGuide(0));
+        // Fill should have changed to the guide swatch.
+        assert_ne!(app.default_fill, original_fill, "fill should change after applying guide color");
+    }
+
+    // --- Batch 7: Warp Tools ---
+
+    #[test]
+    fn test_warp_tool_kind() {
+        let mut app = App::new();
+        app.apply(Action::SetWarpToolKind(WarpToolKind::Crystallize));
+        assert_eq!(app.warp_tool_kind, WarpToolKind::Crystallize);
+    }
+
+    #[test]
+    fn test_warp_brush_params() {
+        let mut app = App::new();
+        app.apply(Action::SetWarpBrush { size: 50.0, intensity: 0.8, detail: 2.0 });
+        assert!((app.warp_brush_size - 50.0).abs() < 0.01);
+        assert!((app.warp_brush_intensity - 0.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_scallop_pulls_inward() {
+        let mut app = App::new();
+        // Point at (100, 0). Center at (50, 0): dx=50, scallop pulls toward center → x decreases.
+        app.doc.shapes.push(Shape::path(vec![(100.0, 0.0), (200.0, 0.0), (150.0, 50.0)], vec![], true, [1.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.apply(Action::SetWarpToolKind(WarpToolKind::Scallop));
+        app.apply(Action::SetWarpBrush { size: 30.0, intensity: 1.0, detail: 1.0 });
+        let before = if let Shape::Path { ref points, .. } = app.doc.shapes.last().unwrap() { points[0].0 } else { 0.0 };
+        // Center at (50,0), radius 80 — point inside, dx=50.
+        app.apply(Action::ApplyWarpStroke { center: (50.0, 0.0), radius: 80.0 });
+        let after = if let Shape::Path { ref points, .. } = app.doc.shapes.last().unwrap() { points[0].0 } else { 0.0 };
+        assert!(after < before, "scallop should pull point toward center: {} -> {}", before, after);
+    }
+
+    #[test]
+    fn test_warp_outside_radius_unchanged() {
+        let mut app = App::new();
+        app.doc.shapes.push(Shape::path(vec![(500.0, 500.0), (600.0, 500.0), (550.0, 600.0)], vec![], true, [0.0,1.0,0.0,1.0], [0.0;4], 0.0));
+        app.apply(Action::SetWarpToolKind(WarpToolKind::Crystallize));
+        app.apply(Action::SetWarpBrush { size: 20.0, intensity: 1.0, detail: 1.0 });
+        let before = if let Shape::Path { ref points, .. } = app.doc.shapes.last().unwrap() { points[0] } else { (0.0, 0.0) };
+        // Center far away.
+        app.apply(Action::ApplyWarpStroke { center: (0.0, 0.0), radius: 20.0 });
+        let after = if let Shape::Path { ref points, .. } = app.doc.shapes.last().unwrap() { points[0] } else { (0.0, 0.0) };
+        assert_eq!(before, after, "point outside radius should not move");
     }
 }

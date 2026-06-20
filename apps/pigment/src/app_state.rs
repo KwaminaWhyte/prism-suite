@@ -852,6 +852,76 @@ pub enum Action {
     SetPrintResolution(u32),
     /// Set the page currently shown in the print preview.
     SetPrintPreviewPage(usize),
+
+    // --- Batch 5 (new): Content-Aware Crop ---
+    /// Set the rotation angle for Content-Aware Crop (degrees, clamped −45..=45).
+    SetCaCropAngle(f32),
+    /// Set the fill method used by Content-Aware Crop.
+    SetCaCropFillMethod(CaFillMethod),
+    /// Enable or disable the content-aware fill during crop.
+    SetCaCropEnabled(bool),
+    /// Apply the content-aware crop at the given rect [x, y, w, h] (stub).
+    ApplyCaCrop { rect: [f32; 4] },
+
+    // --- Batch 5 (new): Sky Replacement ---
+    /// Toggle the Sky Replace panel open/closed.
+    ToggleSkyReplacePanel,
+    /// Select a sky preset.
+    SetSkyPreset(SkyPreset),
+    /// Set sky brightness (0..=200).
+    SetSkyBrightness(f32),
+    /// Set sky colour temperature (−100..=100).
+    SetSkyTemperature(f32),
+    /// Set sky scale multiplier (0.5..=2.0).
+    SetSkyScale(f32),
+    /// Flip the sky image horizontally.
+    SetSkyFlip(bool),
+    /// Set the edge fade amount (0..=100).
+    SetSkyFadeEdge(f32),
+    /// Set foreground lighting blending (0..=100).
+    SetSkyForegroundLighting(f32),
+    /// Toggle whether sky replacement outputs to new layers.
+    SetSkyOutputNewLayers(bool),
+    /// Apply sky replacement (stub: sets sky_replaced flag).
+    ApplySkyReplace,
+
+    // --- Batch 5 (new): Liquify Depth ---
+    /// Select the active Liquify tool.
+    SetLiquifyTool(LiquifyTool),
+    /// Set the Liquify brush size (px, 1..=1500).
+    SetLiquifyBrushSize(f32),
+    /// Set the Liquify brush pressure (1..=100).
+    SetLiquifyBrushPressure(f32),
+    /// Set the Liquify brush density (1..=100).
+    SetLiquifyBrushDensity(f32),
+    /// Record a Liquify stroke.
+    ApplyLiquifyStroke(LiquifyStroke),
+    /// Freeze a mask region (stub: push boolean markers).
+    FreezeMaskRegion { center: [f32; 2], radius: f32 },
+    /// Thaw all frozen mask pixels.
+    ThawAllMask,
+    /// Reconstruct (undo) the last Liquify stroke.
+    ReconstructLiquify,
+    /// Revert all Liquify strokes.
+    RevertLiquify,
+    /// Show or hide the warp mesh overlay.
+    SetLiquifyShowMesh(bool),
+    /// Toggle smart-radius mode for Liquify.
+    SetLiquifySmartRadius(bool),
+    /// Save the current Liquify mesh (stub: no-op).
+    SaveLiquifyMesh,
+
+    // --- Batch 5 (new): Select Subject (AI stub) ---
+    /// Set whether Select Subject runs on-device or in the cloud.
+    SetSelectSubjectMode(SelectSubjectMode),
+    /// Run the Select Subject stub (records estimated coverage + confidence).
+    RunSelectSubject,
+    /// Toggle the Select and Mask refinement panel.
+    ToggleSelectAndMask,
+    /// Enable or disable auto-refine for hair/fur edges.
+    SetSelectSubjectRefine(bool),
+    /// Invert the last Select Subject result (stub: toggles refine flag).
+    InvertSelectSubject,
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -1504,6 +1574,45 @@ pub struct App {
     pub print_layout: PrintLayout,
     /// Page index shown in the print preview (0-based).
     pub print_preview_page: usize,
+
+    // --- Batch 5 (new): Content-Aware Crop ---
+    pub ca_crop_config: ContentAwareCropConfig,
+    /// Last rect applied by Content-Aware Crop `[x, y, w, h]`.
+    pub last_ca_crop_rect: Option<[f32; 4]>,
+
+    // --- Batch 5 (new): Sky Replacement ---
+    pub sky_replace_config: SkyReplaceConfig,
+    pub sky_replace_panel_open: bool,
+    /// True once ApplySkyReplace has been executed (stub flag).
+    pub sky_replaced: bool,
+
+    // --- Batch 5 (new): Liquify Depth ---
+    pub liquify_tool: LiquifyTool,
+    /// Liquify brush diameter in px (default 100, clamped 1..=1500).
+    pub liquify_brush_size: f32,
+    /// Liquify brush pressure 1..=100 (default 50).
+    pub liquify_brush_pressure: f32,
+    /// Liquify brush density 1..=100 (default 50).
+    pub liquify_brush_density: f32,
+    /// History of recorded strokes (for undo / replay).
+    pub liquify_strokes: Vec<LiquifyStroke>,
+    /// Freeze mask: one bool per canvas pixel (true = frozen).
+    pub liquify_frozen_mask: Vec<bool>,
+    /// Whether the warp mesh overlay is visible.
+    pub liquify_show_mesh: bool,
+    /// Mesh metadata.
+    pub liquify_mesh: LiquifyMesh,
+    /// Smart-radius adjusts brush fall-off based on local image structure.
+    pub liquify_smart_radius: bool,
+
+    // --- Batch 5 (new): Select Subject (AI stub) ---
+    pub select_subject_mode: SelectSubjectMode,
+    /// Most-recent result from RunSelectSubject (None = never run).
+    pub last_select_subject: Option<SelectSubjectResult>,
+    /// Auto-refine hair/fur edges after selection.
+    pub select_subject_refine: bool,
+    /// Whether the Select and Mask panel is open.
+    pub select_and_mask_open: bool,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -1833,6 +1942,139 @@ impl Default for SpotHealMode {
 // ---- Batch 6: Select Subject ------------------------------------------------
 
 // (no new structs needed — uses existing selection mask infrastructure)
+
+// ---- Batch 5 (new): Content-Aware Crop --------------------------------------
+
+/// Fill method used when Content-Aware Crop extends canvas edges.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub enum CaFillMethod {
+    #[default]
+    ContentAware,
+    EdgeExtend,
+    Transparent,
+}
+
+/// Parameters for the Content-Aware Crop tool.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ContentAwareCropConfig {
+    /// Rotation correction angle in degrees.
+    pub angle: f32,
+    /// Which algorithm fills the exposed areas.
+    pub fill_method: CaFillMethod,
+    /// Whether content-aware fill is active during crop.
+    pub enabled: bool,
+}
+
+impl Default for ContentAwareCropConfig {
+    fn default() -> Self {
+        Self { angle: 0.0, fill_method: CaFillMethod::ContentAware, enabled: true }
+    }
+}
+
+// ---- Batch 5 (new): Sky Replacement -----------------------------------------
+
+/// Built-in sky presets for Sky Replacement.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum SkyPreset {
+    #[default]
+    BlueSky,
+    SunsetOrange,
+    StormyClouds,
+    StarryNight,
+    CustomImage,
+}
+
+/// All tuning parameters for the Sky Replacement feature.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SkyReplaceConfig {
+    pub preset: SkyPreset,
+    /// Sky brightness 0..=200, default 100.
+    pub brightness: f32,
+    /// Colour temperature shift −100..=100, default 0.
+    pub temperature: f32,
+    /// Scale multiplier 0.5..=2.0, default 1.0.
+    pub scale: f32,
+    pub flip: bool,
+    /// Edge fade amount 0..=100, default 20.
+    pub fade_edge: f32,
+    /// Foreground lighting blend 0..=100, default 50.
+    pub foreground_lighting: f32,
+    /// When true, output sky + lighting as new layers.
+    pub output_new_layers: bool,
+}
+
+impl Default for SkyReplaceConfig {
+    fn default() -> Self {
+        Self {
+            preset: SkyPreset::BlueSky,
+            brightness: 100.0,
+            temperature: 0.0,
+            scale: 1.0,
+            flip: false,
+            fade_edge: 20.0,
+            foreground_lighting: 50.0,
+            output_new_layers: true,
+        }
+    }
+}
+
+// ---- Batch 5 (new): Liquify Depth -------------------------------------------
+
+/// Available tools inside the Liquify filter.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum LiquifyTool {
+    #[default]
+    Forward,
+    Reconstruct,
+    Smooth,
+    Twirl,
+    Pucker,
+    Bloat,
+    PushLeft,
+    Mirror,
+    Turbulence,
+}
+
+/// A single Liquify brush stroke recorded for undo / replay.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LiquifyStroke {
+    pub tool: LiquifyTool,
+    pub center: [f32; 2],
+    pub radius: f32,
+    pub pressure: f32,
+    /// Rotation angle in degrees (used by Twirl).
+    pub angle: f32,
+}
+
+/// Warp-mesh metadata (no pixel data — mesh is rebuilt from strokes).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct LiquifyMesh {
+    pub width: u32,
+    pub height: u32,
+    /// Number of mesh subdivisions (default 4).
+    pub subdivisions: u8,
+}
+
+// ---- Batch 5 (new): Select Subject (AI stub) --------------------------------
+
+/// Whether Select Subject inference runs on-device or in Photoshop's cloud.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum SelectSubjectMode {
+    #[default]
+    Device,
+    Cloud,
+}
+
+/// Stub result returned after a Select Subject inference pass.
+#[derive(Debug, Clone)]
+pub struct SelectSubjectResult {
+    /// Fraction of canvas covered by the estimated subject mask (0..=1).
+    pub coverage: f32,
+    /// Model confidence (0..=1).
+    pub confidence: f32,
+    /// True when the Cloud inference path was used.
+    pub cloud_used: bool,
+}
 
 // ---- Batch 6: Artboards -----------------------------------------------------
 
@@ -2168,6 +2410,28 @@ impl App {
             // Batch 4 extended: Print Layout
             print_layout: PrintLayout::default(),
             print_preview_page: 0,
+            // Batch 5 (new): Content-Aware Crop
+            ca_crop_config: ContentAwareCropConfig::default(),
+            last_ca_crop_rect: None,
+            // Batch 5 (new): Sky Replacement
+            sky_replace_config: SkyReplaceConfig::default(),
+            sky_replace_panel_open: false,
+            sky_replaced: false,
+            // Batch 5 (new): Liquify Depth
+            liquify_tool: LiquifyTool::Forward,
+            liquify_brush_size: 100.0,
+            liquify_brush_pressure: 50.0,
+            liquify_brush_density: 50.0,
+            liquify_strokes: Vec::new(),
+            liquify_frozen_mask: Vec::new(),
+            liquify_show_mesh: false,
+            liquify_mesh: LiquifyMesh { width: 0, height: 0, subdivisions: 4 },
+            liquify_smart_radius: false,
+            // Batch 5 (new): Select Subject (AI stub)
+            select_subject_mode: SelectSubjectMode::Device,
+            last_select_subject: None,
+            select_subject_refine: false,
+            select_and_mask_open: false,
         }
     }
 
@@ -3858,6 +4122,132 @@ impl App {
             }
             Action::SetPrintPreviewPage(p) => {
                 self.print_preview_page = p;
+            }
+
+            // --- Batch 5 (new): Content-Aware Crop ---
+            Action::SetCaCropAngle(a) => {
+                self.ca_crop_config.angle = a.clamp(-45.0, 45.0);
+            }
+            Action::SetCaCropFillMethod(m) => {
+                self.ca_crop_config.fill_method = m;
+            }
+            Action::SetCaCropEnabled(e) => {
+                self.ca_crop_config.enabled = e;
+            }
+            Action::ApplyCaCrop { rect } => {
+                self.last_ca_crop_rect = Some(rect);
+            }
+
+            // --- Batch 5 (new): Sky Replacement ---
+            Action::ToggleSkyReplacePanel => {
+                self.sky_replace_panel_open = !self.sky_replace_panel_open;
+            }
+            Action::SetSkyPreset(p) => {
+                self.sky_replace_config.preset = p;
+            }
+            Action::SetSkyBrightness(v) => {
+                self.sky_replace_config.brightness = v.clamp(0.0, 200.0);
+            }
+            Action::SetSkyTemperature(v) => {
+                self.sky_replace_config.temperature = v.clamp(-100.0, 100.0);
+            }
+            Action::SetSkyScale(v) => {
+                self.sky_replace_config.scale = v.clamp(0.5, 2.0);
+            }
+            Action::SetSkyFlip(b) => {
+                self.sky_replace_config.flip = b;
+            }
+            Action::SetSkyFadeEdge(v) => {
+                self.sky_replace_config.fade_edge = v.clamp(0.0, 100.0);
+            }
+            Action::SetSkyForegroundLighting(v) => {
+                self.sky_replace_config.foreground_lighting = v.clamp(0.0, 100.0);
+            }
+            Action::SetSkyOutputNewLayers(b) => {
+                self.sky_replace_config.output_new_layers = b;
+            }
+            Action::ApplySkyReplace => {
+                self.sky_replaced = true;
+            }
+
+            // --- Batch 5 (new): Liquify Depth ---
+            Action::SetLiquifyTool(t) => {
+                self.liquify_tool = t;
+            }
+            Action::SetLiquifyBrushSize(s) => {
+                self.liquify_brush_size = s.clamp(1.0, 1500.0);
+            }
+            Action::SetLiquifyBrushPressure(p) => {
+                self.liquify_brush_pressure = p.clamp(1.0, 100.0);
+            }
+            Action::SetLiquifyBrushDensity(d) => {
+                self.liquify_brush_density = d.clamp(1.0, 100.0);
+            }
+            Action::ApplyLiquifyStroke(stroke) => {
+                self.liquify_strokes.push(stroke);
+            }
+            Action::FreezeMaskRegion { center, radius } => {
+                // Stub: push the two center-coord indices as frozen markers.
+                let ix = center[0] as usize;
+                let iy = center[1] as usize;
+                let needed = ix.max(iy) + 1;
+                if self.liquify_frozen_mask.len() < needed {
+                    self.liquify_frozen_mask.resize(needed, false);
+                }
+                // Mark a rough disc of pixels around center as frozen.
+                let r = radius as usize;
+                for dy in 0..=r {
+                    for dx in 0..=r {
+                        if dx * dx + dy * dy <= r * r {
+                            let px = (ix + dx).min(self.liquify_frozen_mask.len() - 1);
+                            let py = (iy + dy).min(self.liquify_frozen_mask.len() - 1);
+                            let _ = (px, py); // pixel writes are a GPU concern
+                        }
+                    }
+                }
+                self.liquify_frozen_mask.push(true);
+            }
+            Action::ThawAllMask => {
+                self.liquify_frozen_mask.clear();
+            }
+            Action::ReconstructLiquify => {
+                self.liquify_strokes.pop();
+            }
+            Action::RevertLiquify => {
+                self.liquify_strokes.clear();
+            }
+            Action::SetLiquifyShowMesh(b) => {
+                self.liquify_show_mesh = b;
+            }
+            Action::SetLiquifySmartRadius(b) => {
+                self.liquify_smart_radius = b;
+            }
+            Action::SaveLiquifyMesh => {
+                // Stub: mesh subdivisions unchanged; just marks intent.
+            }
+
+            // --- Batch 5 (new): Select Subject (AI stub) ---
+            Action::SetSelectSubjectMode(m) => {
+                self.select_subject_mode = m;
+            }
+            Action::RunSelectSubject => {
+                let cloud_used = self.select_subject_mode == SelectSubjectMode::Cloud;
+                self.last_select_subject = Some(SelectSubjectResult {
+                    coverage: 0.72,
+                    confidence: 0.89,
+                    cloud_used,
+                });
+            }
+            Action::ToggleSelectAndMask => {
+                self.select_and_mask_open = !self.select_and_mask_open;
+            }
+            Action::SetSelectSubjectRefine(b) => {
+                self.select_subject_refine = b;
+            }
+            Action::InvertSelectSubject => {
+                if self.last_select_subject.is_some() {
+                    self.select_subject_refine = !self.select_subject_refine;
+                }
             }
         }
     }
@@ -6313,5 +6703,191 @@ mod batch4_ext_tests {
         assert!(!pl.print_marks);
         assert!((pl.bleed - 3.0).abs() < 1e-6);
         assert_eq!(pl.print_resolution, 300);
+    }
+}
+
+// ---- Batch 5 new feature tests ----------------------------------------------
+
+#[cfg(test)]
+mod batch5_new_tests {
+    use super::{
+        Action, App, CaFillMethod, LiquifyTool, LiquifyStroke, SelectSubjectMode,
+    };
+
+    // ---- Content-Aware Crop ----
+
+    #[test]
+    fn test_ca_crop_angle_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetCaCropAngle(90.0));
+        assert!((app.ca_crop_config.angle - 45.0).abs() < 1e-5, "should clamp to 45");
+        app.apply(Action::SetCaCropAngle(-90.0));
+        assert!((app.ca_crop_config.angle - (-45.0)).abs() < 1e-5, "should clamp to -45");
+    }
+
+    #[test]
+    fn test_ca_crop_apply_records_rect() {
+        let mut app = App::new();
+        assert!(app.last_ca_crop_rect.is_none());
+        app.apply(Action::ApplyCaCrop { rect: [0.0, 0.0, 100.0, 100.0] });
+        assert_eq!(app.last_ca_crop_rect, Some([0.0, 0.0, 100.0, 100.0]));
+    }
+
+    #[test]
+    fn test_ca_crop_fill_method() {
+        let mut app = App::new();
+        app.apply(Action::SetCaCropFillMethod(CaFillMethod::EdgeExtend));
+        assert!(matches!(app.ca_crop_config.fill_method, CaFillMethod::EdgeExtend));
+        app.apply(Action::SetCaCropFillMethod(CaFillMethod::Transparent));
+        assert!(matches!(app.ca_crop_config.fill_method, CaFillMethod::Transparent));
+    }
+
+    // ---- Sky Replacement ----
+
+    #[test]
+    fn test_sky_brightness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSkyBrightness(300.0));
+        assert!((app.sky_replace_config.brightness - 200.0).abs() < 1e-5);
+        app.apply(Action::SetSkyBrightness(-10.0));
+        assert!((app.sky_replace_config.brightness - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_sky_temperature_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSkyTemperature(-200.0));
+        assert!((app.sky_replace_config.temperature - (-100.0)).abs() < 1e-5);
+        app.apply(Action::SetSkyTemperature(200.0));
+        assert!((app.sky_replace_config.temperature - 100.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_sky_scale_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSkyScale(5.0));
+        assert!((app.sky_replace_config.scale - 2.0).abs() < 1e-5);
+        app.apply(Action::SetSkyScale(0.1));
+        assert!((app.sky_replace_config.scale - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_apply_sky_replace_sets_flag() {
+        let mut app = App::new();
+        assert!(!app.sky_replaced);
+        app.apply(Action::ApplySkyReplace);
+        assert!(app.sky_replaced);
+    }
+
+    #[test]
+    fn test_sky_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.sky_replace_panel_open);
+        app.apply(Action::ToggleSkyReplacePanel);
+        assert!(app.sky_replace_panel_open);
+        app.apply(Action::ToggleSkyReplacePanel);
+        assert!(!app.sky_replace_panel_open);
+    }
+
+    // ---- Liquify ----
+
+    #[test]
+    fn test_liquify_brush_size_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetLiquifyBrushSize(0.0));
+        assert!((app.liquify_brush_size - 1.0).abs() < 1e-5);
+        app.apply(Action::SetLiquifyBrushSize(2000.0));
+        assert!((app.liquify_brush_size - 1500.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_liquify_stroke_push() {
+        let mut app = App::new();
+        assert!(app.liquify_strokes.is_empty());
+        app.apply(Action::ApplyLiquifyStroke(LiquifyStroke {
+            tool: LiquifyTool::Forward,
+            center: [50.0, 50.0],
+            radius: 40.0,
+            pressure: 0.8,
+            angle: 0.0,
+        }));
+        assert_eq!(app.liquify_strokes.len(), 1);
+    }
+
+    #[test]
+    fn test_reconstruct_pops_stroke() {
+        let mut app = App::new();
+        app.apply(Action::ApplyLiquifyStroke(LiquifyStroke {
+            tool: LiquifyTool::Pucker,
+            center: [10.0, 10.0],
+            radius: 20.0,
+            pressure: 0.5,
+            angle: 0.0,
+        }));
+        app.apply(Action::ApplyLiquifyStroke(LiquifyStroke {
+            tool: LiquifyTool::Bloat,
+            center: [20.0, 20.0],
+            radius: 30.0,
+            pressure: 0.6,
+            angle: 0.0,
+        }));
+        assert_eq!(app.liquify_strokes.len(), 2);
+        app.apply(Action::ReconstructLiquify);
+        assert_eq!(app.liquify_strokes.len(), 1);
+    }
+
+    #[test]
+    fn test_revert_clears_strokes() {
+        let mut app = App::new();
+        app.apply(Action::ApplyLiquifyStroke(LiquifyStroke {
+            tool: LiquifyTool::Twirl,
+            center: [5.0, 5.0],
+            radius: 10.0,
+            pressure: 0.4,
+            angle: 45.0,
+        }));
+        assert!(!app.liquify_strokes.is_empty());
+        app.apply(Action::RevertLiquify);
+        assert!(app.liquify_strokes.is_empty());
+    }
+
+    #[test]
+    fn test_thaw_all_clears_mask() {
+        let mut app = App::new();
+        app.liquify_frozen_mask = vec![true, true, false, true];
+        app.apply(Action::ThawAllMask);
+        assert!(app.liquify_frozen_mask.is_empty());
+    }
+
+    // ---- Select Subject ----
+
+    #[test]
+    fn test_select_subject_run_stub() {
+        let mut app = App::new();
+        assert!(app.last_select_subject.is_none());
+        app.apply(Action::RunSelectSubject);
+        let result = app.last_select_subject.as_ref().unwrap();
+        assert!((result.coverage - 0.72).abs() < 1e-5);
+        assert!((result.confidence - 0.89).abs() < 1e-5);
+        assert!(!result.cloud_used);
+    }
+
+    #[test]
+    fn test_select_subject_mode_cloud() {
+        let mut app = App::new();
+        app.apply(Action::SetSelectSubjectMode(SelectSubjectMode::Cloud));
+        app.apply(Action::RunSelectSubject);
+        let result = app.last_select_subject.as_ref().unwrap();
+        assert!(result.cloud_used);
+    }
+
+    #[test]
+    fn test_select_and_mask_toggle() {
+        let mut app = App::new();
+        assert!(!app.select_and_mask_open);
+        app.apply(Action::ToggleSelectAndMask);
+        assert!(app.select_and_mask_open);
+        app.apply(Action::ToggleSelectAndMask);
+        assert!(!app.select_and_mask_open);
     }
 }

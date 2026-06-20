@@ -323,6 +323,187 @@ pub struct MotionGraphicTemplate {
     pub controls: Vec<MoGrtControl>,
 }
 
+// ── Batch 5: Motion Sketch ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MotionSketchStroke {
+    pub points: Vec<[f32; 2]>,
+    pub timestamps: Vec<f32>,
+    pub layer_id: usize,
+    pub smoothing: f32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MotionSketchConfig {
+    pub capture_speed: f32,
+    pub smoothing: f32,
+    pub show_wireframe: bool,
+    pub start_capture_at_outpoint: bool,
+}
+
+impl Default for MotionSketchConfig {
+    fn default() -> Self {
+        Self {
+            capture_speed: 100.0,
+            smoothing: 25.0,
+            show_wireframe: true,
+            start_capture_at_outpoint: false,
+        }
+    }
+}
+
+// ── Batch 5: Warp Stabilizer depth ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum StabilizeResult {
+    #[default]
+    Smooth,
+    NoBgMotion,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum StabilizeMethod {
+    #[default]
+    Subspace,
+    PositionScale,
+    Position,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum StabilizeFraming {
+    #[default]
+    StabilizeOnlyCropSmooth,
+    Stabilize,
+    NoCropSmooth,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WarpStabConfig {
+    pub result: StabilizeResult,
+    pub smoothness: f32,
+    pub method: StabilizeMethod,
+    pub framing: StabilizeFraming,
+    pub crop_less_smooth_more: f32,
+    pub detailed_analysis: bool,
+    pub rolling_shutter_ripple: f32,
+}
+
+impl Default for WarpStabConfig {
+    fn default() -> Self {
+        Self {
+            result: StabilizeResult::default(),
+            smoothness: 50.0,
+            method: StabilizeMethod::Subspace,
+            framing: StabilizeFraming::StabilizeOnlyCropSmooth,
+            crop_less_smooth_more: 50.0,
+            detailed_analysis: false,
+            rolling_shutter_ripple: 0.0,
+        }
+    }
+}
+
+// ── Batch 5: Shape Layer Morphing ─────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum MorphMode {
+    #[default]
+    Linear,
+    Smooth,
+    Hold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum CorrespondenceMode {
+    #[default]
+    Auto,
+    Manual,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ShapeMorphKeyframe {
+    pub time: f32,
+    pub layer_id: usize,
+    pub path_idx: usize,
+    pub mode: MorphMode,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ShapeMorphConfig {
+    pub enabled: bool,
+    pub keyframes: Vec<ShapeMorphKeyframe>,
+    pub correspondence_mode: CorrespondenceMode,
+}
+
+impl Default for ShapeMorphConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            keyframes: vec![],
+            correspondence_mode: CorrespondenceMode::Auto,
+        }
+    }
+}
+
+// ── Batch 5: Audio Spectrum / Waveform Effects ────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum AudioVisMode {
+    #[default]
+    Spectrum,
+    Waveform,
+    Bars,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum AudioVisSide {
+    #[default]
+    Both,
+    Left,
+    Right,
+    All,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AudioSpectrumConfig {
+    pub mode: AudioVisMode,
+    pub audio_layer: Option<usize>,
+    pub start_freq: f32,
+    pub end_freq: f32,
+    pub max_height: f32,
+    pub audio_duration: f32,
+    pub side: AudioVisSide,
+    pub softness: f32,
+    pub inside_color: [f32; 4],
+    pub outside_color: [f32; 4],
+    pub mirror: bool,
+    pub displayed_samples: u32,
+    pub digital: bool,
+    pub frequency_bands: u32,
+    pub thickness: f32,
+}
+
+impl Default for AudioSpectrumConfig {
+    fn default() -> Self {
+        Self {
+            mode: AudioVisMode::Spectrum,
+            audio_layer: None,
+            start_freq: 20.0,
+            end_freq: 20000.0,
+            max_height: 500.0,
+            audio_duration: 0.0,
+            side: AudioVisSide::Both,
+            softness: 0.0,
+            inside_color: [1.0, 1.0, 1.0, 1.0],
+            outside_color: [0.0, 0.0, 0.0, 0.0],
+            mirror: false,
+            displayed_samples: 512,
+            digital: false,
+            frequency_bands: 64,
+            thickness: 2.0,
+        }
+    }
+}
+
 /// Every panel->state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -853,6 +1034,51 @@ pub enum Action {
     SetCameraTrackerProgress(f32),
     /// Clear all track points and the solved camera keyframes.
     ClearCameraTrack,
+
+    // --- Batch 5: Motion Sketch ---
+    SetMotionSketchCaptureSpeed(f32),
+    SetMotionSketchSmoothing(f32),
+    SetMotionSketchShowWireframe(bool),
+    ToggleMotionSketchRecord,
+    ApplyMotionSketchStroke(MotionSketchStroke),
+    ClearMotionSketchStrokes,
+    ApplyMotionSketchToLayer { layer_id: usize },
+
+    // --- Batch 5: Warp Stabilizer depth ---
+    SetWarpStabResult(StabilizeResult),
+    SetWarpStabSmoothness(f32),
+    SetWarpStabMethod(StabilizeMethod),
+    SetWarpStabFraming(StabilizeFraming),
+    SetWarpStabCropSmooth(f32),
+    SetWarpStabDetailedAnalysis(bool),
+    SetWarpStabRollingShutter(f32),
+    AnalyzeWarpStab { layer_id: usize },
+    WarpStabAnalysisComplete,
+
+    // --- Batch 5: Shape Layer Morphing ---
+    SetShapeMorphEnabled(bool),
+    AddMorphKeyframe(ShapeMorphKeyframe),
+    RemoveMorphKeyframe(usize),
+    SetMorphMode { kf_idx: usize, mode: MorphMode },
+    SetCorrespondenceMode(CorrespondenceMode),
+    SetMorphPreviewTime(f32),
+    PreviewMorphAtTime(f32),
+    ClearMorphKeyframes,
+
+    // --- Batch 5: Audio Spectrum / Waveform Effects ---
+    SetAudioVisMode(AudioVisMode),
+    SetAudioVisLayer(Option<usize>),
+    SetAudioStartFreq(f32),
+    SetAudioEndFreq(f32),
+    SetAudioMaxHeight(f32),
+    SetAudioVisSide(AudioVisSide),
+    SetAudioSoftness(f32),
+    SetAudioMirror(bool),
+    SetAudioDisplayedSamples(u32),
+    SetAudioFrequencyBands(u32),
+    SetAudioThickness(f32),
+    SetAudioDigital(bool),
+    ApplyAudioSpectrumEffect { layer_id: usize },
 }
 
 impl Action {
@@ -1131,6 +1357,25 @@ pub struct App {
     pub use_pre_render: bool,
     /// 2-point camera tracker state.
     pub camera_tracker: CameraTracker,
+
+    // --- Batch 5: Motion Sketch ---
+    pub motion_sketch_config: MotionSketchConfig,
+    pub motion_sketch_strokes: Vec<MotionSketchStroke>,
+    pub motion_sketch_recording: bool,
+
+    // --- Batch 5: Warp Stabilizer depth ---
+    pub warp_stab_config: WarpStabConfig,
+    pub warp_stab_analyzing: bool,
+    pub warp_stab_progress: f32,
+    pub warp_stab_applied_layer: Option<usize>,
+
+    // --- Batch 5: Shape Layer Morphing ---
+    pub shape_morph_config: ShapeMorphConfig,
+    pub morph_preview_time: f32,
+
+    // --- Batch 5: Audio Spectrum / Waveform Effects ---
+    pub audio_spectrum_config: AudioSpectrumConfig,
+    pub audio_spectrum_layer: Option<usize>,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -1262,6 +1507,17 @@ impl App {
             pre_render_cache_dir: None,
             use_pre_render: false,
             camera_tracker: CameraTracker::default(),
+            motion_sketch_config: MotionSketchConfig::default(),
+            motion_sketch_strokes: Vec::new(),
+            motion_sketch_recording: false,
+            warp_stab_config: WarpStabConfig::default(),
+            warp_stab_analyzing: false,
+            warp_stab_progress: 0.0,
+            warp_stab_applied_layer: None,
+            shape_morph_config: ShapeMorphConfig::default(),
+            morph_preview_time: 0.0,
+            audio_spectrum_config: AudioSpectrumConfig::default(),
+            audio_spectrum_layer: None,
         }
     }
 
@@ -3432,6 +3688,133 @@ impl App {
             Action::ClearCameraTrack => {
                 self.camera_tracker = CameraTracker::default();
             }
+
+            // --- Batch 5: Motion Sketch ---
+            Action::SetMotionSketchCaptureSpeed(v) => {
+                self.motion_sketch_config.capture_speed = v.clamp(0.0, 100.0);
+            }
+            Action::SetMotionSketchSmoothing(v) => {
+                self.motion_sketch_config.smoothing = v.clamp(0.0, 100.0);
+            }
+            Action::SetMotionSketchShowWireframe(b) => {
+                self.motion_sketch_config.show_wireframe = b;
+            }
+            Action::ToggleMotionSketchRecord => {
+                self.motion_sketch_recording = !self.motion_sketch_recording;
+            }
+            Action::ApplyMotionSketchStroke(stroke) => {
+                self.motion_sketch_strokes.push(stroke);
+            }
+            Action::ClearMotionSketchStrokes => {
+                self.motion_sketch_strokes.clear();
+            }
+            Action::ApplyMotionSketchToLayer { layer_id: _ } => {
+                self.motion_sketch_recording = false;
+            }
+
+            // --- Batch 5: Warp Stabilizer depth ---
+            Action::SetWarpStabResult(r) => {
+                self.warp_stab_config.result = r;
+            }
+            Action::SetWarpStabSmoothness(v) => {
+                self.warp_stab_config.smoothness = v.clamp(0.0, 100.0);
+            }
+            Action::SetWarpStabMethod(m) => {
+                self.warp_stab_config.method = m;
+            }
+            Action::SetWarpStabFraming(f) => {
+                self.warp_stab_config.framing = f;
+            }
+            Action::SetWarpStabCropSmooth(v) => {
+                self.warp_stab_config.crop_less_smooth_more = v.clamp(0.0, 100.0);
+            }
+            Action::SetWarpStabDetailedAnalysis(b) => {
+                self.warp_stab_config.detailed_analysis = b;
+            }
+            Action::SetWarpStabRollingShutter(v) => {
+                self.warp_stab_config.rolling_shutter_ripple = v.clamp(0.0, 100.0);
+            }
+            Action::AnalyzeWarpStab { layer_id } => {
+                self.warp_stab_analyzing = true;
+                self.warp_stab_progress = 0.0;
+                self.warp_stab_applied_layer = Some(layer_id);
+            }
+            Action::WarpStabAnalysisComplete => {
+                self.warp_stab_analyzing = false;
+                self.warp_stab_progress = 1.0;
+            }
+
+            // --- Batch 5: Shape Layer Morphing ---
+            Action::SetShapeMorphEnabled(b) => {
+                self.shape_morph_config.enabled = b;
+            }
+            Action::AddMorphKeyframe(kf) => {
+                self.shape_morph_config.keyframes.push(kf);
+            }
+            Action::RemoveMorphKeyframe(idx) => {
+                if idx < self.shape_morph_config.keyframes.len() {
+                    self.shape_morph_config.keyframes.remove(idx);
+                }
+            }
+            Action::SetMorphMode { kf_idx, mode } => {
+                if let Some(kf) = self.shape_morph_config.keyframes.get_mut(kf_idx) {
+                    kf.mode = mode;
+                }
+            }
+            Action::SetCorrespondenceMode(m) => {
+                self.shape_morph_config.correspondence_mode = m;
+            }
+            Action::SetMorphPreviewTime(t) => {
+                self.morph_preview_time = t.max(0.0);
+            }
+            Action::PreviewMorphAtTime(t) => {
+                self.morph_preview_time = t;
+            }
+            Action::ClearMorphKeyframes => {
+                self.shape_morph_config.keyframes.clear();
+            }
+
+            // --- Batch 5: Audio Spectrum / Waveform Effects ---
+            Action::SetAudioVisMode(m) => {
+                self.audio_spectrum_config.mode = m;
+            }
+            Action::SetAudioVisLayer(l) => {
+                self.audio_spectrum_config.audio_layer = l;
+            }
+            Action::SetAudioStartFreq(v) => {
+                self.audio_spectrum_config.start_freq = v.clamp(1.0, 22000.0);
+            }
+            Action::SetAudioEndFreq(v) => {
+                let min = self.audio_spectrum_config.start_freq + 1.0;
+                self.audio_spectrum_config.end_freq = v.clamp(min, 22000.0);
+            }
+            Action::SetAudioMaxHeight(v) => {
+                self.audio_spectrum_config.max_height = v.clamp(1.0, 2000.0);
+            }
+            Action::SetAudioVisSide(s) => {
+                self.audio_spectrum_config.side = s;
+            }
+            Action::SetAudioSoftness(v) => {
+                self.audio_spectrum_config.softness = v.clamp(0.0, 100.0);
+            }
+            Action::SetAudioMirror(b) => {
+                self.audio_spectrum_config.mirror = b;
+            }
+            Action::SetAudioDisplayedSamples(n) => {
+                self.audio_spectrum_config.displayed_samples = n.clamp(2, 4096);
+            }
+            Action::SetAudioFrequencyBands(n) => {
+                self.audio_spectrum_config.frequency_bands = n.clamp(2, 1024);
+            }
+            Action::SetAudioThickness(v) => {
+                self.audio_spectrum_config.thickness = v.clamp(0.1, 100.0);
+            }
+            Action::SetAudioDigital(b) => {
+                self.audio_spectrum_config.digital = b;
+            }
+            Action::ApplyAudioSpectrumEffect { layer_id } => {
+                self.audio_spectrum_layer = Some(layer_id);
+            }
         }
     }
 
@@ -4634,5 +5017,170 @@ mod tests {
         let pos = kf.unwrap().1;
         assert!((pos[0] - 60.0).abs() < 1e-3);
         assert!((pos[1] - 70.0).abs() < 1e-3);
+    }
+
+    // ── Batch 5: Motion Sketch ────────────────────────────────────────────────
+
+    #[test]
+    fn test_motion_sketch_speed_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMotionSketchCaptureSpeed(150.0));
+        assert!((app.motion_sketch_config.capture_speed - 100.0).abs() < 1e-3);
+        app.apply(Action::SetMotionSketchCaptureSpeed(-10.0));
+        assert!((app.motion_sketch_config.capture_speed - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_motion_sketch_record_toggle() {
+        let mut app = App::new();
+        assert!(!app.motion_sketch_recording);
+        app.apply(Action::ToggleMotionSketchRecord);
+        assert!(app.motion_sketch_recording);
+        app.apply(Action::ToggleMotionSketchRecord);
+        assert!(!app.motion_sketch_recording);
+    }
+
+    #[test]
+    fn test_motion_sketch_stroke_push() {
+        let mut app = App::new();
+        assert!(app.motion_sketch_strokes.is_empty());
+        let stroke = MotionSketchStroke {
+            points: vec![[0.0, 0.0], [1.0, 1.0]],
+            timestamps: vec![0.0, 0.1],
+            layer_id: 0,
+            smoothing: 25.0,
+        };
+        app.apply(Action::ApplyMotionSketchStroke(stroke));
+        assert_eq!(app.motion_sketch_strokes.len(), 1);
+    }
+
+    #[test]
+    fn test_motion_sketch_clear() {
+        let mut app = App::new();
+        let stroke = MotionSketchStroke {
+            points: vec![[0.0, 0.0]],
+            timestamps: vec![0.0],
+            layer_id: 0,
+            smoothing: 0.0,
+        };
+        app.apply(Action::ApplyMotionSketchStroke(stroke));
+        assert_eq!(app.motion_sketch_strokes.len(), 1);
+        app.apply(Action::ClearMotionSketchStrokes);
+        assert!(app.motion_sketch_strokes.is_empty());
+    }
+
+    // ── Batch 5: Warp Stabilizer ──────────────────────────────────────────────
+
+    #[test]
+    fn test_warp_stab_smoothness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetWarpStabSmoothness(150.0));
+        assert!((app.warp_stab_config.smoothness - 100.0).abs() < 1e-3);
+        app.apply(Action::SetWarpStabSmoothness(-5.0));
+        assert!((app.warp_stab_config.smoothness - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_warp_stab_analyze_sets_flag() {
+        let mut app = App::new();
+        assert!(!app.warp_stab_analyzing);
+        app.apply(Action::AnalyzeWarpStab { layer_id: 2 });
+        assert!(app.warp_stab_analyzing);
+        assert_eq!(app.warp_stab_applied_layer, Some(2));
+        assert!((app.warp_stab_progress - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_warp_stab_complete_clears_flag() {
+        let mut app = App::new();
+        app.apply(Action::AnalyzeWarpStab { layer_id: 0 });
+        assert!(app.warp_stab_analyzing);
+        app.apply(Action::WarpStabAnalysisComplete);
+        assert!(!app.warp_stab_analyzing);
+        assert!((app.warp_stab_progress - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_warp_stab_rolling_shutter_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetWarpStabRollingShutter(200.0));
+        assert!((app.warp_stab_config.rolling_shutter_ripple - 100.0).abs() < 1e-3);
+        app.apply(Action::SetWarpStabRollingShutter(-1.0));
+        assert!((app.warp_stab_config.rolling_shutter_ripple - 0.0).abs() < 1e-3);
+    }
+
+    // ── Batch 5: Shape Morphing ───────────────────────────────────────────────
+
+    #[test]
+    fn test_morph_add_keyframe() {
+        let mut app = App::new();
+        assert!(app.shape_morph_config.keyframes.is_empty());
+        let kf = ShapeMorphKeyframe { time: 1.0, layer_id: 0, path_idx: 0, mode: MorphMode::Linear };
+        app.apply(Action::AddMorphKeyframe(kf));
+        assert_eq!(app.shape_morph_config.keyframes.len(), 1);
+    }
+
+    #[test]
+    fn test_morph_remove_keyframe_oob() {
+        let mut app = App::new();
+        // Remove index 99 on empty vec — should not panic
+        app.apply(Action::RemoveMorphKeyframe(99));
+        assert!(app.shape_morph_config.keyframes.is_empty());
+    }
+
+    #[test]
+    fn test_morph_clear() {
+        let mut app = App::new();
+        let kf = ShapeMorphKeyframe { time: 0.5, layer_id: 0, path_idx: 0, mode: MorphMode::Smooth };
+        app.apply(Action::AddMorphKeyframe(kf));
+        assert!(!app.shape_morph_config.keyframes.is_empty());
+        app.apply(Action::ClearMorphKeyframes);
+        assert!(app.shape_morph_config.keyframes.is_empty());
+    }
+
+    #[test]
+    fn test_morph_preview_time_non_neg() {
+        let mut app = App::new();
+        app.apply(Action::SetMorphPreviewTime(-1.0));
+        assert!((app.morph_preview_time - 0.0).abs() < 1e-3);
+        app.apply(Action::SetMorphPreviewTime(2.5));
+        assert!((app.morph_preview_time - 2.5).abs() < 1e-3);
+    }
+
+    // ── Batch 5: Audio Spectrum ───────────────────────────────────────────────
+
+    #[test]
+    fn test_audio_start_freq_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioStartFreq(0.0));
+        assert!((app.audio_spectrum_config.start_freq - 1.0).abs() < 1e-3);
+        app.apply(Action::SetAudioStartFreq(30000.0));
+        assert!((app.audio_spectrum_config.start_freq - 22000.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_audio_frequency_bands_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioFrequencyBands(0));
+        assert_eq!(app.audio_spectrum_config.frequency_bands, 2);
+        app.apply(Action::SetAudioFrequencyBands(9999));
+        assert_eq!(app.audio_spectrum_config.frequency_bands, 1024);
+    }
+
+    #[test]
+    fn test_audio_thickness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioThickness(0.0));
+        assert!((app.audio_spectrum_config.thickness - 0.1).abs() < 1e-3);
+        app.apply(Action::SetAudioThickness(200.0));
+        assert!((app.audio_spectrum_config.thickness - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_apply_audio_effect_sets_layer() {
+        let mut app = App::new();
+        assert!(app.audio_spectrum_layer.is_none());
+        app.apply(Action::ApplyAudioSpectrumEffect { layer_id: 3 });
+        assert_eq!(app.audio_spectrum_layer, Some(3));
     }
 }

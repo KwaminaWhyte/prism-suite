@@ -873,6 +873,7 @@ pub enum Action {
     /// outward (Scallop), inward (Crystallize), or randomly ±(Wrinkle).
     ApplyWarpStroke { center: (f32, f32), radius: f32 },
 
+
     // --- Batch 8: Image Trace (extended) ---
     /// Configure image trace mode, threshold, and color count, storing them on App.
     SetImageTrace { mode: ImageTraceMode, threshold: f32, colors: u8 },
@@ -884,7 +885,6 @@ pub enum Action {
 
     // --- Batch 8: Opacity Masks ---
     /// Make the top selected shape a luminance mask for the shape below it.
-    /// The two shapes with the highest indices in `selection` are linked.
     MakeOpacityMask,
     /// Release the opacity-mask set for every selected shape back to independent shapes.
     ReleaseOpacityMask,
@@ -972,6 +972,82 @@ pub enum Action {
     SymbolStain { center: [f32; 2], color: [f32; 4] },
     /// Reduce nearby symbol instances' opacity by `opacity` factor.
     SymbolScreen { center: [f32; 2], opacity: f32 },
+
+    // --- Batch 10: Gradient Mesh depth ---
+    /// Set the mesh row count (clamped 1..=50).
+    SetMeshRows(u8),
+    /// Set the mesh column count (clamped 1..=50).
+    SetMeshCols(u8),
+    /// Populate the gradient mesh with rows*cols default MeshPoints.
+    CreateMesh,
+    /// Set the color of a single mesh control point.
+    SetMeshPointColor { idx: usize, color: [f32; 4] },
+    /// Set the tension of a single mesh control point (clamped 0..=1).
+    SetMeshPointTension { idx: usize, tension: f32 },
+    /// Select a mesh control point by index.
+    SelectMeshPoint(usize),
+    /// Move a mesh control point to a new position.
+    MoveMeshPoint { idx: usize, pos: [f32; 2] },
+    /// Expand the mesh to the selected shape's bounds (stub).
+    ExpandMeshToShape,
+    /// Toggle the mesh editing tool on/off.
+    ToggleMeshTool,
+    /// Release (clear) the gradient mesh back to defaults.
+    ReleaseMesh,
+
+    // --- Batch 10: Flare Tool ---
+    /// Toggle the flare tool on/off.
+    ToggleFlareTool,
+    /// Set flare brightness (clamped 0..=100).
+    SetFlareBrightness(f32),
+    /// Set flare halo size (clamped 0..=100).
+    SetFlareHaloSize(f32),
+    /// Set flare ray count (clamped 0..=250).
+    SetFlareRayCount(u8),
+    /// Set flare ray length (clamped 0..=300).
+    SetFlareRayLength(f32),
+    /// Set flare ring count (clamped 0..=50).
+    SetFlareRingCount(u8),
+    /// Set flare ring spacing (clamped 0..=300).
+    SetFlareRingSpacing(f32),
+    /// Set the flare color.
+    SetFlareColor([f32; 4]),
+    /// Place a flare at `pos`; adds a new shape index to the flare list.
+    PlaceFlare([f32; 2]),
+
+    // --- Batch 10: Pattern Brush depth ---
+    /// Set the pattern brush scale (clamped 0..=1000).
+    SetPatternBrushScale(f32),
+    /// Set the pattern brush spacing (clamped 0..=1000).
+    SetPatternBrushSpacing(f32),
+    /// Set the tile-fit strategy.
+    SetPatternBrushFit(PatternBrushFit),
+    /// Set whether to flip tiles across the path.
+    SetPatternBrushFlipAcross(bool),
+    /// Set whether to flip tiles along the path.
+    SetPatternBrushFlipAlong(bool),
+    /// Save the current pattern brush config under `name`.
+    SavePatternBrush { name: String },
+    /// Remove a pattern brush from the library by index (no-op if out of bounds).
+    DeletePatternBrush(usize),
+    /// Apply the pattern brush scale to the selected shape's stroke width (stub).
+    ApplyPatternBrushToSelected,
+
+    // --- Batch 10: Variable Fonts ---
+    /// Toggle the variable-font panel open/closed.
+    ToggleVariableFontPanel,
+    /// Add a new font axis to the variable-font config.
+    AddFontAxis(FontAxis),
+    /// Remove a font axis at `idx` (no-op if out of bounds).
+    RemoveFontAxis(usize),
+    /// Set the value of a font axis (clamped to the axis min/max).
+    SetFontAxisValue { idx: usize, value: f32 },
+    /// Set the preview text shown in the variable-font panel.
+    SetFontPreviewText(String),
+    /// Apply the current axis values to the selected shape (stub).
+    ApplyVariableFontToSelected,
+    /// Reset all font axes to their midpoints ((min+max)/2).
+    ResetFontAxes,
 }
 
 /// Stroke alignment relative to the path.
@@ -1324,6 +1400,116 @@ impl Default for RecolorConfig {
     }
 }
 
+// --- Batch 10: Gradient Mesh depth ---
+
+/// A single control point in a gradient mesh.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MeshPoint {
+    pub position: [f32; 2],
+    pub color: [f32; 4],
+    pub tension: f32,
+}
+
+impl Default for MeshPoint {
+    fn default() -> Self {
+        Self { position: [0.0, 0.0], color: [1.0, 1.0, 1.0, 1.0], tension: 1.0 }
+    }
+}
+
+/// Configuration for the gradient mesh tool.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GradientMeshConfig {
+    pub rows: u8,
+    pub cols: u8,
+    pub points: Vec<MeshPoint>,
+}
+
+impl Default for GradientMeshConfig {
+    fn default() -> Self {
+        Self { rows: 4, cols: 4, points: vec![] }
+    }
+}
+
+// --- Batch 10: Flare Tool ---
+
+/// Configuration for a lens-flare effect.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FlareConfig {
+    pub center: [f32; 2],
+    pub brightness: f32,
+    pub halo_size: f32,
+    pub ray_count: u8,
+    pub ray_length: f32,
+    pub ring_count: u8,
+    pub ring_spacing: f32,
+    pub color: [f32; 4],
+}
+
+impl Default for FlareConfig {
+    fn default() -> Self {
+        Self {
+            center: [0.0, 0.0],
+            brightness: 100.0,
+            halo_size: 50.0,
+            ray_count: 10,
+            ray_length: 100.0,
+            ring_count: 5,
+            ring_spacing: 50.0,
+            color: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
+}
+
+// --- Batch 10: Pattern Brush depth ---
+
+/// How a pattern brush tile fits along the stroke path.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum PatternBrushFit {
+    #[default]
+    Stretch,
+    Tile,
+    ApproximatePath,
+    AddSpaceBetweenTiles,
+    AlignToPixelGrid,
+}
+
+/// How the pattern brush colorizes its tile art.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ColorizeMethod {
+    #[default]
+    None,
+    Tints,
+    TintsAndShades,
+    Hue,
+    Full,
+}
+
+/// Configuration for the pattern brush.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PatternBrushConfig {
+    pub name: String,
+    pub scale: f32,
+    pub spacing: f32,
+    pub colorize_method: ColorizeMethod,
+    pub fit: PatternBrushFit,
+    pub flip_across_path: bool,
+    pub flip_along_path: bool,
+}
+
+impl Default for PatternBrushConfig {
+    fn default() -> Self {
+        Self {
+            name: "Pattern Brush".to_string(),
+            scale: 100.0,
+            spacing: 100.0,
+            colorize_method: ColorizeMethod::None,
+            fit: PatternBrushFit::Stretch,
+            flip_across_path: false,
+            flip_along_path: false,
+        }
+    }
+}
+
 /// Configuration for the Symbol Sprayer tool.
 #[derive(Debug, Clone)]
 pub struct SymbolSprayConfig {
@@ -1354,6 +1540,36 @@ impl Default for SymbolSprayConfig {
             size_jitter: 0.1,
             opacity_jitter: 0.0,
         }
+    }
+}
+
+// --- Batch 10: Variable Fonts ---
+
+/// A single OpenType variation axis.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FontAxis {
+    pub tag: String,
+    pub min: f32,
+    pub max: f32,
+    pub value: f32,
+}
+
+impl Default for FontAxis {
+    fn default() -> Self {
+        Self { tag: "wght".to_string(), min: 100.0, max: 900.0, value: 400.0 }
+    }
+}
+
+/// Configuration for variable-font axis editing.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VariableFontConfig {
+    pub axes: Vec<FontAxis>,
+    pub preview_text: String,
+}
+
+impl Default for VariableFontConfig {
+    fn default() -> Self {
+        Self { axes: vec![], preview_text: "Sphinx of black quartz".to_string() }
     }
 }
 
@@ -1573,6 +1789,7 @@ pub struct App {
     /// Which plane (0=left, 1=right, 2=floor) is active for perspective drawing.
     pub perspective_active_plane: usize,
 
+
     // --- Batch 8: Image Trace (extended) ---
     /// The active image trace mode (Color / Grayscale / BlackWhite / Outlined).
     pub image_trace_mode: ImageTraceMode,
@@ -1622,6 +1839,34 @@ pub struct App {
     // --- Batch 9: Symbol Sprayer ---
     /// Configuration for the Symbol Sprayer tool.
     pub symbol_spray_config: SymbolSprayConfig,
+
+    // --- Batch 10: Gradient Mesh depth ---
+    /// Gradient mesh configuration for the selected shape.
+    pub gradient_mesh: GradientMeshConfig,
+    /// Whether the mesh editing tool is currently active.
+    pub mesh_tool_active: bool,
+    /// Index of the currently selected mesh control point.
+    pub selected_mesh_point: Option<usize>,
+
+    // --- Batch 10: Flare Tool ---
+    /// Configuration for the active flare effect.
+    pub flare_config: FlareConfig,
+    /// Whether the flare tool is currently active.
+    pub flare_tool_active: bool,
+    /// Shape indices that represent placed flares.
+    pub flare_shapes: Vec<usize>,
+
+    // --- Batch 10: Pattern Brush depth ---
+    /// Configuration for the pattern brush.
+    pub pattern_brush_config: PatternBrushConfig,
+    /// Library of saved pattern brush names.
+    pub pattern_brush_library: Vec<String>,
+
+    // --- Batch 10: Variable Fonts ---
+    /// Variable-font axis configuration.
+    pub variable_font_config: VariableFontConfig,
+    /// Whether the variable-font panel is open.
+    pub variable_font_panel_open: bool,
 }
 
 impl App {
@@ -1760,6 +2005,17 @@ impl App {
             live_paint_highlight_color: [1.0, 0.5, 0.0, 1.0],
             live_paint_group_ids: Vec::new(),
             symbol_spray_config: SymbolSprayConfig::default(),
+            // Batch 10
+            gradient_mesh: GradientMeshConfig::default(),
+            mesh_tool_active: false,
+            selected_mesh_point: None,
+            flare_config: FlareConfig::default(),
+            flare_tool_active: false,
+            flare_shapes: Vec::new(),
+            pattern_brush_config: PatternBrushConfig::default(),
+            pattern_brush_library: Vec::new(),
+            variable_font_config: VariableFontConfig::default(),
+            variable_font_panel_open: false,
         }
     }
 
@@ -4127,6 +4383,7 @@ impl App {
                 }
             }
 
+
             // --- Batch 8: Image Trace (extended) ---
             Action::SetImageTrace { mode, threshold, colors } => {
                 self.image_trace_mode = mode;
@@ -4224,9 +4481,6 @@ impl App {
 
             // --- Batch 8: Symbol extras ---
             Action::BreakSymbolLink { shape_idx } => {
-                // The legacy symbol mechanism stores shapes in `self.symbols` but the
-                // placed instances are plain shapes with no back-reference field.
-                // BreakSymbolLink is a no-op stub that logs the intent.
                 log::info!("BreakSymbolLink({shape_idx}) — stub: instance detached");
             }
             Action::ExpandSymbol(sym_id) => {
@@ -4252,7 +4506,6 @@ impl App {
                 self.graph_show_legend = !self.graph_show_legend;
             }
             Action::ApplyGraph { x, y, width, height } => {
-                // Clone data to avoid a borrow conflict with the later checkpoint + push.
                 let values = self.graph_data.values.clone();
                 let n = values.len().min(self.graph_data.cols * self.graph_data.rows).max(1);
                 let max_val = values.iter().cloned().fold(0.0_f32, f32::max).max(1.0);
@@ -4311,7 +4564,6 @@ impl App {
                 self.recolor_config.randomize = !self.recolor_config.randomize;
             }
             Action::SaveRecolorSet => {
-                // Collect up to 10 fill colours from the current selection.
                 let fills: Vec<[f32; 4]> = self.selection.iter()
                     .filter_map(|&i| self.doc.shapes.get(i)?.fill_color())
                     .take(10)
@@ -4323,14 +4575,11 @@ impl App {
             Action::ApplyRecolorToSelected => {
                 if !self.selection.is_empty() {
                     self.checkpoint();
-                    // Rotate hue by a fixed step derived from the colour count.
                     let step = 1.0 / self.recolor_color_count.max(1) as f32;
                     let sel: Vec<usize> = self.selection.clone();
                     for (k, &i) in sel.iter().enumerate() {
                         if let Some(shape) = self.doc.shapes.get_mut(i) {
                             if let Some(c) = shape.fill_color() {
-                                // Simple hue rotation in RGB by rotating through
-                                // R→G→B→R channels proportional to slot index.
                                 let t = (k as f32 * step).fract();
                                 let rotated = [
                                     c[0] * (1.0 - t) + c[1] * t,
@@ -4348,7 +4597,6 @@ impl App {
 
             // --- Batch 9: Live Paint depth ---
             Action::LivePaintFill { x: _, y: _, color } => {
-                // Stub: apply fill colour to the currently selected shape, if any.
                 self.default_fill = color;
                 if let Some(idx) = self.selected {
                     if idx < self.doc.shapes.len() {
@@ -4358,6 +4606,110 @@ impl App {
                     }
                 }
             }
+
+            // --- Batch 10: Gradient Mesh depth ---
+            Action::SetMeshRows(rows) => {
+                self.gradient_mesh.rows = rows.clamp(1, 50);
+            }
+            Action::SetMeshCols(cols) => {
+                self.gradient_mesh.cols = cols.clamp(1, 50);
+            }
+            Action::CreateMesh => {
+                let count = self.gradient_mesh.rows as usize * self.gradient_mesh.cols as usize;
+                self.gradient_mesh.points = (0..count).map(|_| MeshPoint::default()).collect();
+            }
+            Action::SetMeshPointColor { idx, color } => {
+                if let Some(pt) = self.gradient_mesh.points.get_mut(idx) {
+                    pt.color = color;
+                }
+            }
+            Action::SetMeshPointTension { idx, tension } => {
+                if let Some(pt) = self.gradient_mesh.points.get_mut(idx) {
+                    pt.tension = tension.clamp(0.0, 1.0);
+                }
+            }
+            Action::SelectMeshPoint(idx) => {
+                self.selected_mesh_point = Some(idx);
+            }
+            Action::MoveMeshPoint { idx, pos } => {
+                if let Some(pt) = self.gradient_mesh.points.get_mut(idx) {
+                    pt.position = pos;
+                }
+            }
+            Action::ExpandMeshToShape => {
+                self.selected_mesh_point = None;
+            }
+            Action::ToggleMeshTool => {
+                self.mesh_tool_active = !self.mesh_tool_active;
+            }
+            Action::ReleaseMesh => {
+                self.gradient_mesh = GradientMeshConfig::default();
+            }
+
+            // --- Batch 10: Flare Tool ---
+            Action::ToggleFlareTool => {
+                self.flare_tool_active = !self.flare_tool_active;
+            }
+            Action::SetFlareBrightness(v) => {
+                self.flare_config.brightness = v.clamp(0.0, 100.0);
+            }
+            Action::SetFlareHaloSize(v) => {
+                self.flare_config.halo_size = v.clamp(0.0, 100.0);
+            }
+            Action::SetFlareRayCount(v) => {
+                self.flare_config.ray_count = v.clamp(0, 250);
+            }
+            Action::SetFlareRayLength(v) => {
+                self.flare_config.ray_length = v.clamp(0.0, 300.0);
+            }
+            Action::SetFlareRingCount(v) => {
+                self.flare_config.ring_count = v.clamp(0, 50);
+            }
+            Action::SetFlareRingSpacing(v) => {
+                self.flare_config.ring_spacing = v.clamp(0.0, 300.0);
+            }
+            Action::SetFlareColor(color) => {
+                self.flare_config.color = color;
+            }
+            Action::PlaceFlare(pos) => {
+                let idx = self.doc.shapes.len();
+                self.flare_config.center = pos;
+                self.flare_shapes.push(idx);
+            }
+
+            // --- Batch 10: Pattern Brush depth ---
+            Action::SetPatternBrushScale(v) => {
+                self.pattern_brush_config.scale = v.clamp(0.0, 1000.0);
+            }
+            Action::SetPatternBrushSpacing(v) => {
+                self.pattern_brush_config.spacing = v.clamp(0.0, 1000.0);
+            }
+            Action::SetPatternBrushFit(fit) => {
+                self.pattern_brush_config.fit = fit;
+            }
+            Action::SetPatternBrushFlipAcross(v) => {
+                self.pattern_brush_config.flip_across_path = v;
+            }
+            Action::SetPatternBrushFlipAlong(v) => {
+                self.pattern_brush_config.flip_along_path = v;
+            }
+            Action::SavePatternBrush { name } => {
+                self.pattern_brush_library.push(name);
+            }
+            Action::DeletePatternBrush(idx) => {
+                if idx < self.pattern_brush_library.len() {
+                    self.pattern_brush_library.remove(idx);
+                }
+            }
+            Action::ApplyPatternBrushToSelected => {
+                if let Some(i) = self.selected {
+                    if let Some(shape) = self.doc.shapes.get_mut(i) {
+                        shape.set_stroke_width(self.pattern_brush_config.scale / 100.0);
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+
             Action::LivePaintStroke { x: _, y: _, color, width } => {
                 // Stub: record the stroke defaults.
                 self.default_stroke = color;
@@ -4540,6 +4892,37 @@ impl App {
                 if changed {
                     self.checkpoint();
                     self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 10: Variable Fonts ---
+            Action::ToggleVariableFontPanel => {
+                self.variable_font_panel_open = !self.variable_font_panel_open;
+            }
+            Action::AddFontAxis(axis) => {
+                self.variable_font_config.axes.push(axis);
+            }
+            Action::RemoveFontAxis(idx) => {
+                if idx < self.variable_font_config.axes.len() {
+                    self.variable_font_config.axes.remove(idx);
+                }
+            }
+            Action::SetFontAxisValue { idx, value } => {
+                if let Some(axis) = self.variable_font_config.axes.get_mut(idx) {
+                    axis.value = value.clamp(axis.min, axis.max);
+                }
+            }
+            Action::SetFontPreviewText(text) => {
+                self.variable_font_config.preview_text = text;
+            }
+            Action::ApplyVariableFontToSelected => {
+                if self.selected.is_some() {
+                    self.host.mark_dirty();
+                }
+            }
+            Action::ResetFontAxes => {
+                for axis in self.variable_font_config.axes.iter_mut() {
+                    axis.value = (axis.min + axis.max) / 2.0;
                 }
             }
         }
@@ -7510,5 +7893,162 @@ mod tests {
         assert_ne!(before_fill, after_fill, "stain should change the fill color");
         // Blue channel should have increased.
         assert!(after_fill[2] > before_fill[2], "blue channel should increase toward stain");
+    }
+
+    // --- Batch 10: Gradient Mesh ---
+
+    #[test]
+    fn test_mesh_rows_cols_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamp to 1.
+        app.apply(Action::SetMeshRows(0));
+        assert_eq!(app.gradient_mesh.rows, 1, "rows clamped to 1");
+        // Above maximum → clamp to 50.
+        app.apply(Action::SetMeshRows(100));
+        assert_eq!(app.gradient_mesh.rows, 50, "rows clamped to 50");
+        app.apply(Action::SetMeshCols(0));
+        assert_eq!(app.gradient_mesh.cols, 1, "cols clamped to 1");
+        app.apply(Action::SetMeshCols(100));
+        assert_eq!(app.gradient_mesh.cols, 50, "cols clamped to 50");
+    }
+
+    #[test]
+    fn test_create_mesh_fills_points() {
+        let mut app = App::new();
+        app.apply(Action::SetMeshRows(2));
+        app.apply(Action::SetMeshCols(3));
+        app.apply(Action::CreateMesh);
+        assert_eq!(app.gradient_mesh.points.len(), 6, "2×3 mesh should have 6 points");
+    }
+
+    #[test]
+    fn test_mesh_point_tension_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMeshRows(1));
+        app.apply(Action::SetMeshCols(1));
+        app.apply(Action::CreateMesh);
+        app.apply(Action::SetMeshPointTension { idx: 0, tension: 2.0 });
+        assert!((app.gradient_mesh.points[0].tension - 1.0).abs() < 0.001, "tension clamped to 1.0");
+        app.apply(Action::SetMeshPointTension { idx: 0, tension: -0.5 });
+        assert!((app.gradient_mesh.points[0].tension - 0.0).abs() < 0.001, "tension clamped to 0.0");
+    }
+
+    #[test]
+    fn test_release_mesh_clears() {
+        let mut app = App::new();
+        app.apply(Action::SetMeshRows(3));
+        app.apply(Action::SetMeshCols(3));
+        app.apply(Action::CreateMesh);
+        assert!(!app.gradient_mesh.points.is_empty());
+        app.apply(Action::ReleaseMesh);
+        assert!(app.gradient_mesh.points.is_empty(), "ReleaseMesh should clear all points");
+        assert_eq!(app.gradient_mesh.rows, 4, "rows reset to default");
+        assert_eq!(app.gradient_mesh.cols, 4, "cols reset to default");
+    }
+
+    // --- Batch 10: Flare Tool ---
+
+    #[test]
+    fn test_flare_brightness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetFlareBrightness(150.0));
+        assert!((app.flare_config.brightness - 100.0).abs() < 0.001, "brightness clamped to 100");
+        app.apply(Action::SetFlareBrightness(-10.0));
+        assert!((app.flare_config.brightness - 0.0).abs() < 0.001, "brightness clamped to 0");
+    }
+
+    #[test]
+    fn test_flare_ray_count_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetFlareRayCount(255));
+        assert_eq!(app.flare_config.ray_count, 250, "ray_count clamped to 250");
+    }
+
+    #[test]
+    fn test_place_flare_adds_to_list() {
+        let mut app = App::new();
+        let before = app.flare_shapes.len();
+        app.apply(Action::PlaceFlare([100.0, 200.0]));
+        assert_eq!(app.flare_shapes.len(), before + 1, "PlaceFlare should add to flare_shapes");
+        assert_eq!(app.flare_config.center, [100.0, 200.0]);
+    }
+
+    #[test]
+    fn test_flare_toggle() {
+        let mut app = App::new();
+        assert!(!app.flare_tool_active);
+        app.apply(Action::ToggleFlareTool);
+        assert!(app.flare_tool_active);
+        app.apply(Action::ToggleFlareTool);
+        assert!(!app.flare_tool_active);
+    }
+
+    // --- Batch 10: Pattern Brush ---
+
+    #[test]
+    fn test_pattern_brush_scale_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetPatternBrushScale(2000.0));
+        assert!((app.pattern_brush_config.scale - 1000.0).abs() < 0.001, "scale clamped to 1000");
+        app.apply(Action::SetPatternBrushScale(-10.0));
+        assert!((app.pattern_brush_config.scale - 0.0).abs() < 0.001, "scale clamped to 0");
+    }
+
+    #[test]
+    fn test_save_pattern_brush_library() {
+        let mut app = App::new();
+        app.apply(Action::SavePatternBrush { name: "Dots".to_string() });
+        app.apply(Action::SavePatternBrush { name: "Waves".to_string() });
+        assert_eq!(app.pattern_brush_library.len(), 2, "library should contain 2 entries");
+    }
+
+    #[test]
+    fn test_delete_pattern_brush_oob() {
+        let mut app = App::new();
+        // Delete on empty library: no panic.
+        app.apply(Action::DeletePatternBrush(99));
+        assert!(app.pattern_brush_library.is_empty());
+        // Add one and delete a valid index.
+        app.apply(Action::SavePatternBrush { name: "X".to_string() });
+        app.apply(Action::DeletePatternBrush(0));
+        assert!(app.pattern_brush_library.is_empty());
+    }
+
+    // --- Batch 10: Variable Fonts ---
+
+    #[test]
+    fn test_font_axis_value_clamped_to_range() {
+        let mut app = App::new();
+        app.apply(Action::AddFontAxis(FontAxis { tag: "wght".to_string(), min: 100.0, max: 900.0, value: 400.0 }));
+        app.apply(Action::SetFontAxisValue { idx: 0, value: 5000.0 });
+        assert!((app.variable_font_config.axes[0].value - 900.0).abs() < 0.001, "value clamped to max 900");
+        app.apply(Action::SetFontAxisValue { idx: 0, value: 5.0 });
+        assert!((app.variable_font_config.axes[0].value - 100.0).abs() < 0.001, "value clamped to min 100");
+    }
+
+    #[test]
+    fn test_remove_font_axis_oob_no_panic() {
+        let mut app = App::new();
+        // Removing from empty list should not panic.
+        app.apply(Action::RemoveFontAxis(99));
+        assert!(app.variable_font_config.axes.is_empty());
+    }
+
+    #[test]
+    fn test_reset_font_axes_midpoint() {
+        let mut app = App::new();
+        app.apply(Action::AddFontAxis(FontAxis { tag: "wdth".to_string(), min: 0.0, max: 100.0, value: 75.0 }));
+        app.apply(Action::ResetFontAxes);
+        assert!((app.variable_font_config.axes[0].value - 50.0).abs() < 0.001, "reset to midpoint (min+max)/2 = 50");
+    }
+
+    #[test]
+    fn test_variable_font_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.variable_font_panel_open);
+        app.apply(Action::ToggleVariableFontPanel);
+        assert!(app.variable_font_panel_open);
+        app.apply(Action::ToggleVariableFontPanel);
+        assert!(!app.variable_font_panel_open);
     }
 }

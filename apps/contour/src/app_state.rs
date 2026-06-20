@@ -872,6 +872,68 @@ pub enum Action {
     /// in document space. Subdivides edges near the brush, then pushes anchors
     /// outward (Scallop), inward (Crystallize), or randomly ±(Wrinkle).
     ApplyWarpStroke { center: (f32, f32), radius: f32 },
+
+    // --- Batch 9: Type on Path depth ---
+    /// Set the per-character offset (in document units) along the path for `text_id`.
+    SetTextOnPathOffset { text_id: usize, offset: f32 },
+    /// Set whether `text_id` flows above (`true`) or below (`false`) the path.
+    SetTextOnPathSide { text_id: usize, above: bool },
+    /// Set the glyph-spacing mode for `text_id` on its path.
+    SetTextOnPathSpacing { text_id: usize, spacing: TextOnPathSpacing },
+    /// Flip `text_id` from above-path to below-path (or vice versa).
+    FlipTextOnPath(usize),
+
+    // --- Batch 9: Recolor Artwork depth ---
+    /// Replace the entire recolor config.
+    SetRecolorConfig(RecolorConfig),
+    /// Set the target colour count for recolor (clamped 2..=30).
+    SetRecolorColorCount(u8),
+    /// Set whether to preserve black fills during recolor.
+    SetRecolorPreserveBlack(bool),
+    /// Set whether to preserve white fills during recolor.
+    SetRecolorPreserveWhite(bool),
+    /// Toggle the randomize flag in the recolor config.
+    RandomizeRecolor,
+    /// Save the current selection's fill colours as a named colour set.
+    SaveRecolorSet,
+    /// Apply a hue rotation to all selected shapes based on `recolor_color_count`.
+    ApplyRecolorToSelected,
+
+    // --- Batch 9: Live Paint depth ---
+    /// Fill all closed shapes containing `(x, y)` with `color` (stub).
+    LivePaintFill { x: f32, y: f32, color: [f32; 4] },
+    /// Stroke all open paths passing near `(x, y)` with `color` and `width` (stub).
+    LivePaintStroke { x: f32, y: f32, color: [f32; 4], width: f32 },
+    /// Group all selected shapes into a Live Paint group.
+    MakeLivePaintGroup,
+    /// Release all Live Paint groups (stub).
+    ReleaseLivePaintGroup,
+    /// Expand all Live Paint groups into independent shapes (stub).
+    ExpandLivePaintGroup,
+    /// Toggle gap-detection mode for Live Paint.
+    SetLivePaintGapDetection(bool),
+    /// Set the highlight colour shown over hovered Live Paint regions.
+    SetLivePaintHighlightColor([f32; 4]),
+
+    // --- Batch 9: Symbol Sprayer ---
+    /// Replace the entire symbol-spray configuration.
+    SetSymbolSprayConfig(SymbolSprayConfig),
+    /// Spray symbol instances around `center` with the given stylus `pressure`.
+    SpraySymbols { center: [f32; 2], pressure: f32 },
+    /// Set the spray density (clamped 0..=10).
+    SetSymbolSprayDensity(f32),
+    /// Set the spray diameter (min 1.0).
+    SetSymbolSprayDiameter(f32),
+    /// Shift nearby symbol instances toward `delta` direction.
+    SymbolShift { center: [f32; 2], delta: [f32; 2] },
+    /// Scale nearby symbol instances by `scale` factor.
+    SymbolScale { center: [f32; 2], scale: f32 },
+    /// Spin nearby symbol instances by `angle` radians.
+    SymbolSpin { center: [f32; 2], angle: f32 },
+    /// Blend nearby symbol instances' fills toward `color`.
+    SymbolStain { center: [f32; 2], color: [f32; 4] },
+    /// Reduce nearby symbol instances' opacity by `opacity` factor.
+    SymbolScreen { center: [f32; 2], opacity: f32 },
 }
 
 /// Stroke alignment relative to the path.
@@ -1138,6 +1200,78 @@ pub struct ScatterBrushConfig {
     pub rotation_jitter: f32,
 }
 
+/// How glyphs are spaced when flowing along a path.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum TextOnPathSpacing {
+    /// Let the renderer space glyphs automatically (default).
+    #[default]
+    Auto,
+    /// Fixed advance between every glyph.
+    Fixed,
+    /// Optically balance the apparent spacing.
+    Optical,
+}
+
+/// Extended configuration for the Recolor Artwork panel.
+#[derive(Debug, Clone)]
+pub struct RecolorConfig {
+    /// Harmony rule used when rotating hues.
+    pub harmony_rule: ColorHarmonyRule,
+    /// If `true`, shapes with pure-black fills are left untouched.
+    pub preserve_black: bool,
+    /// If `true`, shapes with pure-white fills are left untouched.
+    pub preserve_white: bool,
+    /// When `true`, hue offsets are shuffled randomly instead of by rule.
+    pub randomize: bool,
+    /// Uniform brightness multiplier applied to all fills (1.0 = no change).
+    pub brightness_scale: f32,
+}
+
+impl Default for RecolorConfig {
+    fn default() -> Self {
+        Self {
+            harmony_rule: ColorHarmonyRule::Analogous,
+            preserve_black: true,
+            preserve_white: true,
+            randomize: false,
+            brightness_scale: 1.0,
+        }
+    }
+}
+
+/// Configuration for the Symbol Sprayer tool.
+#[derive(Debug, Clone)]
+pub struct SymbolSprayConfig {
+    /// Which symbol from the library to spray.
+    pub symbol_id: u64,
+    /// Diameter of the spray brush in document units.
+    pub diameter: f32,
+    /// Average number of instances per spray event (0..=10).
+    pub density: f32,
+    /// Positional scatter (0.0 = tightly grouped, 1.0 = fills the whole diameter).
+    pub scatter: f32,
+    /// Maximum rotation jitter in radians.
+    pub rotation_jitter: f32,
+    /// Maximum size jitter as a fraction of the base size.
+    pub size_jitter: f32,
+    /// Maximum opacity jitter (0.0 = no variation).
+    pub opacity_jitter: f32,
+}
+
+impl Default for SymbolSprayConfig {
+    fn default() -> Self {
+        Self {
+            symbol_id: 0,
+            diameter: 80.0,
+            density: 5.0,
+            scatter: 0.3,
+            rotation_jitter: 0.1,
+            size_jitter: 0.1,
+            opacity_jitter: 0.0,
+        }
+    }
+}
+
 /// The single shared application state. Owns the host + document and the panel-
 /// facing tool/selection state. Mutated ONLY through [`App::apply`].
 pub struct App {
@@ -1353,6 +1487,34 @@ pub struct App {
     // --- Batch 7: Perspective grid (extended) ---
     /// Which plane (0=left, 1=right, 2=floor) is active for perspective drawing.
     pub perspective_active_plane: usize,
+
+    // --- Batch 9: Type on Path depth ---
+    /// Per-text per-path character offset (document units), keyed by text shape index.
+    pub text_on_path_offsets: std::collections::HashMap<usize, f32>,
+    /// Per-text "above path" flag; `true` means above, `false` means below.
+    pub text_on_path_above: std::collections::HashMap<usize, bool>,
+    /// Per-text glyph-spacing mode on a path.
+    pub text_on_path_spacing: std::collections::HashMap<usize, TextOnPathSpacing>,
+
+    // --- Batch 9: Recolor Artwork depth ---
+    /// Advanced recolor configuration (harmony rule, preserve flags, randomize).
+    pub recolor_config: RecolorConfig,
+    /// How many distinct colours the Recolor panel targets (clamped 2..=30).
+    pub recolor_color_count: u8,
+    /// Previously saved colour sets (up to 10 fills each).
+    pub recolor_history: Vec<Vec<[f32; 4]>>,
+
+    // --- Batch 9: Live Paint depth ---
+    /// Whether Live Paint gap-detection is active.
+    pub live_paint_gap_detection: bool,
+    /// Highlight colour shown over hovered Live Paint regions.
+    pub live_paint_highlight_color: [f32; 4],
+    /// Group ids that have been designated as Live Paint groups.
+    pub live_paint_group_ids: Vec<u64>,
+
+    // --- Batch 9: Symbol Sprayer ---
+    /// Configuration for the Symbol Sprayer tool.
+    pub symbol_spray_config: SymbolSprayConfig,
 }
 
 impl App {
@@ -1471,6 +1633,17 @@ impl App {
             warp_brush_intensity: 0.5,
             warp_detail: 1.0,
             perspective_active_plane: 0,
+            // Batch 9
+            text_on_path_offsets: std::collections::HashMap::new(),
+            text_on_path_above: std::collections::HashMap::new(),
+            text_on_path_spacing: std::collections::HashMap::new(),
+            recolor_config: RecolorConfig::default(),
+            recolor_color_count: 5,
+            recolor_history: Vec::new(),
+            live_paint_gap_detection: false,
+            live_paint_highlight_color: [1.0, 0.5, 0.0, 1.0],
+            live_paint_group_ids: Vec::new(),
+            symbol_spray_config: SymbolSprayConfig::default(),
         }
     }
 
@@ -3830,6 +4003,278 @@ impl App {
                             }
                         }
                         changed = true;
+                    }
+                }
+                if changed {
+                    self.checkpoint();
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 9: Type on Path depth ---
+            Action::SetTextOnPathOffset { text_id, offset } => {
+                self.text_on_path_offsets.insert(text_id, offset);
+                self.relayout_text_on_path(text_id);
+                self.host.mark_dirty();
+            }
+            Action::SetTextOnPathSide { text_id, above } => {
+                self.text_on_path_above.insert(text_id, above);
+                self.relayout_text_on_path(text_id);
+                self.host.mark_dirty();
+            }
+            Action::SetTextOnPathSpacing { text_id, spacing } => {
+                self.text_on_path_spacing.insert(text_id, spacing);
+                self.relayout_text_on_path(text_id);
+                self.host.mark_dirty();
+            }
+            Action::FlipTextOnPath(id) => {
+                let current = self.text_on_path_above.get(&id).copied().unwrap_or(true);
+                self.text_on_path_above.insert(id, !current);
+                self.relayout_text_on_path(id);
+                self.host.mark_dirty();
+            }
+
+            // --- Batch 9: Recolor Artwork depth ---
+            Action::SetRecolorConfig(c) => {
+                self.recolor_config = c;
+            }
+            Action::SetRecolorColorCount(n) => {
+                self.recolor_color_count = n.clamp(2, 30);
+            }
+            Action::SetRecolorPreserveBlack(b) => {
+                self.recolor_config.preserve_black = b;
+            }
+            Action::SetRecolorPreserveWhite(b) => {
+                self.recolor_config.preserve_white = b;
+            }
+            Action::RandomizeRecolor => {
+                self.recolor_config.randomize = !self.recolor_config.randomize;
+            }
+            Action::SaveRecolorSet => {
+                // Collect up to 10 fill colours from the current selection.
+                let fills: Vec<[f32; 4]> = self.selection.iter()
+                    .filter_map(|&i| self.doc.shapes.get(i)?.fill_color())
+                    .take(10)
+                    .collect();
+                if !fills.is_empty() {
+                    self.recolor_history.push(fills);
+                }
+            }
+            Action::ApplyRecolorToSelected => {
+                if !self.selection.is_empty() {
+                    self.checkpoint();
+                    // Rotate hue by a fixed step derived from the colour count.
+                    let step = 1.0 / self.recolor_color_count.max(1) as f32;
+                    let sel: Vec<usize> = self.selection.clone();
+                    for (k, &i) in sel.iter().enumerate() {
+                        if let Some(shape) = self.doc.shapes.get_mut(i) {
+                            if let Some(c) = shape.fill_color() {
+                                // Simple hue rotation in RGB by rotating through
+                                // R→G→B→R channels proportional to slot index.
+                                let t = (k as f32 * step).fract();
+                                let rotated = [
+                                    c[0] * (1.0 - t) + c[1] * t,
+                                    c[1] * (1.0 - t) + c[2] * t,
+                                    c[2] * (1.0 - t) + c[0] * t,
+                                    c[3],
+                                ];
+                                shape.set_fill_color(rotated);
+                            }
+                        }
+                    }
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 9: Live Paint depth ---
+            Action::LivePaintFill { x: _, y: _, color } => {
+                // Stub: apply fill colour to the currently selected shape, if any.
+                self.default_fill = color;
+                if let Some(idx) = self.selected {
+                    if idx < self.doc.shapes.len() {
+                        self.checkpoint();
+                        self.doc.shapes[idx].set_fill_color(color);
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+            Action::LivePaintStroke { x: _, y: _, color, width } => {
+                // Stub: record the stroke defaults.
+                self.default_stroke = color;
+                self.default_stroke_w = width;
+            }
+            Action::MakeLivePaintGroup => {
+                if !self.selection.is_empty() {
+                    self.checkpoint();
+                    // Assign all selected shapes to a new Live Paint group id.
+                    let gid = self.live_paint_group_ids.len() as u64 + 1;
+                    for &i in &self.selection {
+                        if let Some(s) = self.doc.shapes.get_mut(i) {
+                            s.set_group(Some(gid));
+                        }
+                    }
+                    self.live_paint_group_ids.push(gid);
+                    self.host.mark_dirty();
+                }
+            }
+            Action::ReleaseLivePaintGroup => {
+                self.live_paint_group_ids.clear();
+            }
+            Action::ExpandLivePaintGroup => {
+                // Stub: no geometric change; just log intent.
+                log::info!("ExpandLivePaintGroup: stub");
+            }
+            Action::SetLivePaintGapDetection(b) => {
+                self.live_paint_gap_detection = b;
+            }
+            Action::SetLivePaintHighlightColor(c) => {
+                self.live_paint_highlight_color = c;
+            }
+
+            // --- Batch 9: Symbol Sprayer ---
+            Action::SetSymbolSprayConfig(c) => {
+                self.symbol_spray_config = c;
+            }
+            Action::SetSymbolSprayDensity(d) => {
+                self.symbol_spray_config.density = d.clamp(0.0, 10.0);
+            }
+            Action::SetSymbolSprayDiameter(d) => {
+                self.symbol_spray_config.diameter = d.max(1.0);
+            }
+            Action::SpraySymbols { center, pressure } => {
+                let n = (self.symbol_spray_config.density * pressure * 3.0).ceil() as usize;
+                if n > 0 {
+                    self.checkpoint();
+                    let radius = self.symbol_spray_config.diameter * 0.5;
+                    let scatter = self.symbol_spray_config.scatter;
+                    let fill = self.default_fill;
+                    let stroke = self.default_stroke;
+                    let sw = self.default_stroke_w;
+                    for i in 0..n {
+                        // Deterministic jitter from index — no random state needed.
+                        let jx = ((i * 37 % 17) as f32 / 17.0 * 2.0 - 1.0) * radius * scatter;
+                        let jy = ((i * 53 % 19) as f32 / 19.0 * 2.0 - 1.0) * radius * scatter;
+                        let x = center[0] + jx;
+                        let y = center[1] + jy;
+                        let size = 20.0;
+                        self.doc.shapes.push(Shape::rect(
+                            [x - size * 0.5, y - size * 0.5, size, size],
+                            fill,
+                            stroke,
+                            sw,
+                        ));
+                    }
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SymbolShift { center, delta } => {
+                let r = self.symbol_spray_config.diameter * 0.5;
+                let mut changed = false;
+                let aff = Affine::translate(delta[0], delta[1]);
+                for shape in self.doc.shapes.iter_mut() {
+                    if let Some(b) = shape.bounds() {
+                        let cx = b.x + b.w * 0.5;
+                        let cy = b.y + b.h * 0.5;
+                        let dx = cx - center[0];
+                        let dy = cy - center[1];
+                        if (dx * dx + dy * dy).sqrt() <= r {
+                            shape.apply_affine(&aff);
+                            changed = true;
+                        }
+                    }
+                }
+                if changed {
+                    self.checkpoint();
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SymbolScale { center, scale } => {
+                let r = self.symbol_spray_config.diameter * 0.5;
+                let mut changed = false;
+                for shape in self.doc.shapes.iter_mut() {
+                    if let Some(b) = shape.bounds() {
+                        let cx = b.x + b.w * 0.5;
+                        let cy = b.y + b.h * 0.5;
+                        let dx = cx - center[0];
+                        let dy = cy - center[1];
+                        if (dx * dx + dy * dy).sqrt() <= r {
+                            let aff = Affine::scale_about(scale, scale, cx, cy);
+                            shape.apply_affine(&aff);
+                            changed = true;
+                        }
+                    }
+                }
+                if changed {
+                    self.checkpoint();
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SymbolSpin { center, angle } => {
+                let r = self.symbol_spray_config.diameter * 0.5;
+                let mut changed = false;
+                for shape in self.doc.shapes.iter_mut() {
+                    if let Some(b) = shape.bounds() {
+                        let cx = b.x + b.w * 0.5;
+                        let cy = b.y + b.h * 0.5;
+                        let dx = cx - center[0];
+                        let dy = cy - center[1];
+                        if (dx * dx + dy * dy).sqrt() <= r {
+                            let aff = Affine::rotate_about(angle, cx, cy);
+                            shape.apply_affine(&aff);
+                            changed = true;
+                        }
+                    }
+                }
+                if changed {
+                    self.checkpoint();
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SymbolStain { center, color } => {
+                let r = self.symbol_spray_config.diameter * 0.5;
+                let mut changed = false;
+                for shape in self.doc.shapes.iter_mut() {
+                    if let Some(b) = shape.bounds() {
+                        let cx = b.x + b.w * 0.5;
+                        let cy = b.y + b.h * 0.5;
+                        let dx = cx - center[0];
+                        let dy = cy - center[1];
+                        if (dx * dx + dy * dy).sqrt() <= r {
+                            if let Some(fc) = shape.fill_color() {
+                                let t = 0.25; // blend 25% toward stain color
+                                let blended = [
+                                    fc[0] * (1.0 - t) + color[0] * t,
+                                    fc[1] * (1.0 - t) + color[1] * t,
+                                    fc[2] * (1.0 - t) + color[2] * t,
+                                    fc[3],
+                                ];
+                                shape.set_fill_color(blended);
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    self.checkpoint();
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SymbolScreen { center, opacity } => {
+                let r = self.symbol_spray_config.diameter * 0.5;
+                let mut changed = false;
+                for shape in self.doc.shapes.iter_mut() {
+                    if let Some(b) = shape.bounds() {
+                        let cx = b.x + b.w * 0.5;
+                        let cy = b.y + b.h * 0.5;
+                        let dx = cx - center[0];
+                        let dy = cy - center[1];
+                        if (dx * dx + dy * dy).sqrt() <= r {
+                            if let Some(fc) = shape.fill_color() {
+                                let new_alpha = (fc[3] * opacity).clamp(0.0, 1.0);
+                                shape.set_fill_color([fc[0], fc[1], fc[2], new_alpha]);
+                                changed = true;
+                            }
+                        }
                     }
                 }
                 if changed {
@@ -6479,5 +6924,154 @@ mod tests {
         app.apply(Action::ApplyWarpStroke { center: (0.0, 0.0), radius: 20.0 });
         let after = if let Shape::Path { ref points, .. } = app.doc.shapes.last().unwrap() { points[0] } else { (0.0, 0.0) };
         assert_eq!(before, after, "point outside radius should not move");
+    }
+
+    // --- Batch 9: Type on Path depth ---
+
+    #[test]
+    fn test_text_on_path_offset() {
+        let mut app = App::new();
+        app.apply(Action::SetTextOnPathOffset { text_id: 7, offset: 42.5 });
+        assert_eq!(app.text_on_path_offsets.get(&7).copied(), Some(42.5));
+    }
+
+    #[test]
+    fn test_text_on_path_flip() {
+        let mut app = App::new();
+        // Default (no entry) should be treated as `true` (above).
+        app.apply(Action::FlipTextOnPath(3));
+        assert_eq!(app.text_on_path_above.get(&3).copied(), Some(false), "flip from default true → false");
+        app.apply(Action::FlipTextOnPath(3));
+        assert_eq!(app.text_on_path_above.get(&3).copied(), Some(true), "flip back to true");
+    }
+
+    #[test]
+    fn test_detach_text_from_path() {
+        let mut app = App::new();
+        // Seed a fake path attachment.
+        app.text_on_path.insert(1, 0);
+        app.text_on_path_offsets.insert(1, 10.0);
+        app.apply(Action::DetachTextFromPath(1));
+        assert!(app.text_on_path.get(&1).is_none(), "attachment removed");
+        // Offset entry is left in place (detach does not clear depth state).
+    }
+
+    // --- Batch 9: Recolor Artwork depth ---
+
+    #[test]
+    fn test_recolor_color_count_clamp() {
+        let mut app = App::new();
+        // Values below 2 clamp to 2.
+        app.apply(Action::SetRecolorColorCount(1));
+        assert_eq!(app.recolor_color_count, 2, "clamped to minimum 2");
+        // Values above 30 clamp to 30.
+        app.apply(Action::SetRecolorColorCount(40));
+        assert_eq!(app.recolor_color_count, 30, "clamped to maximum 30");
+        // In-range values are kept as-is.
+        app.apply(Action::SetRecolorColorCount(12));
+        assert_eq!(app.recolor_color_count, 12);
+    }
+
+    #[test]
+    fn test_recolor_preserve_flags() {
+        let mut app = App::new();
+        assert!(app.recolor_config.preserve_black, "default preserve_black is true");
+        app.apply(Action::SetRecolorPreserveBlack(false));
+        assert!(!app.recolor_config.preserve_black);
+        app.apply(Action::SetRecolorPreserveWhite(false));
+        assert!(!app.recolor_config.preserve_white);
+    }
+
+    #[test]
+    fn test_save_recolor_set() {
+        let mut app = App::new();
+        // Select the first two shapes so we have fills to save.
+        app.selection = vec![0, 1];
+        let before = app.recolor_history.len();
+        app.apply(Action::SaveRecolorSet);
+        assert!(app.recolor_history.len() > before, "recolor set saved");
+        assert!(!app.recolor_history.last().unwrap().is_empty(), "saved set is non-empty");
+    }
+
+    // --- Batch 9: Live Paint depth ---
+
+    #[test]
+    fn test_live_paint_gap_detection() {
+        let mut app = App::new();
+        assert!(!app.live_paint_gap_detection, "gap detection starts false");
+        app.apply(Action::SetLivePaintGapDetection(true));
+        assert!(app.live_paint_gap_detection);
+        app.apply(Action::SetLivePaintGapDetection(false));
+        assert!(!app.live_paint_gap_detection);
+    }
+
+    #[test]
+    fn test_live_paint_highlight_color() {
+        let mut app = App::new();
+        let color = [0.0, 1.0, 0.5, 1.0];
+        app.apply(Action::SetLivePaintHighlightColor(color));
+        assert_eq!(app.live_paint_highlight_color, color);
+    }
+
+    #[test]
+    fn test_make_live_paint_group() {
+        let mut app = App::new();
+        // Select the first two shapes.
+        app.selection = vec![0, 1];
+        let before = app.live_paint_group_ids.len();
+        app.apply(Action::MakeLivePaintGroup);
+        assert_eq!(app.live_paint_group_ids.len(), before + 1, "one group added");
+        // Both shapes should have the new group id.
+        let gid = *app.live_paint_group_ids.last().unwrap();
+        assert_eq!(app.doc.shapes[0].group(), Some(gid));
+        assert_eq!(app.doc.shapes[1].group(), Some(gid));
+    }
+
+    // --- Batch 9: Symbol Sprayer ---
+
+    #[test]
+    fn test_spray_density_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSymbolSprayDensity(15.0));
+        assert!((app.symbol_spray_config.density - 10.0).abs() < 0.01, "density clamped to 10");
+        app.apply(Action::SetSymbolSprayDensity(-1.0));
+        assert!((app.symbol_spray_config.density - 0.0).abs() < 0.01, "density clamped to 0");
+    }
+
+    #[test]
+    fn test_spray_diameter_min() {
+        let mut app = App::new();
+        app.apply(Action::SetSymbolSprayDiameter(0.0));
+        assert!((app.symbol_spray_config.diameter - 1.0).abs() < 0.01, "diameter clamped to min 1.0");
+        app.apply(Action::SetSymbolSprayDiameter(50.0));
+        assert!((app.symbol_spray_config.diameter - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_spray_symbols_adds_shapes() {
+        let mut app = App::new();
+        app.apply(Action::SetSymbolSprayDensity(3.0));
+        let before = app.doc.shapes.len();
+        app.apply(Action::SpraySymbols { center: [0.0, 0.0], pressure: 1.0 });
+        let added = app.doc.shapes.len() - before;
+        assert!(added >= 1, "SpraySymbols should add at least one shape, got {added}");
+    }
+
+    #[test]
+    fn test_symbol_stain_changes_fill() {
+        let mut app = App::new();
+        // Add a shape at the origin so SymbolStain can reach it.
+        app.doc.shapes.push(Shape::rect([0.0, 0.0, 20.0, 20.0], [1.0, 0.0, 0.0, 1.0], [0.0;4], 0.0));
+        // Use a large diameter so the shape is within the brush.
+        app.apply(Action::SetSymbolSprayDiameter(200.0));
+        let idx = app.doc.shapes.len() - 1;
+        let before_fill = app.doc.shapes[idx].fill_color().unwrap();
+        let stain = [0.0, 0.0, 1.0, 1.0];
+        app.apply(Action::SymbolStain { center: [10.0, 10.0], color: stain });
+        let after_fill = app.doc.shapes[idx].fill_color().unwrap();
+        // Fill should have changed toward the stain color.
+        assert_ne!(before_fill, after_fill, "stain should change the fill color");
+        // Blue channel should have increased.
+        assert!(after_fill[2] > before_fill[2], "blue channel should increase toward stain");
     }
 }

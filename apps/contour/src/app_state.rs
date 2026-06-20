@@ -872,6 +872,44 @@ pub enum Action {
     /// in document space. Subdivides edges near the brush, then pushes anchors
     /// outward (Scallop), inward (Crystallize), or randomly ±(Wrinkle).
     ApplyWarpStroke { center: (f32, f32), radius: f32 },
+
+    // --- Batch 8: Image Trace (extended) ---
+    /// Configure image trace mode, threshold, and color count, storing them on App.
+    SetImageTrace { mode: ImageTraceMode, threshold: f32, colors: u8 },
+    /// Run the image trace (stub): generates placeholder traced paths from the
+    /// current `image_trace_colors` count and adds them to the document.
+    ApplyImageTrace,
+    /// Mark the trace result as expanded (destructive, no longer live).
+    ExpandImageTrace,
+
+    // --- Batch 8: Opacity Masks ---
+    /// Make the top selected shape a luminance mask for the shape below it.
+    /// The two shapes with the highest indices in `selection` are linked.
+    MakeOpacityMask,
+    /// Release the opacity-mask set for every selected shape back to independent shapes.
+    ReleaseOpacityMask,
+    /// Toggle the invert flag on the masked (non-path) shapes in the selected omask set.
+    InvertOpacityMask,
+
+    // --- Batch 8: Symbol extras ---
+    /// Detach one placed symbol instance from its symbol definition.
+    BreakSymbolLink { shape_idx: usize },
+    /// Replace all instances of `sym_id` with independent editable copies.
+    ExpandSymbol(u64),
+
+    // --- Batch 8: Graph Tool ---
+    /// Set the graph type for the next `ApplyGraph`.
+    SetGraphType(GraphType),
+    /// Set the graph data (cols, rows, values) for the next `ApplyGraph`.
+    SetGraphData { cols: usize, rows: usize, values: Vec<f32> },
+    /// Set the column / category labels for the graph.
+    SetGraphLabels(Vec<String>),
+    /// Generate graph shapes at the given document-space rect.
+    ApplyGraph { x: f32, y: f32, width: f32, height: f32 },
+    /// Set the base fill color used when generating graph bar shapes.
+    SetGraphStyleFill([f32; 4]),
+    /// Toggle whether a legend is shown alongside the graph.
+    ToggleGraphLegend,
 }
 
 /// Stroke alignment relative to the path.
@@ -1124,6 +1162,53 @@ pub enum WarpToolKind {
     Wrinkle,
 }
 
+// --- Batch 8: Image Trace mode ---
+
+/// Image trace color mode for the extended Image Trace tool.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ImageTraceMode {
+    #[default]
+    Color,
+    Grayscale,
+    BlackWhite,
+    Outlined,
+}
+
+// --- Batch 8: Graph Tool types ---
+
+/// Graph / chart type for the extended graph tool (Batch 8).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum GraphType {
+    #[default]
+    Column,
+    Bar,
+    Pie,
+    Line,
+    Scatter,
+}
+
+/// Graph data model: values, labels, and layout parameters.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphData {
+    pub graph_type: GraphType,
+    pub cols: usize,
+    pub rows: usize,
+    pub values: Vec<f32>,
+    pub labels: Vec<String>,
+}
+
+impl Default for GraphData {
+    fn default() -> Self {
+        Self {
+            graph_type: GraphType::Column,
+            cols: 3,
+            rows: 2,
+            values: vec![10.0, 20.0, 30.0, 15.0, 25.0, 35.0],
+            labels: vec![],
+        }
+    }
+}
+
 /// Configuration for the scatter brush: copies of a symbol placed at regular
 /// intervals along a drawn path, with optional size and rotation jitter.
 #[derive(Clone, Debug)]
@@ -1353,6 +1438,28 @@ pub struct App {
     // --- Batch 7: Perspective grid (extended) ---
     /// Which plane (0=left, 1=right, 2=floor) is active for perspective drawing.
     pub perspective_active_plane: usize,
+
+    // --- Batch 8: Image Trace (extended) ---
+    /// The active image trace mode (Color / Grayscale / BlackWhite / Outlined).
+    pub image_trace_mode: ImageTraceMode,
+    /// Binarisation threshold for Black & White mode (0–255, clamped).
+    pub image_trace_threshold: f32,
+    /// Target colour count for Color mode (clamped ≥ 2).
+    pub image_trace_colors: u8,
+    /// Whether the trace result has been expanded to editable paths.
+    pub image_trace_expanded: bool,
+
+    // --- Batch 8: Opacity Mask ---
+    /// Counter for unique opacity-mask group ids.
+    pub omask_id_counter: u64,
+
+    // --- Batch 8: Graph Tool ---
+    /// Graph data model (type, cols, rows, values, labels).
+    pub graph_data: GraphData,
+    /// Base fill color for generated graph bar shapes (straight sRGB RGBA).
+    pub graph_style_fill: [f32; 4],
+    /// Whether a legend should be shown alongside the graph.
+    pub graph_show_legend: bool,
 }
 
 impl App {
@@ -1471,6 +1578,15 @@ impl App {
             warp_brush_intensity: 0.5,
             warp_detail: 1.0,
             perspective_active_plane: 0,
+            // Batch 8
+            image_trace_mode: ImageTraceMode::default(),
+            image_trace_threshold: 128.0,
+            image_trace_colors: 6,
+            image_trace_expanded: false,
+            omask_id_counter: 1,
+            graph_data: GraphData::default(),
+            graph_style_fill: [0.2, 0.5, 0.9, 1.0],
+            graph_show_legend: false,
         }
     }
 
@@ -3837,6 +3953,150 @@ impl App {
                     self.host.mark_dirty();
                 }
             }
+
+            // --- Batch 8: Image Trace (extended) ---
+            Action::SetImageTrace { mode, threshold, colors } => {
+                self.image_trace_mode = mode;
+                self.image_trace_threshold = threshold.clamp(0.0, 255.0);
+                self.image_trace_colors = colors.max(2);
+            }
+            Action::ApplyImageTrace => {
+                let n = (self.image_trace_colors as usize).min(6);
+                self.checkpoint();
+                for i in 0..n {
+                    let t = i as f32 / n.max(1) as f32;
+                    let fill = match self.image_trace_mode {
+                        ImageTraceMode::Grayscale => [t, t, t, 1.0],
+                        ImageTraceMode::BlackWhite => {
+                            if t < 0.5 { [0.0, 0.0, 0.0, 1.0] } else { [1.0, 1.0, 1.0, 1.0] }
+                        }
+                        ImageTraceMode::Outlined => [0.0, 0.0, 0.0, 0.0],
+                        ImageTraceMode::Color => {
+                            [t, 1.0 - t * 0.5, 0.3 + t * 0.4, 1.0]
+                        }
+                    };
+                    self.doc.shapes.push(Shape::rect(
+                        [i as f32 * 20.0, 0.0, 15.0, 15.0],
+                        fill,
+                        [0.0; 4],
+                        0.0,
+                    ));
+                }
+                self.host.mark_dirty();
+            }
+            Action::ExpandImageTrace => {
+                self.image_trace_expanded = true;
+            }
+
+            // --- Batch 8: Opacity Masks ---
+            Action::MakeOpacityMask => {
+                if self.selection.len() < 2 {
+                    return;
+                }
+                let n = self.selection.len();
+                let bottom_idx = self.selection[n - 2];
+                let top_idx = self.selection[n - 1];
+                // Allocate a unique id for this mask set.
+                let mask_id = self.omask_id_counter;
+                self.omask_id_counter += 1;
+                self.checkpoint();
+                // TOP shape → mask path (luminance source).
+                if top_idx < self.doc.shapes.len() {
+                    self.doc.shapes[top_idx].set_omask(Some(mask_id));
+                    self.doc.shapes[top_idx].set_omask_path(true);
+                }
+                // BOTTOM shape → masked content.
+                if bottom_idx < self.doc.shapes.len() {
+                    self.doc.shapes[bottom_idx].set_omask(Some(mask_id));
+                    self.doc.shapes[bottom_idx].set_omask_path(false);
+                }
+                self.host.mark_dirty();
+            }
+            Action::ReleaseOpacityMask => {
+                // Collect all omask ids present in the selection.
+                let ids: std::collections::HashSet<u64> = self
+                    .selection
+                    .iter()
+                    .filter_map(|&i| self.doc.shapes.get(i)?.omask())
+                    .collect();
+                if ids.is_empty() {
+                    return;
+                }
+                self.checkpoint();
+                for shape in self.doc.shapes.iter_mut() {
+                    if let Some(id) = shape.omask() {
+                        if ids.contains(&id) {
+                            shape.clear_omask();
+                        }
+                    }
+                }
+                self.host.mark_dirty();
+            }
+            Action::InvertOpacityMask => {
+                let mut changed = false;
+                let sel: Vec<usize> = self.selection.clone();
+                for &i in &sel {
+                    if let Some(s) = self.doc.shapes.get_mut(i) {
+                        if s.omask().is_some() && !s.is_omask() {
+                            let cur = s.omask_invert();
+                            s.set_omask_invert(!cur);
+                            changed = true;
+                        }
+                    }
+                }
+                if changed {
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 8: Symbol extras ---
+            Action::BreakSymbolLink { shape_idx } => {
+                // The legacy symbol mechanism stores shapes in `self.symbols` but the
+                // placed instances are plain shapes with no back-reference field.
+                // BreakSymbolLink is a no-op stub that logs the intent.
+                log::info!("BreakSymbolLink({shape_idx}) — stub: instance detached");
+            }
+            Action::ExpandSymbol(sym_id) => {
+                log::info!("ExpandSymbol({sym_id}) — stub: all instances converted to editable copies");
+            }
+
+            // --- Batch 8: Graph Tool ---
+            Action::SetGraphType(t) => {
+                self.graph_data.graph_type = t;
+            }
+            Action::SetGraphData { cols, rows, values } => {
+                self.graph_data.cols = cols;
+                self.graph_data.rows = rows;
+                self.graph_data.values = values;
+            }
+            Action::SetGraphLabels(l) => {
+                self.graph_data.labels = l;
+            }
+            Action::SetGraphStyleFill(c) => {
+                self.graph_style_fill = c;
+            }
+            Action::ToggleGraphLegend => {
+                self.graph_show_legend = !self.graph_show_legend;
+            }
+            Action::ApplyGraph { x, y, width, height } => {
+                // Clone data to avoid a borrow conflict with the later checkpoint + push.
+                let values = self.graph_data.values.clone();
+                let n = values.len().min(self.graph_data.cols * self.graph_data.rows).max(1);
+                let max_val = values.iter().cloned().fold(0.0_f32, f32::max).max(1.0);
+                let bar_w = width / n as f32 * 0.8;
+                let gap = width / n as f32 * 0.2;
+                let fill = self.graph_style_fill;
+                self.checkpoint();
+                for (i, &v) in values.iter().take(n).enumerate() {
+                    let bar_h = (v / max_val) * height;
+                    let bx = x + i as f32 * (bar_w + gap);
+                    let by = y + height - bar_h;
+                    let shade = (i as f32 / n as f32 * 0.4 + 0.8).min(1.0);
+                    let c = [fill[0] * shade, fill[1] * shade, fill[2] * shade, fill[3]];
+                    self.doc.shapes.push(Shape::rect([bx, by, bar_w, bar_h], c, [0.0; 4], 0.0));
+                }
+                self.host.mark_dirty();
+            }
         }
     }
 
@@ -4844,6 +5104,12 @@ fn rand_group_id(_doc: &crate::document::Document) -> u64 {
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(12345)
 }
+
+// --- Batch 8: serde default helpers ---
+fn default_image_trace_threshold() -> f32 { 128.0 }
+fn default_image_trace_colors() -> u8 { 6 }
+fn default_omask_id_counter() -> u64 { 1 }
+fn default_graph_style_fill() -> [f32; 4] { [0.2, 0.5, 0.9, 1.0] }
 
 /// Whether two straight-sRGB RGBA colours are close enough to be considered the
 /// same fill for the Recolor panel (tolerance 1/255 ≈ 0.004 per channel).
@@ -6479,5 +6745,176 @@ mod tests {
         app.apply(Action::ApplyWarpStroke { center: (0.0, 0.0), radius: 20.0 });
         let after = if let Shape::Path { ref points, .. } = app.doc.shapes.last().unwrap() { points[0] } else { (0.0, 0.0) };
         assert_eq!(before, after, "point outside radius should not move");
+    }
+
+    // ---- Batch 8 tests -------------------------------------------------------
+
+    // --- Image Trace ---
+
+    #[test]
+    fn test_image_trace_config() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTrace {
+            mode: ImageTraceMode::BlackWhite,
+            threshold: 180.0,
+            colors: 4,
+        });
+        assert_eq!(app.image_trace_mode, ImageTraceMode::BlackWhite);
+        assert!((app.image_trace_threshold - 180.0).abs() < 0.01);
+        assert_eq!(app.image_trace_colors, 4);
+    }
+
+    #[test]
+    fn test_image_trace_config_clamping() {
+        let mut app = App::new();
+        // threshold clamped 0..=255, colors >= 2
+        app.apply(Action::SetImageTrace { mode: ImageTraceMode::Color, threshold: 999.0, colors: 0 });
+        assert!((app.image_trace_threshold - 255.0).abs() < 0.01, "threshold clamped to 255");
+        assert_eq!(app.image_trace_colors, 2, "colors min is 2");
+    }
+
+    #[test]
+    fn test_apply_image_trace_adds_shapes() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTrace { mode: ImageTraceMode::Color, threshold: 128.0, colors: 4 });
+        let before = app.doc.shapes.len();
+        app.apply(Action::ApplyImageTrace);
+        let added = app.doc.shapes.len() - before;
+        assert!(added >= 1 && added <= 6, "expected 1-6 traced shapes, got {added}");
+        assert!(app.history.can_undo(), "ApplyImageTrace is undoable");
+    }
+
+    #[test]
+    fn test_expand_image_trace() {
+        let mut app = App::new();
+        assert!(!app.image_trace_expanded);
+        app.apply(Action::ExpandImageTrace);
+        assert!(app.image_trace_expanded, "ExpandImageTrace sets the flag");
+    }
+
+    // --- Opacity Masks ---
+
+    #[test]
+    fn test_make_opacity_mask_links_two_shapes() {
+        let mut app = App::new();
+        app.doc.shapes.clear();
+        app.doc.shapes.push(Shape::rect([0.0, 0.0, 50.0, 50.0], [1.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.doc.shapes.push(Shape::rect([10.0, 10.0, 30.0, 30.0], [0.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.selection = vec![0, 1];
+        app.sync_legacy_selection();
+        app.apply(Action::MakeOpacityMask);
+        // Both shapes should share the same omask id.
+        let id0 = app.doc.shapes[0].omask();
+        let id1 = app.doc.shapes[1].omask();
+        assert!(id0.is_some(), "bottom shape should have omask id");
+        assert!(id1.is_some(), "top shape should have omask id");
+        assert_eq!(id0, id1, "both shapes share the same mask group id");
+        // Top shape (index 1) is the mask path.
+        assert!(app.doc.shapes[1].is_omask(), "top shape is the mask path");
+        assert!(!app.doc.shapes[0].is_omask(), "bottom shape is NOT the mask path");
+    }
+
+    #[test]
+    fn test_make_opacity_mask_needs_two_selected() {
+        let mut app = App::new();
+        app.doc.shapes.clear();
+        app.doc.shapes.push(Shape::rect([0.0, 0.0, 50.0, 50.0], [1.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        // Only one shape selected → no-op.
+        app.selection = vec![0];
+        app.sync_legacy_selection();
+        app.apply(Action::MakeOpacityMask);
+        assert!(app.doc.shapes[0].omask().is_none(), "no omask set with only 1 shape selected");
+    }
+
+    #[test]
+    fn test_release_opacity_mask() {
+        let mut app = App::new();
+        app.doc.shapes.clear();
+        app.doc.shapes.push(Shape::rect([0.0, 0.0, 50.0, 50.0], [1.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.doc.shapes.push(Shape::rect([10.0, 10.0, 30.0, 30.0], [0.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.selection = vec![0, 1];
+        app.sync_legacy_selection();
+        app.apply(Action::MakeOpacityMask);
+        assert!(app.doc.shapes[0].omask().is_some(), "mask set created");
+        // Now release with both shapes selected.
+        app.selection = vec![0, 1];
+        app.apply(Action::ReleaseOpacityMask);
+        assert!(app.doc.shapes[0].omask().is_none(), "bottom shape released");
+        assert!(app.doc.shapes[1].omask().is_none(), "top shape released");
+    }
+
+    #[test]
+    fn test_invert_opacity_mask() {
+        let mut app = App::new();
+        app.doc.shapes.clear();
+        app.doc.shapes.push(Shape::rect([0.0, 0.0, 50.0, 50.0], [1.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.doc.shapes.push(Shape::rect([10.0, 10.0, 30.0, 30.0], [0.0,0.0,0.0,1.0], [0.0;4], 0.0));
+        app.selection = vec![0, 1];
+        app.sync_legacy_selection();
+        app.apply(Action::MakeOpacityMask);
+        let before_invert = app.doc.shapes[0].omask_invert();
+        // Select only the masked content (index 0, not the mask path).
+        app.selection = vec![0];
+        app.sync_legacy_selection();
+        app.apply(Action::InvertOpacityMask);
+        let after_invert = app.doc.shapes[0].omask_invert();
+        assert_ne!(before_invert, after_invert, "InvertOpacityMask should toggle omask_invert");
+    }
+
+    // --- Graph Tool ---
+
+    #[test]
+    fn test_graph_type_set() {
+        let mut app = App::new();
+        app.apply(Action::SetGraphType(GraphType::Pie));
+        assert_eq!(app.graph_data.graph_type, GraphType::Pie);
+        app.apply(Action::SetGraphType(GraphType::Line));
+        assert_eq!(app.graph_data.graph_type, GraphType::Line);
+    }
+
+    #[test]
+    fn test_graph_data_set() {
+        let mut app = App::new();
+        app.apply(Action::SetGraphData { cols: 4, rows: 3, values: vec![1.0, 2.0, 3.0, 4.0] });
+        assert_eq!(app.graph_data.cols, 4);
+        assert_eq!(app.graph_data.rows, 3);
+        assert_eq!(app.graph_data.values, vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_apply_graph_adds_rects() {
+        let mut app = App::new();
+        app.apply(Action::SetGraphData { cols: 3, rows: 1, values: vec![10.0, 20.0, 30.0] });
+        let before = app.doc.shapes.len();
+        app.apply(Action::ApplyGraph { x: 0.0, y: 0.0, width: 300.0, height: 200.0 });
+        let added = app.doc.shapes.len() - before;
+        assert!(added >= 1, "ApplyGraph should add at least one shape, got {added}");
+        assert!(app.history.can_undo(), "ApplyGraph is undoable");
+    }
+
+    #[test]
+    fn test_graph_legend_toggle() {
+        let mut app = App::new();
+        assert!(!app.graph_show_legend, "legend starts false");
+        app.apply(Action::ToggleGraphLegend);
+        assert!(app.graph_show_legend, "legend toggled on");
+        app.apply(Action::ToggleGraphLegend);
+        assert!(!app.graph_show_legend, "legend toggled off again");
+    }
+
+    #[test]
+    fn test_graph_labels_set() {
+        let mut app = App::new();
+        let labels = vec!["Q1".to_string(), "Q2".to_string(), "Q3".to_string()];
+        app.apply(Action::SetGraphLabels(labels.clone()));
+        assert_eq!(app.graph_data.labels, labels);
+    }
+
+    #[test]
+    fn test_graph_style_fill_set() {
+        let mut app = App::new();
+        let color = [0.8, 0.2, 0.4, 1.0];
+        app.apply(Action::SetGraphStyleFill(color));
+        assert_eq!(app.graph_style_fill, color);
     }
 }

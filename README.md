@@ -17,10 +17,10 @@
 
 | App | Adobe analog | Domain | Status |
 |-----|--------------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~65% |
-| **Contour** | Illustrator | CPU vector editor | ~35% |
-| **Pulse** | After Effects | CPU compositor / motion | ~25% |
-| **Reel** | Premiere Pro | NLE / video editor | ~15% |
+| **Pigment** | Photoshop | GPU raster editor | ~85% |
+| **Contour** | Illustrator | CPU vector editor | ~66% |
+| **Pulse** | After Effects | CPU compositor / motion | ~61% |
+| **Reel** | Premiere Pro | NLE / video editor | ~49% |
 
 ## Repository layout
 
@@ -71,10 +71,10 @@ cargo check --workspace
 cargo test --workspace
 
 # Per-app (the logic crates have the most tests)
-cargo test -p pigment          # 35 tests: filters, lens, perspective, canvas math
-cargo test -p contour          # 94 tests: document, path, boolean ops
-cargo test -p pulse            # 633 tests: compositor, keyframes, render
-cargo test -p reel             # project/timeline tests
+cargo test -p pigment          # 134 tests: filters, lens, perspective, layer-effects, camera-raw, liquify
+cargo test -p contour          # 645 tests: document, path, boolean ops, pathfinder, extrude, envelope, mesh
+cargo test -p pulse            # 767 tests: compositor, keyframes, render, rotobrush, trackmatte, precomp, 3d
+cargo test -p reel             # 135 tests: timeline, effects, lumetri, captions, multicam, export, proxy
 ```
 
 ## Packaging

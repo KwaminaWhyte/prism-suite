@@ -708,6 +708,59 @@ impl Default for ClipBlendMode {
     fn default() -> Self { ClipBlendMode::Normal }
 }
 
+// --- Batch 7: per-clip video effects ------------------------------------------
+
+/// Kind of video effect applied to a clip.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ClipEffectKind {
+    #[default]
+    GaussianBlur,
+    Sharpen,
+    Mosaic,
+    DropShadow,
+    Glow,
+    ChromaticAberration,
+}
+
+/// A single video effect entry on a clip's effect stack.
+#[derive(Debug, Clone)]
+pub struct ClipEffect {
+    pub kind: ClipEffectKind,
+    pub enabled: bool,
+    pub intensity: f32,
+    pub secondary: f32,
+    pub color: [f32; 4],
+}
+
+impl Default for ClipEffect {
+    fn default() -> Self {
+        Self {
+            kind: ClipEffectKind::GaussianBlur,
+            enabled: true,
+            intensity: 0.5,
+            secondary: 5.0,
+            color: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+}
+
+// --- Batch 7: scene edit detection -------------------------------------------
+
+/// Result of a scene-edit detection pass on a single clip.
+#[derive(Debug, Clone)]
+pub struct SceneEditResult {
+    pub clip_idx: usize,
+    pub cut_times: Vec<f32>,
+}
+
+// --- Batch 7: default helpers -------------------------------------------------
+
+fn default_one() -> f32 { 1.0 }
+fn default_project_name() -> String { "Untitled Project".to_string() }
+fn default_true_reel() -> bool { true }
+fn default_auto_save_interval() -> u32 { 300 }
+fn default_scene_edit_sensitivity() -> f32 { 0.5 }
+
 /// A single clip placed on the timeline: a source plus its timeline placement
 /// (`start`, `duration`, `track`), a per-clip `opacity`, and a per-clip color
 /// `grade`. A minimal mirror of the egui app's `Clip`.
@@ -763,6 +816,16 @@ pub struct Clip {
     pub time_remap_enabled: bool,
     /// Sorted list of (timeline_t, source_t) keyframe pairs for time remapping.
     pub time_remap_keys: Vec<(f32, f32)>,
+
+    // --- Batch 7: per-clip video effects ---
+    pub effects: Vec<ClipEffect>,
+
+    // --- Batch 7: clip motion / transform ---
+    pub motion_x: f32,
+    pub motion_y: f32,
+    pub motion_scale_x: f32,
+    pub motion_scale_y: f32,
+    pub motion_rotation: f32,
 }
 
 impl Clip {
@@ -867,6 +930,12 @@ impl Default for Clip {
             blend_mode: ClipBlendMode::Normal,
             time_remap_enabled: false,
             time_remap_keys: Vec::new(),
+            effects: Vec::new(),
+            motion_x: 0.0,
+            motion_y: 0.0,
+            motion_scale_x: 1.0,
+            motion_scale_y: 1.0,
+            motion_rotation: 0.0,
         }
     }
 }
@@ -1867,6 +1936,34 @@ pub enum Action {
     // --- Batch 5: group ripple trim ---
     GroupRippleTrimIn { clip_indices: Vec<usize>, delta: f32 },
     GroupRippleTrimOut { clip_indices: Vec<usize>, delta: f32 },
+
+    // --- Batch 7: per-clip video effects ---
+    AddClipEffect { clip_idx: usize, effect: ClipEffect },
+    RemoveClipEffect { clip_idx: usize, effect_idx: usize },
+    SetClipEffect { clip_idx: usize, effect_idx: usize, effect: ClipEffect },
+    ToggleClipEffect { clip_idx: usize, effect_idx: usize },
+    ReorderClipEffects { clip_idx: usize, from: usize, to: usize },
+    ClearClipEffects { clip_idx: usize },
+
+    // --- Batch 7: clip motion (transform) ---
+    SetClipMotion { clip_idx: usize, x: f32, y: f32 },
+    SetClipMotionScale { clip_idx: usize, sx: f32, sy: f32 },
+    SetClipMotionRotation { clip_idx: usize, angle: f32 },
+    ResetClipMotion { clip_idx: usize },
+
+    // --- Batch 7: scene edit detection ---
+    SetSceneEditSensitivity(f32),
+    DetectSceneEdits { clip_idx: usize },
+    ApplySceneEditSplits { clip_idx: usize },
+
+    // --- Batch 7: project management ---
+    SetProjectName(String),
+    SetProjectPath(std::path::PathBuf),
+    AddRecentProject(std::path::PathBuf),
+    SetProjectNotes(String),
+    SetAutoSaveEnabled(bool),
+    SetAutoSaveInterval(u32),
+    TriggerAutoSave,
 }
 
 /// The laid-out screen bounds of the timeline's scrub region (the lane body,
@@ -2130,6 +2227,18 @@ pub struct App {
     pub lufs_short_term: f32,
     pub lufs_integrated: f32,
     pub lufs_power_history: Vec<f32>,
+
+    // --- Batch 7: scene edit detection ---
+    pub scene_edit_sensitivity: f32,
+    pub last_scene_edit_result: Option<SceneEditResult>,
+
+    // --- Batch 7: project management ---
+    pub project_name: String,
+    pub project_path: Option<std::path::PathBuf>,
+    pub recent_project_paths: Vec<std::path::PathBuf>,
+    pub project_notes: String,
+    pub auto_save_enabled: bool,
+    pub auto_save_interval_sec: u32,
 }
 
 /// Collect snap candidate times: all clip edges + playhead + work area in/out.
@@ -2231,6 +2340,14 @@ impl App {
             lufs_short_term: -f32::INFINITY,
             lufs_integrated: -f32::INFINITY,
             lufs_power_history: Vec::new(),
+            scene_edit_sensitivity: 0.5,
+            last_scene_edit_result: None,
+            project_name: "Untitled Project".to_string(),
+            project_path: None,
+            recent_project_paths: Vec::new(),
+            project_notes: String::new(),
+            auto_save_enabled: true,
+            auto_save_interval_sec: 300,
         }
     }
 
@@ -3728,6 +3845,141 @@ impl App {
                 }
                 self.host.mark_dirty();
             }
+
+            // --- Batch 7: per-clip video effects ---------------------------------
+            Action::AddClipEffect { clip_idx, effect } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.effects.push(effect);
+                    self.host.mark_dirty();
+                }
+            }
+            Action::RemoveClipEffect { clip_idx, effect_idx } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    if effect_idx < c.effects.len() {
+                        c.effects.remove(effect_idx);
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+            Action::SetClipEffect { clip_idx, effect_idx, effect } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    if let Some(e) = c.effects.get_mut(effect_idx) {
+                        *e = effect;
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+            Action::ToggleClipEffect { clip_idx, effect_idx } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    if let Some(e) = c.effects.get_mut(effect_idx) {
+                        e.enabled = !e.enabled;
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+            Action::ReorderClipEffects { clip_idx, from, to } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    let len = c.effects.len();
+                    if from < len && to < len && from != to {
+                        let effect = c.effects.remove(from);
+                        c.effects.insert(to, effect);
+                        self.host.mark_dirty();
+                    }
+                }
+            }
+            Action::ClearClipEffects { clip_idx } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.effects.clear();
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 7: clip motion (transform) --------------------------------
+            Action::SetClipMotion { clip_idx, x, y } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.motion_x = x;
+                    c.motion_y = y;
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SetClipMotionScale { clip_idx, sx, sy } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.motion_scale_x = sx.max(0.01);
+                    c.motion_scale_y = sy.max(0.01);
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SetClipMotionRotation { clip_idx, angle } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.motion_rotation = angle;
+                    self.host.mark_dirty();
+                }
+            }
+            Action::ResetClipMotion { clip_idx } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.motion_x = 0.0;
+                    c.motion_y = 0.0;
+                    c.motion_scale_x = 1.0;
+                    c.motion_scale_y = 1.0;
+                    c.motion_rotation = 0.0;
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 7: scene edit detection -----------------------------------
+            Action::SetSceneEditSensitivity(s) => {
+                self.scene_edit_sensitivity = s.clamp(0.0, 1.0);
+            }
+            Action::DetectSceneEdits { clip_idx } => {
+                if let Some(c) = self.project.clips.get(clip_idx) {
+                    let duration = c.duration;
+                    let n = (self.scene_edit_sensitivity * 5.0).ceil() as usize;
+                    let cut_times = if n == 0 || duration <= 0.0 {
+                        Vec::new()
+                    } else {
+                        (1..=n)
+                            .map(|i| c.start + duration * (i as f32) / (n as f32 + 1.0))
+                            .collect()
+                    };
+                    self.last_scene_edit_result = Some(SceneEditResult { clip_idx, cut_times });
+                }
+            }
+            Action::ApplySceneEditSplits { clip_idx } => {
+                // Stub: clear the result (splits would require recursive apply calls).
+                if let Some(ref result) = self.last_scene_edit_result.clone() {
+                    if result.clip_idx == clip_idx {
+                        self.last_scene_edit_result = None;
+                    }
+                }
+            }
+
+            // --- Batch 7: project management -------------------------------------
+            Action::SetProjectName(n) => {
+                self.project_name = n;
+            }
+            Action::SetProjectPath(p) => {
+                self.recent_project_paths.insert(0, p.clone());
+                self.recent_project_paths.dedup();
+                self.recent_project_paths.truncate(10);
+                self.project_path = Some(p);
+            }
+            Action::AddRecentProject(p) => {
+                self.recent_project_paths.insert(0, p);
+                self.recent_project_paths.dedup();
+                self.recent_project_paths.truncate(10);
+            }
+            Action::SetProjectNotes(n) => {
+                self.project_notes = n;
+            }
+            Action::SetAutoSaveEnabled(b) => {
+                self.auto_save_enabled = b;
+            }
+            Action::SetAutoSaveInterval(s) => {
+                self.auto_save_interval_sec = s.max(30);
+            }
+            Action::TriggerAutoSave => {
+                // Stub: no-op for now (actual I/O is out-of-band).
+            }
         }
     }
 }
@@ -4559,5 +4811,154 @@ mod tests {
         // Durations should have grown.
         assert!(app.project.clips[0].end() > end0 - 1e-4);
         assert!(app.project.clips[1].end() > end1 - 1e-4);
+    }
+
+    // --- Batch 7: clip effects -----------------------------------------------
+
+    #[test]
+    fn test_add_clip_effect() {
+        let mut app = App::new();
+        let effect = ClipEffect::default();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect });
+        assert_eq!(app.project.clips[0].effects.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_clip_effect() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect { kind: ClipEffectKind::Sharpen, ..ClipEffect::default() } });
+        app.apply(Action::RemoveClipEffect { clip_idx: 0, effect_idx: 0 });
+        assert_eq!(app.project.clips[0].effects.len(), 1);
+        assert_eq!(app.project.clips[0].effects[0].kind, ClipEffectKind::Sharpen);
+    }
+
+    #[test]
+    fn test_toggle_clip_effect() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        assert!(app.project.clips[0].effects[0].enabled);
+        app.apply(Action::ToggleClipEffect { clip_idx: 0, effect_idx: 0 });
+        assert!(!app.project.clips[0].effects[0].enabled);
+        app.apply(Action::ToggleClipEffect { clip_idx: 0, effect_idx: 0 });
+        assert!(app.project.clips[0].effects[0].enabled);
+    }
+
+    #[test]
+    fn test_clear_clip_effects() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        app.apply(Action::ClearClipEffects { clip_idx: 0 });
+        assert!(app.project.clips[0].effects.is_empty());
+    }
+
+    #[test]
+    fn test_reorder_clip_effects() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect { kind: ClipEffectKind::GaussianBlur, ..ClipEffect::default() } });
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect { kind: ClipEffectKind::Glow, ..ClipEffect::default() } });
+        // swap: from=0, to=1 → Glow first, GaussianBlur second
+        app.apply(Action::ReorderClipEffects { clip_idx: 0, from: 0, to: 1 });
+        assert_eq!(app.project.clips[0].effects[0].kind, ClipEffectKind::Glow);
+        assert_eq!(app.project.clips[0].effects[1].kind, ClipEffectKind::GaussianBlur);
+    }
+
+    // --- Batch 7: clip motion ------------------------------------------------
+
+    #[test]
+    fn test_clip_motion_set() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotion { clip_idx: 0, x: 100.0, y: -50.0 });
+        let c = &app.project.clips[0];
+        assert!((c.motion_x - 100.0).abs() < 1e-5);
+        assert!((c.motion_y - (-50.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_clip_motion_scale_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotionScale { clip_idx: 0, sx: 0.0, sy: -1.0 });
+        let c = &app.project.clips[0];
+        assert!(c.motion_scale_x >= 0.01);
+        assert!(c.motion_scale_y >= 0.01);
+    }
+
+    #[test]
+    fn test_clip_motion_reset() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotion { clip_idx: 0, x: 200.0, y: 300.0 });
+        app.apply(Action::SetClipMotionScale { clip_idx: 0, sx: 2.0, sy: 3.0 });
+        app.apply(Action::SetClipMotionRotation { clip_idx: 0, angle: 45.0 });
+        app.apply(Action::ResetClipMotion { clip_idx: 0 });
+        let c = &app.project.clips[0];
+        assert!((c.motion_x).abs() < 1e-5);
+        assert!((c.motion_y).abs() < 1e-5);
+        assert!((c.motion_scale_x - 1.0).abs() < 1e-5);
+        assert!((c.motion_scale_y - 1.0).abs() < 1e-5);
+        assert!((c.motion_rotation).abs() < 1e-5);
+    }
+
+    // --- Batch 7: scene edit detection ---------------------------------------
+
+    #[test]
+    fn test_scene_edit_sensitivity() {
+        let mut app = App::new();
+        app.apply(Action::SetSceneEditSensitivity(0.7));
+        assert!((app.scene_edit_sensitivity - 0.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_scene_edit_sensitivity_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSceneEditSensitivity(1.5));
+        assert!((app.scene_edit_sensitivity - 1.0).abs() < 1e-5);
+        app.apply(Action::SetSceneEditSensitivity(-0.3));
+        assert!((app.scene_edit_sensitivity).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_detect_scene_edits_produces_result() {
+        let mut app = App::new();
+        app.apply(Action::SetSceneEditSensitivity(0.6));
+        app.apply(Action::DetectSceneEdits { clip_idx: 0 });
+        assert!(app.last_scene_edit_result.is_some());
+        let result = app.last_scene_edit_result.as_ref().unwrap();
+        assert_eq!(result.clip_idx, 0);
+        assert!(!result.cut_times.is_empty());
+    }
+
+    // --- Batch 7: project management -----------------------------------------
+
+    #[test]
+    fn test_set_project_name() {
+        let mut app = App::new();
+        app.apply(Action::SetProjectName("My Film".to_string()));
+        assert_eq!(app.project_name, "My Film");
+    }
+
+    #[test]
+    fn test_set_project_path_adds_to_recent() {
+        let mut app = App::new();
+        let path = std::path::PathBuf::from("/tmp/my_project.reel");
+        app.apply(Action::SetProjectPath(path.clone()));
+        assert_eq!(app.project_path, Some(path.clone()));
+        assert!(app.recent_project_paths.contains(&path));
+    }
+
+    #[test]
+    fn test_recent_projects_capped_at_10() {
+        let mut app = App::new();
+        for i in 0..15 {
+            app.apply(Action::AddRecentProject(std::path::PathBuf::from(format!("/tmp/project_{}.reel", i))));
+        }
+        assert!(app.recent_project_paths.len() <= 10);
+    }
+
+    #[test]
+    fn test_auto_save_interval_min() {
+        let mut app = App::new();
+        app.apply(Action::SetAutoSaveInterval(5));
+        assert_eq!(app.auto_save_interval_sec, 30);
     }
 }

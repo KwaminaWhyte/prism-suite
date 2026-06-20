@@ -9,4 +9,6 @@ pub struct PuppetPin {
     pub id: PinId,
     pub position: [f32; 2], // layer-local coords
     pub is_stiff: bool,
+    #[serde(default)]
+    pub stiffness: f32,
 }

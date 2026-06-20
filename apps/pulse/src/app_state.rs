@@ -602,6 +602,143 @@ impl Default for AudioSpectrumConfig {
     }
 }
 
+// ─── Batch 6 depth types ──────────────────────────────────────────────────────
+
+/// Track Matte compositing mode (mirrors After Effects' matte-type options).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum MatteMode {
+    #[default]
+    None_,
+    AlphaInverted,
+    Alpha,
+    LumaInverted,
+    Luma,
+}
+
+/// Per-layer track matte configuration (who mattes this layer and how).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct TrackMatteConfig {
+    pub matte_layer_id: Option<usize>,
+    pub mode: MatteMode,
+    pub invert: bool,
+    pub preserve_transparency: bool,
+}
+
+/// Configuration for the Pre-compose dialog (name, attribute handling, etc.).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrecompConfig {
+    pub name: String,
+    pub move_all_attributes: bool,
+    pub adjust_comp_duration: bool,
+}
+
+impl Default for PrecompConfig {
+    fn default() -> Self {
+        Self {
+            name: "Precomp 1".to_string(),
+            move_all_attributes: true,
+            adjust_comp_duration: true,
+        }
+    }
+}
+
+/// A pre-composition created by `PrecomposeSelected`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrecompInfo {
+    pub name: String,
+    pub layer_ids: Vec<usize>,
+    pub duration_frames: u32,
+}
+
+/// Render status for items in the enhanced render queue.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum RenderStatus {
+    #[default]
+    Queued,
+    Rendering,
+    Done,
+    Failed,
+    Skipped,
+}
+
+/// Output format for the enhanced render queue.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum RenderOutputFormat {
+    #[default]
+    H264Mp4,
+    ProResHq,
+    DnxHd,
+    Exr,
+    Tiff,
+    Png,
+    Wav,
+    Aiff,
+}
+
+/// A single item in the enhanced render queue.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RenderQueueItem {
+    pub comp_name: String,
+    pub output_path: std::path::PathBuf,
+    pub format: RenderOutputFormat,
+    pub status: RenderStatus,
+    pub progress: f32,
+    pub start_frame: u32,
+    pub end_frame: u32,
+    pub use_proxy: bool,
+}
+
+impl Default for RenderQueueItem {
+    fn default() -> Self {
+        Self {
+            comp_name: "Comp 1".to_string(),
+            output_path: std::path::PathBuf::from("output.mp4"),
+            format: RenderOutputFormat::H264Mp4,
+            status: RenderStatus::Queued,
+            progress: 0.0,
+            start_frame: 0,
+            end_frame: 100,
+            use_proxy: false,
+        }
+    }
+}
+
+/// Full 3-D spatial configuration for a layer (enabled when the 3-D flag is set).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Layer3DConfig {
+    pub enabled: bool,
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+    pub orientation: [f32; 3],
+    pub scale: [f32; 3],
+    pub anchor_point: [f32; 3],
+    pub casts_shadows: bool,
+    pub accepts_shadows: bool,
+    pub casts_lights: bool,
+    pub appears_in_reflections: bool,
+    pub material_shininess: f32,
+    pub material_metal: f32,
+}
+
+impl Default for Layer3DConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            position: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0],
+            orientation: [0.0, 0.0, 0.0],
+            scale: [100.0, 100.0, 100.0],
+            anchor_point: [0.0, 0.0, 0.0],
+            casts_shadows: false,
+            accepts_shadows: true,
+            casts_lights: false,
+            appears_in_reflections: true,
+            material_shininess: 50.0,
+            material_metal: 0.0,
+        }
+    }
+}
+
 /// Every panel->state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -1243,6 +1380,52 @@ pub enum Action {
     SetAudioThickness(f32),
     SetAudioDigital(bool),
     ApplyAudioSpectrumEffect { layer_id: usize },
+
+    // --- Batch 6 depth: Track Matte ---
+    SetTrackMatte { layer_id: usize, config: TrackMatteConfig },
+    SetTrackMatteMode { layer_id: usize, mode: MatteMode },
+    SetTrackMatteSource { layer_id: usize, matte_layer: Option<usize> },
+    ToggleTrackMatteInvert { layer_id: usize },
+    SetTrackMattePreserveTransparency { layer_id: usize, preserve: bool },
+    ClearTrackMatte { layer_id: usize },
+    ToggleTrackMattePanel,
+
+    // --- Batch 6 depth: Precomp ---
+    SetPrecompName(String),
+    SetPrecompMoveAttribs(bool),
+    SetPrecompAdjustDuration(bool),
+    PrecomposeSelected,
+    OpenPrecomp(usize),
+    ClosePrecomp,
+    ReturnToMain,
+    RenamePrecomp { idx: usize, name: String },
+    DeletePrecomp(usize),
+    CollapseTransformations { layer_id: usize },
+
+    // --- Batch 6 depth: Render Queue (enhanced) ---
+    ToggleRenderQueue,
+    AddRenderQueueItem(RenderQueueItem),
+    RemoveRenderQueueItem(usize),
+    SetRenderItemFormat { idx: usize, format: RenderOutputFormat },
+    SetRenderItemOutput { idx: usize, path: std::path::PathBuf },
+    SetRenderItemRange { idx: usize, start: u32, end: u32 },
+    SetRenderItemProxy { idx: usize, use_proxy: bool },
+    StartRenderQueue,
+    StopRenderQueue,
+    RenderQueueItemComplete { idx: usize },
+    SkipRenderItem(usize),
+    DuplicateRenderItem(usize),
+
+    // --- Batch 6 depth: 3D Layer ---
+    Enable3DLayer { layer_id: usize, enabled: bool },
+    Set3DPosition { layer_id: usize, pos: [f32; 3] },
+    Set3DLayerRotation { layer_id: usize, rot: [f32; 3] },
+    Set3DOrientation { layer_id: usize, orient: [f32; 3] },
+    Set3DScale { layer_id: usize, scale: [f32; 3] },
+    Set3DAnchor { layer_id: usize, anchor: [f32; 3] },
+    Set3DShadows { layer_id: usize, casts: bool, accepts: bool },
+    Set3DMaterial { layer_id: usize, shininess: f32, metal: f32 },
+    Reset3DLayer { layer_id: usize },
 }
 
 impl Action {
@@ -1593,6 +1776,25 @@ pub struct App {
     // --- Batch 5: Audio Spectrum / Waveform Effects ---
     pub audio_spectrum_config: AudioSpectrumConfig,
     pub audio_spectrum_layer: Option<usize>,
+
+    // --- Batch 6 depth: Track Matte ---
+    pub track_matte_configs: std::collections::HashMap<usize, TrackMatteConfig>,
+    pub track_matte_panel_open: bool,
+
+    // --- Batch 6 depth: Precomp ---
+    pub precomp_config: PrecompConfig,
+    pub precomps: Vec<PrecompInfo>,
+    pub active_precomp: Option<usize>,
+    pub collapse_transforms: std::collections::HashSet<usize>,
+
+    // --- Batch 6 depth: Render Queue (enhanced) ---
+    pub render_queue_items: Vec<RenderQueueItem>,
+    pub render_queue_open: bool,
+    pub render_in_progress: bool,
+    pub render_active_idx: Option<usize>,
+
+    // --- Batch 6 depth: 3D Layer ---
+    pub layer_3d_configs: std::collections::HashMap<usize, Layer3DConfig>,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -1752,6 +1954,17 @@ impl App {
             morph_preview_time: 0.0,
             audio_spectrum_config: AudioSpectrumConfig::default(),
             audio_spectrum_layer: None,
+            track_matte_configs: std::collections::HashMap::new(),
+            track_matte_panel_open: false,
+            precomp_config: PrecompConfig::default(),
+            precomps: Vec::new(),
+            active_precomp: None,
+            collapse_transforms: std::collections::HashSet::new(),
+            render_queue_items: Vec::new(),
+            render_queue_open: false,
+            render_in_progress: false,
+            render_active_idx: None,
+            layer_3d_configs: std::collections::HashMap::new(),
         }
     }
 
@@ -4230,6 +4443,173 @@ impl App {
             Action::ApplyAudioSpectrumEffect { layer_id } => {
                 self.audio_spectrum_layer = Some(layer_id);
             }
+
+            // --- Batch 6 depth: Track Matte ---
+            Action::SetTrackMatte { layer_id, config } => {
+                self.track_matte_configs.insert(layer_id, config);
+            }
+            Action::SetTrackMatteMode { layer_id, mode } => {
+                self.track_matte_configs.entry(layer_id).or_default().mode = mode;
+            }
+            Action::SetTrackMatteSource { layer_id, matte_layer } => {
+                self.track_matte_configs.entry(layer_id).or_default().matte_layer_id = matte_layer;
+            }
+            Action::ToggleTrackMatteInvert { layer_id } => {
+                let entry = self.track_matte_configs.entry(layer_id).or_default();
+                entry.invert = !entry.invert;
+            }
+            Action::SetTrackMattePreserveTransparency { layer_id, preserve } => {
+                self.track_matte_configs.entry(layer_id).or_default().preserve_transparency = preserve;
+            }
+            Action::ClearTrackMatte { layer_id } => {
+                self.track_matte_configs.remove(&layer_id);
+            }
+            Action::ToggleTrackMattePanel => {
+                self.track_matte_panel_open = !self.track_matte_panel_open;
+            }
+
+            // --- Batch 6 depth: Precomp ---
+            Action::SetPrecompName(name) => {
+                self.precomp_config.name = name;
+            }
+            Action::SetPrecompMoveAttribs(v) => {
+                self.precomp_config.move_all_attributes = v;
+            }
+            Action::SetPrecompAdjustDuration(v) => {
+                self.precomp_config.adjust_comp_duration = v;
+            }
+            Action::PrecomposeSelected => {
+                let ci = self.active_comp_index();
+                let layer_ids: Vec<usize> = self.selected_layer
+                    .map(|i| vec![i])
+                    .unwrap_or_else(|| {
+                        if self.project.comps[ci].layers.is_empty() { vec![] } else { vec![0] }
+                    });
+                let duration_frames = (self.project.comps[ci].duration
+                    * self.project.comps[ci].fps)
+                    .round() as u32;
+                let info = PrecompInfo {
+                    name: self.precomp_config.name.clone(),
+                    layer_ids,
+                    duration_frames,
+                };
+                self.precomps.push(info);
+            }
+            Action::OpenPrecomp(idx) => {
+                self.active_precomp = Some(idx);
+            }
+            Action::ClosePrecomp | Action::ReturnToMain => {
+                self.active_precomp = None;
+            }
+            Action::RenamePrecomp { idx, name } => {
+                if let Some(p) = self.precomps.get_mut(idx) {
+                    p.name = name;
+                }
+            }
+            Action::DeletePrecomp(idx) => {
+                if idx < self.precomps.len() {
+                    self.precomps.remove(idx);
+                }
+            }
+            Action::CollapseTransformations { layer_id } => {
+                if !self.collapse_transforms.remove(&layer_id) {
+                    self.collapse_transforms.insert(layer_id);
+                }
+            }
+
+            // --- Batch 6 depth: Render Queue (enhanced) ---
+            Action::ToggleRenderQueue => {
+                self.render_queue_open = !self.render_queue_open;
+            }
+            Action::AddRenderQueueItem(item) => {
+                self.render_queue_items.push(item);
+            }
+            Action::RemoveRenderQueueItem(idx) => {
+                if idx < self.render_queue_items.len() {
+                    self.render_queue_items.remove(idx);
+                }
+            }
+            Action::SetRenderItemFormat { idx, format } => {
+                if let Some(item) = self.render_queue_items.get_mut(idx) {
+                    item.format = format;
+                }
+            }
+            Action::SetRenderItemOutput { idx, path } => {
+                if let Some(item) = self.render_queue_items.get_mut(idx) {
+                    item.output_path = path;
+                }
+            }
+            Action::SetRenderItemRange { idx, start, end } => {
+                if let Some(item) = self.render_queue_items.get_mut(idx) {
+                    item.start_frame = start;
+                    item.end_frame = end;
+                }
+            }
+            Action::SetRenderItemProxy { idx, use_proxy } => {
+                if let Some(item) = self.render_queue_items.get_mut(idx) {
+                    item.use_proxy = use_proxy;
+                }
+            }
+            Action::StartRenderQueue => {
+                self.render_in_progress = true;
+                if !self.render_queue_items.is_empty() {
+                    self.render_active_idx = Some(0);
+                }
+            }
+            Action::StopRenderQueue => {
+                self.render_in_progress = false;
+                self.render_active_idx = None;
+            }
+            Action::RenderQueueItemComplete { idx } => {
+                if let Some(item) = self.render_queue_items.get_mut(idx) {
+                    item.status = RenderStatus::Done;
+                    item.progress = 1.0;
+                }
+            }
+            Action::SkipRenderItem(idx) => {
+                if let Some(item) = self.render_queue_items.get_mut(idx) {
+                    item.status = RenderStatus::Skipped;
+                }
+            }
+            Action::DuplicateRenderItem(idx) => {
+                if idx < self.render_queue_items.len() {
+                    let clone = self.render_queue_items[idx].clone();
+                    self.render_queue_items.push(clone);
+                }
+            }
+
+            // --- Batch 6 depth: 3D Layer ---
+            Action::Enable3DLayer { layer_id, enabled } => {
+                self.layer_3d_configs.entry(layer_id).or_default().enabled = enabled;
+            }
+            Action::Set3DPosition { layer_id, pos } => {
+                self.layer_3d_configs.entry(layer_id).or_default().position = pos;
+            }
+            Action::Set3DLayerRotation { layer_id, rot } => {
+                self.layer_3d_configs.entry(layer_id).or_default().rotation = rot;
+            }
+            Action::Set3DOrientation { layer_id, orient } => {
+                self.layer_3d_configs.entry(layer_id).or_default().orientation = orient;
+            }
+            Action::Set3DScale { layer_id, scale } => {
+                self.layer_3d_configs.entry(layer_id).or_default().scale = scale;
+            }
+            Action::Set3DAnchor { layer_id, anchor } => {
+                self.layer_3d_configs.entry(layer_id).or_default().anchor_point = anchor;
+            }
+            Action::Set3DShadows { layer_id, casts, accepts } => {
+                let cfg = self.layer_3d_configs.entry(layer_id).or_default();
+                cfg.casts_shadows = casts;
+                cfg.accepts_shadows = accepts;
+            }
+            Action::Set3DMaterial { layer_id, shininess, metal } => {
+                let cfg = self.layer_3d_configs.entry(layer_id).or_default();
+                cfg.material_shininess = shininess.clamp(0.0, 100.0);
+                cfg.material_metal = metal.clamp(0.0, 100.0);
+            }
+            Action::Reset3DLayer { layer_id } => {
+                self.layer_3d_configs.remove(&layer_id);
+            }
         }
     }
 
@@ -5949,5 +6329,179 @@ mod tests {
         assert!(app.audio_spectrum_layer.is_none());
         app.apply(Action::ApplyAudioSpectrumEffect { layer_id: 3 });
         assert_eq!(app.audio_spectrum_layer, Some(3));
+    }
+
+    // ── Batch 6 depth: Track Matte ────────────────────────────────────────────
+
+    #[test]
+    fn test_set_track_matte_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetTrackMatteMode { layer_id: 0, mode: MatteMode::Luma });
+        assert_eq!(app.track_matte_configs[&0].mode, MatteMode::Luma);
+        app.apply(Action::SetTrackMatteMode { layer_id: 0, mode: MatteMode::Alpha });
+        assert_eq!(app.track_matte_configs[&0].mode, MatteMode::Alpha);
+    }
+
+    #[test]
+    fn test_toggle_track_matte_invert() {
+        let mut app = App::new();
+        assert!(!app.track_matte_configs.contains_key(&1));
+        app.apply(Action::ToggleTrackMatteInvert { layer_id: 1 });
+        assert!(app.track_matte_configs[&1].invert);
+        app.apply(Action::ToggleTrackMatteInvert { layer_id: 1 });
+        assert!(!app.track_matte_configs[&1].invert);
+    }
+
+    #[test]
+    fn test_clear_track_matte() {
+        let mut app = App::new();
+        let config = TrackMatteConfig { matte_layer_id: Some(2), mode: MatteMode::Alpha, invert: false, preserve_transparency: true };
+        app.apply(Action::SetTrackMatte { layer_id: 0, config });
+        assert!(app.track_matte_configs.contains_key(&0));
+        app.apply(Action::ClearTrackMatte { layer_id: 0 });
+        assert!(!app.track_matte_configs.contains_key(&0));
+    }
+
+    // ── Batch 6 depth: Precomp ────────────────────────────────────────────────
+
+    #[test]
+    fn test_precompose_selected_pushes() {
+        let mut app = App::new();
+        assert!(app.precomps.is_empty());
+        app.apply(Action::SetPrecompName("My Precomp".to_string()));
+        app.apply(Action::PrecomposeSelected);
+        assert_eq!(app.precomps.len(), 1);
+        assert_eq!(app.precomps[0].name, "My Precomp");
+    }
+
+    #[test]
+    fn test_open_close_precomp() {
+        let mut app = App::new();
+        app.apply(Action::PrecomposeSelected);
+        app.apply(Action::OpenPrecomp(0));
+        assert_eq!(app.active_precomp, Some(0));
+        app.apply(Action::ClosePrecomp);
+        assert_eq!(app.active_precomp, None);
+        app.apply(Action::OpenPrecomp(0));
+        assert_eq!(app.active_precomp, Some(0));
+        app.apply(Action::ReturnToMain);
+        assert_eq!(app.active_precomp, None);
+    }
+
+    #[test]
+    fn test_rename_precomp() {
+        let mut app = App::new();
+        app.apply(Action::PrecomposeSelected);
+        app.apply(Action::RenamePrecomp { idx: 0, name: "Renamed".to_string() });
+        assert_eq!(app.precomps[0].name, "Renamed");
+        // Out-of-bounds rename is a no-op (no panic).
+        app.apply(Action::RenamePrecomp { idx: 99, name: "Oob".to_string() });
+    }
+
+    #[test]
+    fn test_collapse_transforms_toggles() {
+        let mut app = App::new();
+        assert!(!app.collapse_transforms.contains(&5));
+        app.apply(Action::CollapseTransformations { layer_id: 5 });
+        assert!(app.collapse_transforms.contains(&5));
+        // Apply twice → back to absent.
+        app.apply(Action::CollapseTransformations { layer_id: 5 });
+        assert!(!app.collapse_transforms.contains(&5));
+    }
+
+    // ── Batch 6 depth: Render Queue ───────────────────────────────────────────
+
+    #[test]
+    fn test_add_remove_render_item() {
+        let mut app = App::new();
+        assert!(app.render_queue_items.is_empty());
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        assert_eq!(app.render_queue_items.len(), 1);
+        app.apply(Action::RemoveRenderQueueItem(0));
+        assert!(app.render_queue_items.is_empty());
+    }
+
+    #[test]
+    fn test_start_stop_render_queue() {
+        let mut app = App::new();
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        assert!(!app.render_in_progress);
+        app.apply(Action::StartRenderQueue);
+        assert!(app.render_in_progress);
+        assert_eq!(app.render_active_idx, Some(0));
+        app.apply(Action::StopRenderQueue);
+        assert!(!app.render_in_progress);
+        assert_eq!(app.render_active_idx, None);
+    }
+
+    #[test]
+    fn test_render_item_complete_sets_done() {
+        let mut app = App::new();
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        assert_eq!(app.render_queue_items[0].status, RenderStatus::Queued);
+        app.apply(Action::RenderQueueItemComplete { idx: 0 });
+        assert_eq!(app.render_queue_items[0].status, RenderStatus::Done);
+        assert!((app.render_queue_items[0].progress - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_skip_render_item() {
+        let mut app = App::new();
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        app.apply(Action::SkipRenderItem(0));
+        assert_eq!(app.render_queue_items[0].status, RenderStatus::Skipped);
+    }
+
+    #[test]
+    fn test_duplicate_render_item_oob_no_panic() {
+        let mut app = App::new();
+        // Out-of-bounds duplicate must not panic.
+        app.apply(Action::DuplicateRenderItem(99));
+        assert!(app.render_queue_items.is_empty());
+        // In-bounds duplicate pushes a clone.
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        app.apply(Action::DuplicateRenderItem(0));
+        assert_eq!(app.render_queue_items.len(), 2);
+    }
+
+    // ── Batch 6 depth: 3D Layer ───────────────────────────────────────────────
+
+    #[test]
+    fn test_enable_3d_layer() {
+        let mut app = App::new();
+        assert!(!app.layer_3d_configs.contains_key(&0));
+        app.apply(Action::Enable3DLayer { layer_id: 0, enabled: true });
+        assert!(app.layer_3d_configs[&0].enabled);
+        app.apply(Action::Enable3DLayer { layer_id: 0, enabled: false });
+        assert!(!app.layer_3d_configs[&0].enabled);
+    }
+
+    #[test]
+    fn test_set_3d_material_clamp() {
+        let mut app = App::new();
+        // shininess 200 → clamped to 100; metal -5 → clamped to 0.
+        app.apply(Action::Set3DMaterial { layer_id: 0, shininess: 200.0, metal: -5.0 });
+        let cfg = &app.layer_3d_configs[&0];
+        assert!((cfg.material_shininess - 100.0).abs() < 1e-5, "shininess must clamp to 100");
+        assert!((cfg.material_metal - 0.0).abs() < 1e-5, "metal must clamp to 0");
+    }
+
+    #[test]
+    fn test_reset_3d_layer_removes_config() {
+        let mut app = App::new();
+        app.apply(Action::Enable3DLayer { layer_id: 2, enabled: true });
+        assert!(app.layer_3d_configs.contains_key(&2));
+        app.apply(Action::Reset3DLayer { layer_id: 2 });
+        assert!(!app.layer_3d_configs.contains_key(&2));
+    }
+
+    #[test]
+    fn test_3d_position_set() {
+        let mut app = App::new();
+        app.apply(Action::Set3DPosition { layer_id: 0, pos: [10.0, 20.0, 30.0] });
+        let pos = app.layer_3d_configs[&0].position;
+        assert!((pos[0] - 10.0).abs() < 1e-5);
+        assert!((pos[1] - 20.0).abs() < 1e-5);
+        assert!((pos[2] - 30.0).abs() < 1e-5);
     }
 }

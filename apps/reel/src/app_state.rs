@@ -1550,6 +1550,146 @@ pub struct MulticamGroup {
     pub active_angle: usize,
 }
 
+// --- Batch 8: Multicam depth -------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct MulticamAngle {
+    pub label: String,
+    pub source_clip_idx: usize,
+    pub sync_offset: f32,
+    pub enabled: bool,
+}
+
+impl Default for MulticamAngle {
+    fn default() -> Self {
+        Self { label: "Angle".to_string(), source_clip_idx: 0, sync_offset: 0.0, enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum MulticamSyncMode {
+    #[default]
+    Timecode,
+    Waveform,
+    InPoint,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum MulticamDisplayMode {
+    #[default]
+    Grid,
+    Solo,
+    PiP,
+}
+
+// --- Batch 8: EDL / XML interchange ------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum EdlFormat {
+    #[default]
+    Cmx3600,
+    FcpXml,
+    Aaf,
+    Otio,
+}
+
+#[derive(Debug, Clone)]
+pub struct EdlConfig {
+    pub format: EdlFormat,
+    pub frame_rate: f32,
+    pub reel_name: String,
+    pub include_audio: bool,
+    pub include_video: bool,
+}
+
+impl Default for EdlConfig {
+    fn default() -> Self {
+        Self {
+            format: EdlFormat::Cmx3600,
+            frame_rate: 24.0,
+            reel_name: "REEL001".to_string(),
+            include_audio: true,
+            include_video: true,
+        }
+    }
+}
+
+// --- Batch 8: Audio Suite (offline audio processing) -------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum AudioSuiteKind {
+    #[default]
+    Normalize,
+    Reverse,
+    GainChange,
+    NoiseReduction,
+    DeEsser,
+    PitchShift,
+    TimeStretch,
+    ChannelMix,
+}
+
+#[derive(Debug, Clone)]
+pub struct AudioSuiteConfig {
+    pub kind: AudioSuiteKind,
+    pub gain_db: f32,
+    pub preserve_duration: bool,
+    pub process_in_place: bool,
+    pub clip_by_clip: bool,
+    pub target_level_db: f32,
+    pub pitch_semitones: f32,
+    pub stretch_ratio: f32,
+}
+
+impl Default for AudioSuiteConfig {
+    fn default() -> Self {
+        Self {
+            kind: AudioSuiteKind::Normalize,
+            gain_db: 0.0,
+            preserve_duration: true,
+            process_in_place: true,
+            clip_by_clip: false,
+            target_level_db: -1.0,
+            pitch_semitones: 0.0,
+            stretch_ratio: 1.0,
+        }
+    }
+}
+
+// --- Batch 8: Auto Reframe ---------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ReframeMotion {
+    #[default]
+    Default,
+    Slower,
+    Faster,
+    SmoothFast,
+    SmoothSlow,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoReframeConfig {
+    pub target_aspect_w: u32,
+    pub target_aspect_h: u32,
+    pub motion_preset: ReframeMotion,
+    pub keep_scale: bool,
+    pub analyze_on_import: bool,
+}
+
+impl Default for AutoReframeConfig {
+    fn default() -> Self {
+        Self {
+            target_aspect_w: 9,
+            target_aspect_h: 16,
+            motion_preset: ReframeMotion::Default,
+            keep_scale: true,
+            analyze_on_import: false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
     H264Mp4,
@@ -1964,6 +2104,50 @@ pub enum Action {
     SetAutoSaveEnabled(bool),
     SetAutoSaveInterval(u32),
     TriggerAutoSave,
+
+    // --- Batch 8: multicam depth ---
+    AddMulticamAngle(MulticamAngle),
+    RemoveMulticamAngle(usize),
+    SetMulticamAngleLabel { idx: usize, label: String },
+    SetMulticamAngleSyncOffset { idx: usize, offset: f32 },
+    ToggleMulticamAngle(usize),
+    SetMulticamSyncMode(MulticamSyncMode),
+    SetMulticamDisplayMode(MulticamDisplayMode),
+    FlattenMulticam,
+
+    // --- Batch 8: EDL / XML interchange ---
+    SetEdlFormat(EdlFormat),
+    SetEdlFrameRate(f32),
+    SetEdlReelName(String),
+    SetEdlIncludeAudio(bool),
+    SetEdlIncludeVideo(bool),
+    ExportEdl(std::path::PathBuf),
+    ImportEdl(std::path::PathBuf),
+    ExportFcpXml(std::path::PathBuf),
+    ImportFcpXml(std::path::PathBuf),
+    ExportOtio(std::path::PathBuf),
+
+    // --- Batch 8: audio suite ---
+    ToggleAudioSuitePanel,
+    SetAudioSuiteKind(AudioSuiteKind),
+    SetAudioSuiteGain(f32),
+    SetAudioSuitePreserve(bool),
+    SetAudioSuiteProcessInPlace(bool),
+    SetAudioSuiteTargetLevel(f32),
+    SetAudioSuitePitch(f32),
+    SetAudioSuiteStretch(f32),
+    ToggleAudioSuitePreview,
+    ApplyAudioSuite { clip_idx: usize },
+
+    // --- Batch 8: auto reframe ---
+    ToggleAutoReframePanel,
+    SetReframeAspect { w: u32, h: u32 },
+    SetReframeMotion(ReframeMotion),
+    SetReframeKeepScale(bool),
+    SetReframeAnalyzeOnImport(bool),
+    AnalyzeReframe { clip_idx: usize },
+    ApplyReframe { clip_idx: usize },
+    ClearReframeResults,
 }
 
 /// The laid-out screen bounds of the timeline's scrub region (the lane body,
@@ -2239,6 +2423,27 @@ pub struct App {
     pub project_notes: String,
     pub auto_save_enabled: bool,
     pub auto_save_interval_sec: u32,
+
+    // --- Batch 8: multicam depth ---
+    pub multicam_angles: Vec<MulticamAngle>,
+    pub multicam_active_angle: usize,
+    pub multicam_sync_mode: MulticamSyncMode,
+    pub multicam_display_mode: MulticamDisplayMode,
+
+    // --- Batch 8: EDL / XML interchange ---
+    pub edl_config: EdlConfig,
+    pub last_edl_export_path: Option<std::path::PathBuf>,
+    pub last_import_clip_count: usize,
+
+    // --- Batch 8: audio suite ---
+    pub audio_suite_config: AudioSuiteConfig,
+    pub audio_suite_panel_open: bool,
+    pub audio_suite_preview: bool,
+
+    // --- Batch 8: auto reframe ---
+    pub auto_reframe_config: AutoReframeConfig,
+    pub auto_reframe_panel_open: bool,
+    pub reframe_results: Vec<(usize, Vec<f32>)>,
 }
 
 /// Collect snap candidate times: all clip edges + playhead + work area in/out.
@@ -2348,6 +2553,19 @@ impl App {
             project_notes: String::new(),
             auto_save_enabled: true,
             auto_save_interval_sec: 300,
+            multicam_angles: Vec::new(),
+            multicam_active_angle: 0,
+            multicam_sync_mode: MulticamSyncMode::Timecode,
+            multicam_display_mode: MulticamDisplayMode::Grid,
+            edl_config: EdlConfig::default(),
+            last_edl_export_path: None,
+            last_import_clip_count: 0,
+            audio_suite_config: AudioSuiteConfig::default(),
+            audio_suite_panel_open: false,
+            audio_suite_preview: false,
+            auto_reframe_config: AutoReframeConfig::default(),
+            auto_reframe_panel_open: false,
+            reframe_results: Vec::new(),
         }
     }
 
@@ -3953,6 +4171,115 @@ impl App {
                 }
             }
 
+            // --- Batch 8: multicam depth -----------------------------------------
+            Action::AddMulticamAngle(a) => {
+                self.multicam_angles.push(a);
+            }
+            Action::RemoveMulticamAngle(i) => {
+                if i < self.multicam_angles.len() {
+                    self.multicam_angles.remove(i);
+                }
+            }
+            Action::SetMulticamAngleLabel { idx, label } => {
+                if let Some(a) = self.multicam_angles.get_mut(idx) {
+                    a.label = label;
+                }
+            }
+            Action::SetMulticamAngleSyncOffset { idx, offset } => {
+                if let Some(a) = self.multicam_angles.get_mut(idx) {
+                    a.sync_offset = offset;
+                }
+            }
+            Action::ToggleMulticamAngle(i) => {
+                if let Some(a) = self.multicam_angles.get_mut(i) {
+                    a.enabled = !a.enabled;
+                }
+            }
+            Action::SetMulticamSyncMode(m) => {
+                self.multicam_sync_mode = m;
+            }
+            Action::SetMulticamDisplayMode(m) => {
+                self.multicam_display_mode = m;
+            }
+            Action::FlattenMulticam => {
+                self.multicam_angles.clear();
+                self.multicam_active_angle = 0;
+            }
+
+            // --- Batch 8: EDL / XML interchange ----------------------------------
+            Action::SetEdlFormat(f) => {
+                self.edl_config.format = f;
+            }
+            Action::SetEdlFrameRate(r) => {
+                self.edl_config.frame_rate = r.clamp(1.0, 120.0);
+            }
+            Action::SetEdlReelName(n) => {
+                self.edl_config.reel_name = n;
+            }
+            Action::SetEdlIncludeAudio(b) => {
+                self.edl_config.include_audio = b;
+            }
+            Action::SetEdlIncludeVideo(b) => {
+                self.edl_config.include_video = b;
+            }
+            Action::ExportEdl(p) => {
+                self.last_edl_export_path = Some(p);
+            }
+            Action::ImportEdl(_p) => {
+                self.last_import_clip_count = 0;
+            }
+            Action::ExportFcpXml(p) => {
+                self.last_edl_export_path = Some(p);
+            }
+            Action::ImportFcpXml(_p) => {
+                self.last_import_clip_count = 0;
+            }
+            Action::ExportOtio(p) => {
+                self.last_edl_export_path = Some(p);
+            }
+
+            // --- Batch 8: audio suite --------------------------------------------
+            Action::ToggleAudioSuitePanel => {
+                self.audio_suite_panel_open = !self.audio_suite_panel_open;
+            }
+            Action::SetAudioSuiteKind(k) => {
+                self.audio_suite_config.kind = k;
+            }
+            Action::SetAudioSuiteGain(g) => {
+                self.audio_suite_config.gain_db = g.clamp(-60.0, 60.0);
+            }
+            Action::SetAudioSuitePreserve(b) => {
+                self.audio_suite_config.preserve_duration = b;
+            }
+            Action::SetAudioSuiteProcessInPlace(b) => {
+                self.audio_suite_config.process_in_place = b;
+            }
+            Action::SetAudioSuiteTargetLevel(l) => {
+                self.audio_suite_config.target_level_db = l.clamp(-60.0, 0.0);
+            }
+            Action::SetAudioSuitePitch(p) => {
+                self.audio_suite_config.pitch_semitones = p.clamp(-24.0, 24.0);
+            }
+            Action::SetAudioSuiteStretch(r) => {
+                self.audio_suite_config.stretch_ratio = r.clamp(0.1, 10.0);
+            }
+            Action::ToggleAudioSuitePreview => {
+                self.audio_suite_preview = !self.audio_suite_preview;
+            }
+            Action::ApplyAudioSuite { clip_idx } => {
+                if let Some(clip) = self.project.clips.get_mut(clip_idx) {
+                    if matches!(
+                        self.audio_suite_config.kind,
+                        AudioSuiteKind::GainChange | AudioSuiteKind::Normalize
+                    ) {
+                        if let ClipSource::Audio(ref mut a) = clip.source {
+                            let factor = 10f32.powf(self.audio_suite_config.gain_db / 20.0);
+                            a.gain = (a.gain * factor).clamp(0.0, MAX_AUDIO_GAIN);
+                        }
+                    }
+                }
+            }
+
             // --- Batch 7: project management -------------------------------------
             Action::SetProjectName(n) => {
                 self.project_name = n;
@@ -3979,6 +4306,34 @@ impl App {
             }
             Action::TriggerAutoSave => {
                 // Stub: no-op for now (actual I/O is out-of-band).
+            }
+
+            // --- Batch 8: auto reframe -------------------------------------------
+            Action::ToggleAutoReframePanel => {
+                self.auto_reframe_panel_open = !self.auto_reframe_panel_open;
+            }
+            Action::SetReframeAspect { w, h } => {
+                self.auto_reframe_config.target_aspect_w = w.max(1);
+                self.auto_reframe_config.target_aspect_h = h.max(1);
+            }
+            Action::SetReframeMotion(m) => {
+                self.auto_reframe_config.motion_preset = m;
+            }
+            Action::SetReframeKeepScale(b) => {
+                self.auto_reframe_config.keep_scale = b;
+            }
+            Action::SetReframeAnalyzeOnImport(b) => {
+                self.auto_reframe_config.analyze_on_import = b;
+            }
+            Action::AnalyzeReframe { clip_idx } => {
+                self.reframe_results.push((clip_idx, vec![0.0, 0.5, 1.0]));
+            }
+            Action::ApplyReframe { clip_idx } => {
+                // Stub: find reframe result for clip_idx and apply as motion keyframes.
+                let _result = self.reframe_results.iter().find(|(ci, _)| *ci == clip_idx);
+            }
+            Action::ClearReframeResults => {
+                self.reframe_results.clear();
             }
         }
     }
@@ -4960,5 +5315,173 @@ mod tests {
         let mut app = App::new();
         app.apply(Action::SetAutoSaveInterval(5));
         assert_eq!(app.auto_save_interval_sec, 30);
+    }
+
+    // --- Batch 8: multicam depth ---------------------------------------------
+
+    #[test]
+    fn test_add_remove_multicam_angle() {
+        let mut app = App::new();
+        assert_eq!(app.multicam_angles.len(), 0);
+        app.apply(Action::AddMulticamAngle(MulticamAngle { label: "Cam A".to_string(), source_clip_idx: 0, sync_offset: 0.0, enabled: true }));
+        app.apply(Action::AddMulticamAngle(MulticamAngle { label: "Cam B".to_string(), source_clip_idx: 1, sync_offset: 0.5, enabled: true }));
+        assert_eq!(app.multicam_angles.len(), 2);
+        app.apply(Action::RemoveMulticamAngle(0));
+        assert_eq!(app.multicam_angles.len(), 1);
+        assert_eq!(app.multicam_angles[0].label, "Cam B");
+        // Out-of-bounds removal is a no-op.
+        app.apply(Action::RemoveMulticamAngle(99));
+        assert_eq!(app.multicam_angles.len(), 1);
+    }
+
+    #[test]
+    fn test_toggle_multicam_angle() {
+        let mut app = App::new();
+        app.apply(Action::AddMulticamAngle(MulticamAngle::default()));
+        assert!(app.multicam_angles[0].enabled);
+        app.apply(Action::ToggleMulticamAngle(0));
+        assert!(!app.multicam_angles[0].enabled);
+        app.apply(Action::ToggleMulticamAngle(0));
+        assert!(app.multicam_angles[0].enabled);
+    }
+
+    #[test]
+    fn test_sync_mode_set() {
+        let mut app = App::new();
+        assert_eq!(app.multicam_sync_mode, MulticamSyncMode::Timecode);
+        app.apply(Action::SetMulticamSyncMode(MulticamSyncMode::Waveform));
+        assert_eq!(app.multicam_sync_mode, MulticamSyncMode::Waveform);
+        app.apply(Action::SetMulticamDisplayMode(MulticamDisplayMode::Solo));
+        assert_eq!(app.multicam_display_mode, MulticamDisplayMode::Solo);
+    }
+
+    #[test]
+    fn test_flatten_multicam_clears() {
+        let mut app = App::new();
+        app.apply(Action::AddMulticamAngle(MulticamAngle::default()));
+        app.apply(Action::AddMulticamAngle(MulticamAngle::default()));
+        assert_eq!(app.multicam_angles.len(), 2);
+        app.multicam_active_angle = 1;
+        app.apply(Action::FlattenMulticam);
+        assert_eq!(app.multicam_angles.len(), 0);
+        assert_eq!(app.multicam_active_angle, 0);
+    }
+
+    // --- Batch 8: EDL interchange ---------------------------------------------
+
+    #[test]
+    fn test_edl_frame_rate_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetEdlFrameRate(200.0));
+        assert!((app.edl_config.frame_rate - 120.0).abs() < 1e-5);
+        app.apply(Action::SetEdlFrameRate(0.0));
+        assert!((app.edl_config.frame_rate - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_edl_format_set() {
+        let mut app = App::new();
+        assert_eq!(app.edl_config.format, EdlFormat::Cmx3600);
+        app.apply(Action::SetEdlFormat(EdlFormat::FcpXml));
+        assert_eq!(app.edl_config.format, EdlFormat::FcpXml);
+        app.apply(Action::SetEdlFormat(EdlFormat::Otio));
+        assert_eq!(app.edl_config.format, EdlFormat::Otio);
+    }
+
+    #[test]
+    fn test_export_edl_records_path() {
+        let mut app = App::new();
+        assert!(app.last_edl_export_path.is_none());
+        let p = std::path::PathBuf::from("/tmp/export.edl");
+        app.apply(Action::ExportEdl(p.clone()));
+        assert_eq!(app.last_edl_export_path, Some(p.clone()));
+        let p2 = std::path::PathBuf::from("/tmp/export.xml");
+        app.apply(Action::ExportFcpXml(p2.clone()));
+        assert_eq!(app.last_edl_export_path, Some(p2));
+        let p3 = std::path::PathBuf::from("/tmp/export.otio");
+        app.apply(Action::ExportOtio(p3.clone()));
+        assert_eq!(app.last_edl_export_path, Some(p3));
+    }
+
+    // --- Batch 8: AudioSuite -------------------------------------------------
+
+    #[test]
+    fn test_audio_suite_gain_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioSuiteGain(100.0));
+        assert!((app.audio_suite_config.gain_db - 60.0).abs() < 1e-5);
+        app.apply(Action::SetAudioSuiteGain(-100.0));
+        assert!((app.audio_suite_config.gain_db - (-60.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_audio_suite_pitch_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioSuitePitch(-30.0));
+        assert!((app.audio_suite_config.pitch_semitones - (-24.0)).abs() < 1e-5);
+        app.apply(Action::SetAudioSuitePitch(30.0));
+        assert!((app.audio_suite_config.pitch_semitones - 24.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_audio_suite_stretch_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioSuiteStretch(0.0));
+        assert!((app.audio_suite_config.stretch_ratio - 0.1).abs() < 1e-5);
+        app.apply(Action::SetAudioSuiteStretch(100.0));
+        assert!((app.audio_suite_config.stretch_ratio - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_audio_suite_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.audio_suite_panel_open);
+        app.apply(Action::ToggleAudioSuitePanel);
+        assert!(app.audio_suite_panel_open);
+        app.apply(Action::ToggleAudioSuitePanel);
+        assert!(!app.audio_suite_panel_open);
+        assert!(!app.audio_suite_preview);
+        app.apply(Action::ToggleAudioSuitePreview);
+        assert!(app.audio_suite_preview);
+    }
+
+    // --- Batch 8: AutoReframe ------------------------------------------------
+
+    #[test]
+    fn test_reframe_aspect_min_1() {
+        let mut app = App::new();
+        app.apply(Action::SetReframeAspect { w: 0, h: 0 });
+        assert_eq!(app.auto_reframe_config.target_aspect_w, 1);
+        assert_eq!(app.auto_reframe_config.target_aspect_h, 1);
+    }
+
+    #[test]
+    fn test_analyze_reframe_adds_result() {
+        let mut app = App::new();
+        assert_eq!(app.reframe_results.len(), 0);
+        app.apply(Action::AnalyzeReframe { clip_idx: 0 });
+        assert_eq!(app.reframe_results.len(), 1);
+        assert_eq!(app.reframe_results[0].0, 0);
+        assert_eq!(app.reframe_results[0].1, vec![0.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn test_clear_reframe() {
+        let mut app = App::new();
+        app.apply(Action::AnalyzeReframe { clip_idx: 0 });
+        app.apply(Action::AnalyzeReframe { clip_idx: 1 });
+        assert_eq!(app.reframe_results.len(), 2);
+        app.apply(Action::ClearReframeResults);
+        assert_eq!(app.reframe_results.len(), 0);
+    }
+
+    #[test]
+    fn test_reframe_motion_set() {
+        let mut app = App::new();
+        assert_eq!(app.auto_reframe_config.motion_preset, ReframeMotion::Default);
+        app.apply(Action::SetReframeMotion(ReframeMotion::SmoothFast));
+        assert_eq!(app.auto_reframe_config.motion_preset, ReframeMotion::SmoothFast);
+        app.apply(Action::SetReframeMotion(ReframeMotion::Slower));
+        assert_eq!(app.auto_reframe_config.motion_preset, ReframeMotion::Slower);
     }
 }

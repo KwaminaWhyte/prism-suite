@@ -383,6 +383,9 @@ fn hue_to_rgb(p: f32, q: f32, mut t: f32) -> f32 {
     p
 }
 
+fn default_time_stretch() -> f32 { 1.0 }
+fn default_puppet_density() -> u8 { 4 }
+
 /// One animated layer: a solid color rect transformed by its tracks, optionally
 /// **parented** to another layer (whose transform it inherits).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -631,6 +634,35 @@ pub struct PulseLayer {
     pub orient_y: Track,
     #[serde(default)]
     pub orient_z: Track,
+
+    // --- Batch 3 extended fields ---
+    /// **Rotobrush strokes**: frame-keyed foreground/background paint strokes used
+    /// by the rotobrush segmentation stub. `serde`-defaulted to empty so pre-rotobrush
+    /// `.pulse` files still load.
+    #[serde(default)]
+    pub rotobrush_strokes: Vec<crate::app_state::RotobrushStroke>,
+    /// How many frames ahead the last rotobrush propagation was applied.
+    /// `serde`-defaulted to 0.
+    #[serde(default)]
+    pub rotobrush_propagated_frames: u32,
+    /// **Time stretch factor** (After Effects' *Time Stretch*). A value of `1.0`
+    /// means real-time; `2.0` plays the layer at half speed; `0.5` at double speed.
+    /// `serde`-defaulted to `1.0` via a helper so old files load at normal speed.
+    #[serde(default = "default_time_stretch")]
+    pub time_stretch: f32,
+    /// **Audio fade-in duration** in seconds. `serde`-defaulted to `0.0`.
+    #[serde(default)]
+    pub audio_fade_in: f32,
+    /// **Audio fade-out duration** in seconds. `serde`-defaulted to `0.0`.
+    #[serde(default)]
+    pub audio_fade_out: f32,
+    /// **Puppet mesh density** (1-D resolution of the deformation grid; minimum 2).
+    /// `serde`-defaulted to `4` via a helper.
+    #[serde(default = "default_puppet_density")]
+    pub puppet_mesh_density: u8,
+    /// **Echo effect** config. `None` means no echo. `serde`-defaulted to `None`.
+    #[serde(default)]
+    pub echo: Option<crate::app_state::EchoConfig>,
 }
 
 impl PulseLayer {
@@ -682,6 +714,13 @@ impl PulseLayer {
             orient_x: Track::default(),
             orient_y: Track::default(),
             orient_z: Track::default(),
+            rotobrush_strokes: Vec::new(),
+            rotobrush_propagated_frames: 0,
+            time_stretch: 1.0,
+            audio_fade_in: 0.0,
+            audio_fade_out: 0.0,
+            puppet_mesh_density: 4,
+            echo: None,
         }
     }
 

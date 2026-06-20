@@ -323,6 +323,34 @@ pub struct MotionGraphicTemplate {
     pub controls: Vec<MoGrtControl>,
 }
 
+/// A single frame-keyed rotobrush stroke: a list of 2-D points (layer-local)
+/// plus a flag indicating whether this is a subtract (background) stroke.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RotobrushStroke {
+    pub frame: u32,
+    pub pts: Vec<[f32; 2]>,
+    pub is_subtract: bool,
+}
+
+/// Echo (motion-trail) effect configuration for a layer.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EchoConfig {
+    /// Time offset between successive echoes (seconds, e.g. 0.1).
+    pub delay_seconds: f32,
+    /// Number of echoes to produce (1-10).
+    pub count: u8,
+    /// Opacity decay per echo (0.0 = no decay, 1.0 = fully transparent after 1 echo).
+    pub decay: f32,
+    /// Blend mode: 0 = composite-in-time, 1 = add, 2 = screen.
+    pub blend_mode: u8,
+}
+
+impl Default for EchoConfig {
+    fn default() -> Self {
+        Self { delay_seconds: 0.1, count: 3, decay: 0.5, blend_mode: 0 }
+    }
+}
+
 /// Every panel->state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -853,6 +881,40 @@ pub enum Action {
     SetCameraTrackerProgress(f32),
     /// Clear all track points and the solved camera keyframes.
     ClearCameraTrack,
+
+    // --- Batch 3 extended: Rotobrush ---
+    /// Set whether new rotobrush strokes subtract (background) or add (foreground).
+    SetRotobrushMode { subtract: bool },
+    /// Set the rotobrush brush radius (clamped to ≥1.0).
+    SetRotobrushRadius(f32),
+    /// Add a rotobrush stroke to the layer at `layer_id` at `frame`.
+    AddRotobrushStroke { layer_id: usize, frame: u32, pts: Vec<[f32; 2]> },
+    /// Remove all rotobrush strokes from the layer at `layer_id`.
+    ClearRotobrushStrokes { layer_id: usize },
+    /// Propagate the rotobrush segmentation `forward_frames` frames ahead.
+    PropagateRotobrush { layer_id: usize, forward_frames: u32 },
+
+    // --- Batch 3 extended: Time Stretch ---
+    /// Set the time-stretch factor on the layer at `layer_id` (clamped to ≥0.01).
+    SetLayerTimeStretch { layer_id: usize, factor: f32 },
+
+    // --- Batch 3 extended: Audio Fades ---
+    /// Set per-layer audio fade-in / fade-out durations (both clamped to ≥0.0).
+    SetLayerAudioFade { layer_id: usize, fade_in: f32, fade_out: f32 },
+
+    // --- Batch 3 extended: Puppet Pin Stiffness ---
+    /// Set the stiffness of a specific puppet pin (clamped to 0.0..=1.0).
+    SetPuppetPinStiffness { layer_id: usize, pin_id: u64, stiffness: f32 },
+    /// Toggle the `is_stiff` flag on a specific puppet pin.
+    TogglePuppetPinStiff { layer_id: usize, pin_id: u64 },
+    /// Set the puppet mesh density on the layer at `layer_id` (clamped to ≥2).
+    SetPuppetMeshDensity { layer_id: usize, density: u8 },
+
+    // --- Batch 3 extended: Echo Effect ---
+    /// Set (or replace) the echo effect on the layer at `layer_id`.
+    SetLayerEcho { layer_id: usize, config: EchoConfig },
+    /// Remove the echo effect from the layer at `layer_id`.
+    ClearLayerEcho { layer_id: usize },
 }
 
 impl Action {
@@ -961,6 +1023,16 @@ impl Action {
                 | Action::SetColorFinesseEnabled { .. }
                 | Action::SetColorFinesseParam { .. }
                 | Action::ResetColorFinesse(_)
+                | Action::AddRotobrushStroke { .. }
+                | Action::ClearRotobrushStrokes { .. }
+                | Action::PropagateRotobrush { .. }
+                | Action::SetLayerTimeStretch { .. }
+                | Action::SetLayerAudioFade { .. }
+                | Action::SetPuppetPinStiffness { .. }
+                | Action::TogglePuppetPinStiff { .. }
+                | Action::SetPuppetMeshDensity { .. }
+                | Action::SetLayerEcho { .. }
+                | Action::ClearLayerEcho { .. }
         )
     }
 }
@@ -1131,6 +1203,12 @@ pub struct App {
     pub use_pre_render: bool,
     /// 2-point camera tracker state.
     pub camera_tracker: CameraTracker,
+
+    // --- Batch 3 extended fields ---
+    /// Whether the rotobrush is in subtract (background) mode. `false` = add (foreground).
+    pub rotobrush_subtract: bool,
+    /// Rotobrush brush radius in pixels.
+    pub rotobrush_radius: f32,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -1262,6 +1340,8 @@ impl App {
             pre_render_cache_dir: None,
             use_pre_render: false,
             camera_tracker: CameraTracker::default(),
+            rotobrush_subtract: false,
+            rotobrush_radius: 20.0,
         }
     }
 
@@ -2727,7 +2807,7 @@ impl App {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_nanos() as u64)
                         .unwrap_or(l.puppet_pins.len() as u64);
-                    l.puppet_pins.push(crate::comp::PuppetPin { id, position: pos, is_stiff: false });
+                    l.puppet_pins.push(crate::comp::PuppetPin { id, position: pos, is_stiff: false, stiffness: 0.0 });
                     self.host.mark_dirty();
                 }
             }
@@ -3431,6 +3511,97 @@ impl App {
             }
             Action::ClearCameraTrack => {
                 self.camera_tracker = CameraTracker::default();
+            }
+
+            // --- Batch 3 extended: Rotobrush ---
+            Action::SetRotobrushMode { subtract } => {
+                self.rotobrush_subtract = subtract;
+            }
+            Action::SetRotobrushRadius(r) => {
+                self.rotobrush_radius = r.max(1.0);
+            }
+            Action::AddRotobrushStroke { layer_id, frame, pts } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.rotobrush_strokes.push(RotobrushStroke {
+                        frame,
+                        pts,
+                        is_subtract: self.rotobrush_subtract,
+                    });
+                    self.host.mark_dirty();
+                }
+            }
+            Action::ClearRotobrushStrokes { layer_id } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.rotobrush_strokes.clear();
+                    self.host.mark_dirty();
+                }
+            }
+            Action::PropagateRotobrush { layer_id, forward_frames } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.rotobrush_propagated_frames = forward_frames;
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 3 extended: Time Stretch ---
+            Action::SetLayerTimeStretch { layer_id, factor } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.time_stretch = factor.max(0.01);
+                    self.host.mark_dirty();
+                }
+            }
+
+            // --- Batch 3 extended: Audio Fades ---
+            Action::SetLayerAudioFade { layer_id, fade_in, fade_out } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.audio_fade_in = fade_in.max(0.0);
+                    layer.audio_fade_out = fade_out.max(0.0);
+                }
+            }
+
+            // --- Batch 3 extended: Puppet Pin Stiffness ---
+            Action::SetPuppetPinStiffness { layer_id, pin_id, stiffness } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    if let Some(pin) = layer.puppet_pins.iter_mut().find(|p| p.id == pin_id) {
+                        pin.stiffness = stiffness.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            Action::TogglePuppetPinStiff { layer_id, pin_id } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    if let Some(pin) = layer.puppet_pins.iter_mut().find(|p| p.id == pin_id) {
+                        pin.is_stiff = !pin.is_stiff;
+                    }
+                }
+            }
+            Action::SetPuppetMeshDensity { layer_id, density } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.puppet_mesh_density = density.max(2);
+                }
+            }
+
+            // --- Batch 3 extended: Echo Effect ---
+            Action::SetLayerEcho { layer_id, config } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.echo = Some(config);
+                    self.host.mark_dirty();
+                }
+            }
+            Action::ClearLayerEcho { layer_id } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.echo = None;
+                    self.host.mark_dirty();
+                }
             }
         }
     }
@@ -4634,5 +4805,194 @@ mod tests {
         let pos = kf.unwrap().1;
         assert!((pos[0] - 60.0).abs() < 1e-3);
         assert!((pos[1] - 70.0).abs() < 1e-3);
+    }
+
+    // ── Batch 3 extended: Rotobrush ─────────────────────────────────────────
+
+    #[test]
+    fn test_rotobrush_mode_and_radius() {
+        let mut app = App::new();
+        assert!(!app.rotobrush_subtract);
+        assert!((app.rotobrush_radius - 20.0).abs() < 1e-4);
+
+        app.apply(Action::SetRotobrushMode { subtract: true });
+        assert!(app.rotobrush_subtract);
+
+        app.apply(Action::SetRotobrushRadius(50.0));
+        assert!((app.rotobrush_radius - 50.0).abs() < 1e-4);
+
+        // Below-minimum clamp: 0.0 → 1.0
+        app.apply(Action::SetRotobrushRadius(0.0));
+        assert!((app.rotobrush_radius - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_add_rotobrush_stroke() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        assert!(!app.project.comps[ci].layers.is_empty());
+
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 5,
+            pts: vec![[10.0, 20.0], [30.0, 40.0]],
+        });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes.len(), 1);
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes[0].frame, 5);
+        assert!(!app.project.comps[ci].layers[0].rotobrush_strokes[0].is_subtract);
+
+        // Subtract mode stroke
+        app.apply(Action::SetRotobrushMode { subtract: true });
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 10,
+            pts: vec![[5.0, 5.0]],
+        });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes.len(), 2);
+        assert!(app.project.comps[ci].layers[0].rotobrush_strokes[1].is_subtract);
+    }
+
+    #[test]
+    fn test_clear_rotobrush_strokes() {
+        let mut app = App::new();
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 0,
+            pts: vec![[0.0, 0.0]],
+        });
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 1,
+            pts: vec![[1.0, 1.0]],
+        });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes.len(), 2);
+        app.apply(Action::ClearRotobrushStrokes { layer_id: 0 });
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].rotobrush_strokes.is_empty());
+    }
+
+    // ── Batch 3 extended: Time Stretch ───────────────────────────────────────
+
+    #[test]
+    fn test_time_stretch_set() {
+        let mut app = App::new();
+        app.apply(Action::SetLayerTimeStretch { layer_id: 0, factor: 2.0 });
+        let ci = app.active_comp_index();
+        assert!((app.project.comps[ci].layers[0].time_stretch - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_time_stretch_clamp() {
+        let mut app = App::new();
+        // Setting factor to 0.0 should clamp to 0.01
+        app.apply(Action::SetLayerTimeStretch { layer_id: 0, factor: 0.0 });
+        let ci = app.active_comp_index();
+        let stretch = app.project.comps[ci].layers[0].time_stretch;
+        assert!(stretch >= 0.01, "time_stretch must be at least 0.01, got {stretch}");
+    }
+
+    // ── Batch 3 extended: Audio Fades ────────────────────────────────────────
+
+    #[test]
+    fn test_audio_fade_set() {
+        let mut app = App::new();
+        app.apply(Action::SetLayerAudioFade { layer_id: 0, fade_in: 1.5, fade_out: 2.0 });
+        let ci = app.active_comp_index();
+        assert!((app.project.comps[ci].layers[0].audio_fade_in - 1.5).abs() < 1e-4);
+        assert!((app.project.comps[ci].layers[0].audio_fade_out - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_audio_fade_clamp_negative() {
+        let mut app = App::new();
+        app.apply(Action::SetLayerAudioFade { layer_id: 0, fade_in: -1.0, fade_out: -5.0 });
+        let ci = app.active_comp_index();
+        assert!((app.project.comps[ci].layers[0].audio_fade_in - 0.0).abs() < 1e-4);
+        assert!((app.project.comps[ci].layers[0].audio_fade_out - 0.0).abs() < 1e-4);
+    }
+
+    // ── Batch 3 extended: Puppet Pin Stiffness ───────────────────────────────
+
+    #[test]
+    fn test_puppet_stiffness_set() {
+        let mut app = App::new();
+        app.apply(Action::AddPuppetPin { layer_id: 0, pos: [100.0, 100.0] });
+        let ci = app.active_comp_index();
+        let pin_id = app.project.comps[ci].layers[0].puppet_pins[0].id;
+
+        app.apply(Action::SetPuppetPinStiffness { layer_id: 0, pin_id, stiffness: 0.75 });
+        let ci = app.active_comp_index();
+        assert!((app.project.comps[ci].layers[0].puppet_pins[0].stiffness - 0.75).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_puppet_stiff_toggle() {
+        let mut app = App::new();
+        app.apply(Action::AddPuppetPin { layer_id: 0, pos: [50.0, 50.0] });
+        let ci = app.active_comp_index();
+        let pin_id = app.project.comps[ci].layers[0].puppet_pins[0].id;
+        assert!(!app.project.comps[ci].layers[0].puppet_pins[0].is_stiff);
+
+        app.apply(Action::TogglePuppetPinStiff { layer_id: 0, pin_id });
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].puppet_pins[0].is_stiff);
+
+        app.apply(Action::TogglePuppetPinStiff { layer_id: 0, pin_id });
+        let ci = app.active_comp_index();
+        assert!(!app.project.comps[ci].layers[0].puppet_pins[0].is_stiff);
+    }
+
+    #[test]
+    fn test_puppet_mesh_density() {
+        let mut app = App::new();
+        app.apply(Action::SetPuppetMeshDensity { layer_id: 0, density: 8 });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].puppet_mesh_density, 8);
+
+        // Clamp: density below 2 → 2
+        app.apply(Action::SetPuppetMeshDensity { layer_id: 0, density: 0 });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].puppet_mesh_density, 2);
+    }
+
+    // ── Batch 3 extended: Echo Effect ────────────────────────────────────────
+
+    #[test]
+    fn test_echo_set_clear() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].echo.is_none());
+
+        app.apply(Action::SetLayerEcho {
+            layer_id: 0,
+            config: EchoConfig::default(),
+        });
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].echo.is_some());
+
+        app.apply(Action::ClearLayerEcho { layer_id: 0 });
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].echo.is_none());
+    }
+
+    #[test]
+    fn test_echo_config_params() {
+        let mut app = App::new();
+        let config = EchoConfig {
+            delay_seconds: 0.25,
+            count: 5,
+            decay: 0.8,
+            blend_mode: 1,
+        };
+        app.apply(Action::SetLayerEcho { layer_id: 0, config });
+        let ci = app.active_comp_index();
+        let echo = app.project.comps[ci].layers[0].echo.as_ref().unwrap();
+        assert!((echo.delay_seconds - 0.25).abs() < 1e-4);
+        assert_eq!(echo.count, 5);
+        assert!((echo.decay - 0.8).abs() < 1e-4);
+        assert_eq!(echo.blend_mode, 1);
     }
 }

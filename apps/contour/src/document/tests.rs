@@ -192,6 +192,7 @@ fn live_shape_round_trips_and_labels() {
             live_path(LiveShape::Polygon {
                 sides: 6,
                 radius: 50.0,
+                corner_radius: 0.0,
             }),
             live_path(LiveShape::Star {
                 points: 5,
@@ -210,7 +211,8 @@ fn live_shape_round_trips_and_labels() {
         back.shapes[0].live_shape(),
         Some(LiveShape::Polygon {
             sides: 6,
-            radius: 50.0
+            radius: 50.0,
+            corner_radius: 0.0,
         })
     );
     assert_eq!(
@@ -238,12 +240,14 @@ fn live_shape_regenerates_and_demotes_on_anchor_edit() {
     let mut s = live_path(LiveShape::Polygon {
         sides: 4,
         radius: 10.0,
+        corner_radius: 0.0,
     });
     // Move it, then bump the side count: the new outline keeps the moved centre.
     s.translate(100.0, 0.0);
     assert!(s.set_live_shape(LiveShape::Polygon {
         sides: 8,
         radius: 10.0,
+        corner_radius: 0.0,
     }));
     if let Shape::Path { points, .. } = &s {
         assert_eq!(points.len(), 8, "regenerated to the new side count");

@@ -44,6 +44,9 @@ pub enum LiveShape {
         sides: u32,
         /// Circumscribed-circle radius, in document units.
         radius: f32,
+        /// Live Corners rounding radius applied to each vertex.
+        #[serde(default)]
+        corner_radius: f32,
     },
     /// A star: `points` outer tips on `radius`, alternating with `points` inner
     /// vertices on `radius * inner_ratio`.
@@ -71,7 +74,7 @@ impl LiveShape {
     pub fn outline(&self, center: (f32, f32)) -> Outline {
         let (cx, cy) = center;
         let pts = match *self {
-            LiveShape::Polygon { sides, radius } => {
+            LiveShape::Polygon { sides, radius, .. } => {
                 let n = sides.clamp(MIN_SIDES, MAX_SIDES);
                 let r = radius.max(0.0);
                 (0..n)
@@ -134,6 +137,7 @@ mod tests {
             let ls = LiveShape::Polygon {
                 sides,
                 radius: 50.0,
+                corner_radius: 0.0,
             };
             let (pts, handles) = ls.outline((0.0, 0.0));
             assert_eq!(pts.len(), sides as usize);
@@ -149,6 +153,7 @@ mod tests {
         let ls = LiveShape::Polygon {
             sides: 7,
             radius: 33.0,
+            corner_radius: 0.0,
         };
         let (pts, _) = ls.outline(c);
         for p in &pts {
@@ -161,6 +166,7 @@ mod tests {
         let ls = LiveShape::Polygon {
             sides: 5,
             radius: 20.0,
+            corner_radius: 0.0,
         };
         let (pts, _) = ls.outline((0.0, 0.0));
         // 12 o'clock in screen space (y down) is directly above the centre.
@@ -173,12 +179,14 @@ mod tests {
         let small = LiveShape::Polygon {
             sides: 6,
             radius: 10.0,
+            corner_radius: 0.0,
         }
         .outline((0.0, 0.0))
         .0;
         let big = LiveShape::Polygon {
             sides: 6,
             radius: 30.0,
+            corner_radius: 0.0,
         }
         .outline((0.0, 0.0))
         .0;
@@ -227,12 +235,14 @@ mod tests {
         let tiny = LiveShape::Polygon {
             sides: 1,
             radius: 10.0,
+            corner_radius: 0.0,
         };
         assert_eq!(tiny.outline((0.0, 0.0)).0.len(), MIN_SIDES as usize);
         // Above the maximum.
         let huge = LiveShape::Polygon {
             sides: 10_000,
             radius: 10.0,
+            corner_radius: 0.0,
         };
         assert_eq!(huge.outline((0.0, 0.0)).0.len(), MAX_SIDES as usize);
     }
@@ -254,6 +264,7 @@ mod tests {
         let ls = LiveShape::Polygon {
             sides: 5,
             radius: 12.0,
+            corner_radius: 0.0,
         };
         let base = ls.outline((0.0, 0.0)).0;
         let moved = ls.outline((100.0, -50.0)).0;

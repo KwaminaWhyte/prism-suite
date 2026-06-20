@@ -471,17 +471,18 @@ fn live_shape_section(live: LiveShape, cx: &mut Context<Contour>) -> impl IntoEl
         .child(ui_divider());
 
     match live {
-        LiveShape::Polygon { sides, radius } => {
+        LiveShape::Polygon { sides, radius, corner_radius } => {
             col = col
                 .child(live_count_row(
                     "Sides",
                     sides,
                     cx,
-                    move |n| LiveShape::Polygon { sides: n, radius },
+                    move |n| LiveShape::Polygon { sides: n, radius, corner_radius },
                 ))
                 .child(live_radius_row(radius, cx, move |r| LiveShape::Polygon {
                     sides,
                     radius: r,
+                    corner_radius,
                 }));
         }
         LiveShape::Star {

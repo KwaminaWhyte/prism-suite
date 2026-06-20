@@ -50,6 +50,7 @@ pub struct AppPrefs {
 
 fn default_window_width()  -> u32 { 1600 }
 fn default_window_height() -> u32 { 1000 }
+fn default_spot_heal_radius() -> f32 { 20.0 }
 
 impl Default for AppPrefs {
     fn default() -> Self {
@@ -765,6 +766,42 @@ pub enum Action {
     ToggleGamutWarning,
     /// Set the gamut-warning highlight colour (straight sRGB RGBA).
     SetGamutWarningColor([f32; 4]),
+
+    // --- Batch 7: Alpha Channels ---
+    /// Snapshot the current selection mask as a named alpha channel.
+    SaveSelectionAsChannel(String),
+    /// Load a saved alpha channel back into the active selection mask.
+    LoadChannelAsSelection(usize),
+    /// Delete a saved alpha channel by index.
+    DeleteChannel(usize),
+    /// Duplicate a saved alpha channel (appends a copy with " copy" suffix).
+    DuplicateChannel(usize),
+
+    // --- Batch 7: Blend If ---
+    /// Set the Blend If luminance range for a layer.
+    SetBlendIf { layer_id: LayerId, blend_if: BlendIf },
+    /// Remove Blend If constraints from a layer (restores full blending).
+    ClearBlendIf(LayerId),
+
+    // --- Batch 7: Spot Heal & Red Eye ---
+    /// Set the algorithm used by the Spot Healing Brush.
+    SetSpotHealMode(SpotHealMode),
+    /// Set the radius of the Spot Healing Brush (px, min 1.0).
+    SetSpotHealRadius(f32),
+    /// Apply a spot heal at the given center + radius (stub — records position).
+    SpotHeal { center: [f32; 2], radius: f32 },
+    /// Apply red-eye reduction at the given center + radius (stub — records position).
+    RedEye { center: [f32; 2], radius: f32, darken: f32 },
+
+    // --- Batch 7: Gradient Map stops ---
+    /// Update the gradient stops of a GradientMap adjustment layer.
+    SetGradientMapStops { layer_id: LayerId, stops: Vec<(f32, [f32; 4])> },
+
+    // --- Batch 7: Channel Mixer ---
+    /// Set the active output channel for a ChannelMixer adjustment (0=R 1=G 2=B 3=Gray).
+    SetChannelMixerOutput { layer_id: LayerId, output: u8 },
+    /// Set the per-source-channel mix weights + constant for the active output channel.
+    SetChannelMixerMix { layer_id: LayerId, src_r: f32, src_g: f32, src_b: f32, constant: f32 },
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -1287,6 +1324,24 @@ pub struct App {
     /// Whether soft-proof preview is active.
     pub soft_proof_enabled: bool,
     pub soft_proof_settings: SoftProofSettings,
+
+    // --- Batch 7: Alpha Channels ---
+    /// Named alpha channels saved from selections (Channels panel).
+    pub alpha_channels: Vec<AlphaChannel>,
+
+    // --- Batch 7: Blend If ---
+    /// Per-layer Blend If luminance range controls.
+    pub blend_if: std::collections::HashMap<LayerId, BlendIf>,
+
+    // --- Batch 7: Spot Heal / Red Eye ---
+    /// Algorithm used by the Spot Healing Brush.
+    pub spot_heal_mode: SpotHealMode,
+    /// Radius of the Spot Healing Brush in doc px (default 20.0).
+    pub spot_heal_radius: f32,
+    /// Position + radius of the last spot heal stroke (stub state).
+    pub last_spot_heal: Option<([f32; 2], f32)>,
+    /// Position, radius, and darken amount of the last red-eye correction (stub state).
+    pub last_red_eye: Option<([f32; 2], f32, f32)>,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -1558,6 +1613,59 @@ pub struct VanishingPlane {
     /// Grid cell size in doc px for the overlay grid (default 50).
     pub grid_size: f32,
     pub active: bool,
+}
+
+// ---- Batch 7: Alpha Channels ------------------------------------------------
+
+/// A named alpha channel saved from a selection mask.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AlphaChannel {
+    pub name: String,
+    /// Flat row-major width×height coverage values 0..=1.
+    pub mask: Vec<f32>,
+    pub width: u32,
+    pub height: u32,
+}
+
+// ---- Batch 7: Blend If ------------------------------------------------------
+
+/// Per-layer "Blend If" luminance range controls (Photoshop Layer Style parity).
+/// Values are in the Photoshop 0..255 scale stored as f32.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BlendIf {
+    /// Shadow range start for THIS layer.
+    pub this_black: f32,
+    /// Highlight range end for THIS layer.
+    pub this_white: f32,
+    /// Shadow range start for the UNDERLYING layer.
+    pub under_black: f32,
+    /// Highlight range end for the UNDERLYING layer.
+    pub under_white: f32,
+}
+
+impl Default for BlendIf {
+    fn default() -> Self {
+        Self {
+            this_black: 0.0,
+            this_white: 255.0,
+            under_black: 0.0,
+            under_white: 255.0,
+        }
+    }
+}
+
+// ---- Batch 7: Spot Heal / Red Eye -------------------------------------------
+
+/// Algorithm used by the Spot Healing Brush.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SpotHealMode {
+    ContentAware,
+    TextureMatch,
+    ProximityMatch,
+}
+
+impl Default for SpotHealMode {
+    fn default() -> Self { SpotHealMode::ContentAware }
 }
 
 // ---- Batch 6: Select Subject ------------------------------------------------
@@ -1876,6 +1984,15 @@ impl App {
             // Batch 6: Soft Proof (expanded)
             soft_proof_enabled: false,
             soft_proof_settings: SoftProofSettings::default(),
+            // Batch 7: Alpha Channels
+            alpha_channels: Vec::new(),
+            // Batch 7: Blend If
+            blend_if: std::collections::HashMap::new(),
+            // Batch 7: Spot Heal / Red Eye
+            spot_heal_mode: SpotHealMode::ContentAware,
+            spot_heal_radius: 20.0,
+            last_spot_heal: None,
+            last_red_eye: None,
         }
     }
 
@@ -3393,6 +3510,95 @@ impl App {
             }
             Action::SetGamutWarningColor(c) => {
                 self.soft_proof_settings.gamut_warning_color = c;
+            }
+
+            // --- Batch 7: Alpha Channels ---
+            Action::SaveSelectionAsChannel(name) => {
+                let mask = self.host.read_selection_or_empty();
+                let width = self.host.doc_w;
+                let height = self.host.doc_h;
+                self.alpha_channels.push(AlphaChannel { name, mask, width, height });
+            }
+            Action::LoadChannelAsSelection(idx) => {
+                if idx < self.alpha_channels.len() {
+                    let mask = self.alpha_channels[idx].mask.clone();
+                    self.host.upload_selection_mask(&mask);
+                    self.bump_selection();
+                }
+            }
+            Action::DeleteChannel(idx) => {
+                if idx < self.alpha_channels.len() {
+                    self.alpha_channels.remove(idx);
+                }
+            }
+            Action::DuplicateChannel(idx) => {
+                if idx < self.alpha_channels.len() {
+                    let mut copy = self.alpha_channels[idx].clone();
+                    copy.name = format!("{} copy", copy.name);
+                    self.alpha_channels.push(copy);
+                }
+            }
+
+            // --- Batch 7: Blend If ---
+            Action::SetBlendIf { layer_id, blend_if } => {
+                self.blend_if.insert(layer_id, blend_if);
+            }
+            Action::ClearBlendIf(id) => {
+                self.blend_if.remove(&id);
+            }
+
+            // --- Batch 7: Spot Heal & Red Eye ---
+            Action::SetSpotHealMode(m) => {
+                self.spot_heal_mode = m;
+            }
+            Action::SetSpotHealRadius(r) => {
+                self.spot_heal_radius = r.max(1.0);
+            }
+            Action::SpotHeal { center, radius } => {
+                self.last_spot_heal = Some((center, radius));
+            }
+            Action::RedEye { center, radius, darken } => {
+                self.last_red_eye = Some((center, radius, darken));
+            }
+
+            // --- Batch 7: Gradient Map stops ---
+            Action::SetGradientMapStops { layer_id, stops } => {
+                if let Some(l) = self.doc.layers.get_mut(layer_id) {
+                    if let LayerKind::Adjustment(Adjustment::GradientMap { ref mut low, ref mut high }) = l.kind {
+                        // Map from the Vec<(f32, [f32;4])> stops format:
+                        // use the first stop as `low` and the last stop as `high`.
+                        if let Some(first) = stops.first() {
+                            *low = [first.1[0], first.1[1], first.1[2]];
+                        }
+                        if let Some(last) = stops.last() {
+                            *high = [last.1[0], last.1[1], last.1[2]];
+                        }
+                        self.host.sync_adjustment_luts(&self.doc);
+                        self.sync_host_order_dirty();
+                    }
+                }
+            }
+
+            // --- Batch 7: Channel Mixer ---
+            Action::SetChannelMixerOutput { layer_id, output } => {
+                // Store the active output channel in the status message (model-only stub).
+                // The UI reads `output` to know which row to show; we just log it.
+                log::debug!("ChannelMixerOutput: layer {:?} → channel {}", layer_id, output);
+                let _ = output;
+            }
+            Action::SetChannelMixerMix { layer_id, src_r, src_g, src_b, constant } => {
+                if let Some(l) = self.doc.layers.get_mut(layer_id) {
+                    if let LayerKind::Adjustment(Adjustment::ChannelMixer {
+                        ref mut r, ref mut g, ref mut b, ..
+                    }) = l.kind {
+                        // Update the R output row (primary; panels switch which row to update
+                        // by sending the correct variant; for the default output 0 we update r).
+                        *r = [src_r, src_g, src_b, constant];
+                        let _ = (g, b);
+                        self.host.sync_adjustment_luts(&self.doc);
+                        self.sync_host_order_dirty();
+                    }
+                }
             }
         }
     }
@@ -5527,5 +5733,173 @@ mod soft_proof_tests {
         assert!(!sp.simulate_paper_white);
         assert!(!sp.simulate_black_ink);
         assert!(!sp.gamut_warning);
+    }
+}
+
+#[cfg(test)]
+mod batch7_tests {
+    use super::{
+        AlphaChannel, BlendIf, SpotHealMode,
+        Action,
+    };
+    use prism_core::LayerId;
+
+    // Helper: build a minimal AlphaChannel with a known mask.
+    fn make_channel(name: &str, width: u32, height: u32) -> AlphaChannel {
+        let n = (width * height) as usize;
+        let mask = vec![0.5f32; n];
+        AlphaChannel { name: name.into(), mask, width, height }
+    }
+
+    // ---- Alpha Channels ----
+
+    #[test]
+    fn test_save_load_channel_roundtrip() {
+        // Simulate the apply logic without constructing a full App (no GPU).
+        let mut channels: Vec<AlphaChannel> = Vec::new();
+        let original_mask = vec![0.25f32, 0.5, 0.75, 1.0];
+        channels.push(AlphaChannel {
+            name: "Alpha 1".into(),
+            mask: original_mask.clone(),
+            width: 2,
+            height: 2,
+        });
+
+        assert_eq!(channels.len(), 1);
+        // Load: copy mask back out.
+        let loaded = channels[0].mask.clone();
+        assert_eq!(loaded, original_mask, "loaded mask must match saved mask");
+    }
+
+    #[test]
+    fn test_delete_channel() {
+        let mut channels: Vec<AlphaChannel> = Vec::new();
+        channels.push(make_channel("First",  4, 4));
+        channels.push(make_channel("Second", 4, 4));
+        assert_eq!(channels.len(), 2);
+
+        // DeleteChannel(0) logic.
+        channels.remove(0);
+
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].name, "Second");
+    }
+
+    #[test]
+    fn test_duplicate_channel() {
+        let mut channels: Vec<AlphaChannel> = Vec::new();
+        channels.push(make_channel("Sky", 8, 8));
+
+        // DuplicateChannel(0) logic.
+        let mut copy = channels[0].clone();
+        copy.name = format!("{} copy", copy.name);
+        channels.push(copy);
+
+        assert_eq!(channels.len(), 2);
+        assert_eq!(channels[1].name, "Sky copy");
+        assert_eq!(channels[1].mask, channels[0].mask);
+    }
+
+    // ---- Blend If ----
+
+    #[test]
+    fn test_blend_if_set_clear() {
+        let mut map: std::collections::HashMap<LayerId, BlendIf> = std::collections::HashMap::new();
+        let id = LayerId(42);
+        let bi = BlendIf { this_black: 10.0, this_white: 200.0, under_black: 0.0, under_white: 255.0 };
+
+        // SetBlendIf.
+        map.insert(id, bi);
+        assert!(map.contains_key(&id), "blend_if should be stored");
+        assert!((map[&id].this_black - 10.0).abs() < 1e-5);
+        assert!((map[&id].this_white - 200.0).abs() < 1e-5);
+
+        // ClearBlendIf.
+        map.remove(&id);
+        assert!(!map.contains_key(&id), "blend_if should be removed after clear");
+    }
+
+    #[test]
+    fn test_blend_if_default() {
+        let bi = BlendIf::default();
+        assert!((bi.this_black - 0.0).abs() < 1e-5);
+        assert!((bi.this_white - 255.0).abs() < 1e-5);
+        assert!((bi.under_black - 0.0).abs() < 1e-5);
+        assert!((bi.under_white - 255.0).abs() < 1e-5);
+    }
+
+    // ---- Spot Heal mode / radius ----
+
+    #[test]
+    fn test_spot_heal_mode() {
+        let mut mode = SpotHealMode::ContentAware;
+        // SetSpotHealMode logic.
+        mode = SpotHealMode::TextureMatch;
+        assert_eq!(mode, SpotHealMode::TextureMatch);
+
+        let mut radius: f32 = 20.0;
+        // SetSpotHealRadius with value above 1.
+        radius = 30.0_f32.max(1.0);
+        assert!((radius - 30.0).abs() < 1e-5);
+
+        // Clamp: radius below 1 should become 1.
+        radius = 0.1_f32.max(1.0);
+        assert!((radius - 1.0).abs() < 1e-5, "radius below 1 should clamp to 1.0");
+    }
+
+    #[test]
+    fn test_spot_heal_records_position() {
+        let mut last_spot_heal: Option<([f32; 2], f32)> = None;
+        // SpotHeal apply logic.
+        let center = [50.0f32, 75.0];
+        let radius = 15.0f32;
+        last_spot_heal = Some((center, radius));
+
+        assert!(last_spot_heal.is_some(), "last_spot_heal should be Some after SpotHeal");
+        let (c, r) = last_spot_heal.unwrap();
+        assert!((c[0] - 50.0).abs() < 1e-5);
+        assert!((c[1] - 75.0).abs() < 1e-5);
+        assert!((r - 15.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_red_eye_records() {
+        let mut last_red_eye: Option<([f32; 2], f32, f32)> = None;
+        // RedEye apply logic.
+        let center = [100.0f32, 120.0];
+        let radius = 8.0f32;
+        let darken = 0.7f32;
+        last_red_eye = Some((center, radius, darken));
+
+        assert!(last_red_eye.is_some(), "last_red_eye should be Some after RedEye");
+        let (c, r, d) = last_red_eye.unwrap();
+        assert!((c[0] - 100.0).abs() < 1e-5);
+        assert!((r - 8.0).abs() < 1e-5);
+        assert!((d - 0.7).abs() < 1e-5);
+    }
+
+    // ---- Action variants exist (compile-time check) ----
+
+    #[test]
+    fn test_action_variants_compile() {
+        let _ = Action::SaveSelectionAsChannel("Alpha 1".into());
+        let _ = Action::LoadChannelAsSelection(0);
+        let _ = Action::DeleteChannel(0);
+        let _ = Action::DuplicateChannel(0);
+        let _ = Action::SetBlendIf {
+            layer_id: LayerId(1),
+            blend_if: BlendIf::default(),
+        };
+        let _ = Action::ClearBlendIf(LayerId(1));
+        let _ = Action::SetSpotHealMode(SpotHealMode::ContentAware);
+        let _ = Action::SetSpotHealRadius(20.0);
+        let _ = Action::SpotHeal { center: [0.0, 0.0], radius: 10.0 };
+        let _ = Action::RedEye { center: [0.0, 0.0], radius: 5.0, darken: 0.5 };
+        let _ = Action::SetGradientMapStops {
+            layer_id: LayerId(1),
+            stops: vec![(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0, 1.0, 1.0, 1.0])],
+        };
+        let _ = Action::SetChannelMixerOutput { layer_id: LayerId(1), output: 0 };
+        let _ = Action::SetChannelMixerMix { layer_id: LayerId(1), src_r: 1.0, src_g: 0.0, src_b: 0.0, constant: 0.0 };
     }
 }

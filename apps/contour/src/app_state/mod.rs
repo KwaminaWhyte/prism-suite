@@ -44,6 +44,7 @@ pub use types_effects::*;
 
 mod apply_advanced;
 mod apply_extended;
+mod apply_extended2;
 mod apply_waves;
 pub(super) mod helpers;
 use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d, rand_group_id, default_image_trace_threshold, default_image_trace_colors, default_omask_id_counter, default_graph_style_fill, colors_approx_equal, offset_polygon, sample_polyline, warp_shape_perspective, bounds_intersect, sample_document};

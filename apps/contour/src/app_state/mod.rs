@@ -1236,6 +1236,14 @@ pub enum Action {
     ReorderArtboards(Vec<usize>),
     /// Duplicate an Artboard (offset x += width + 20, new id, name "Copy of …").
     DuplicateArtboardEx(usize),
+
+    // --- Welcome panel ---
+    /// Dismiss the welcome panel (user clicked New / Open / a template).
+    DismissWelcome,
+    /// Create a fresh empty document (triggered from the welcome panel or File menu).
+    NewDocument,
+    /// Open an existing file (triggered from the welcome panel or File menu).
+    OpenFile,
 }
 
 /// The single shared application state. Owns the host + document and the panel-
@@ -1594,6 +1602,11 @@ pub struct App {
     pub active_artboard_ex: Option<usize>,
     /// Counter for assigning stable artboard ids.
     pub artboard_counter: usize,
+
+    // --- Welcome panel ---
+    /// Whether the welcome panel is currently visible (true on launch, false after
+    /// the user chooses New / Open / a template).
+    pub show_welcome: bool,
 }
 
 impl App {
@@ -1768,6 +1781,7 @@ impl App {
             artboards_ex: Vec::new(),
             active_artboard_ex: None,
             artboard_counter: 0,
+            show_welcome: true,
         }
     }
 

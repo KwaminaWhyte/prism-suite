@@ -717,6 +717,7 @@ impl Render for Contour {
         let artboards_panel = panels::artboards::render(app, cx);
         let trace_opt = panels::trace_dialog::render(app, cx);
         let recolor = panels::recolor::render(app, cx);
+        let welcome_opt = panels::welcome::render(app, cx);
 
         // Selection ring overlay (viewport-local), mapped doc → viewport.
         let (ox, oy) = self.app.host.artboard_origin(&self.app.doc);
@@ -1147,6 +1148,7 @@ impl Render for Contour {
                             .children(knife_preview)
                             .children(isolation_overlay)
                             .children(text_cursor)
+                            .children(welcome_opt)
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(|this, ev: &gpui::MouseDownEvent, _win, cx| {

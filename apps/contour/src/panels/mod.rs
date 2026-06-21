@@ -51,6 +51,7 @@ pub mod symbols;
 pub mod toolbar;
 pub mod tools;
 pub mod trace_dialog;
+pub mod welcome;
 
 use gpui::{div, px, IntoElement, ParentElement, Styled};
 

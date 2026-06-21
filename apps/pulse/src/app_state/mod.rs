@@ -371,6 +371,10 @@ pub struct App {
     pub mogrt_templates_v2: Vec<MogrTemplate>,
     pub mogrt_counter: usize,
     pub essential_graphics_open: bool,
+
+    // --- Welcome screen ---
+    /// Whether the welcome screen overlay is visible (shown on first launch).
+    pub welcome_visible: bool,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -497,6 +501,7 @@ impl App {
             mogrt_templates_v2: Vec::new(),
             mogrt_counter: 0,
             essential_graphics_open: false,
+            welcome_visible: true,
         }
     }
 

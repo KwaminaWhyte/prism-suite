@@ -60,6 +60,7 @@ pub mod render_queue;
 pub mod timeline;
 pub mod toolbar;
 pub mod tools;
+pub mod welcome;
 
 use gpui::{div, px, IntoElement, ParentElement, Styled};
 use prism_ui::colors;

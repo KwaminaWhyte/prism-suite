@@ -41,6 +41,7 @@ use gpui::{
 use gpui::prelude::FluentBuilder;
 
 use panels::preview_panel;
+use panels::welcome;
 use panels::{DOCK_W, STRIP_W, TIMELINE_H, TOOLBAR_H};
 
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route their
@@ -169,6 +170,7 @@ impl Render for Pulse {
         let comp_settings = panels::comp_settings::render(app, cx);
         let timeline = panels::timeline::render(app, cx);
 
+        let show_welcome = self.app.welcome_visible;
         div()
             .track_focus(&self.focus)
             .key_context("Pulse")
@@ -187,6 +189,7 @@ impl Render for Pulse {
                 }
             }))
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(prism_ui::colors::surface_bg())
@@ -276,6 +279,8 @@ impl Render for Pulse {
                     .border_color(prism_ui::colors::surface_border())
                     .child(timeline),
             )
+            // Welcome screen overlay — floats above all chrome when visible.
+            .when(show_welcome, |d| d.child(welcome::render(&self.app, cx)))
     }
 }
 

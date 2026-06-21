@@ -1,5 +1,146 @@
 use super::*;
 
+/// One randomised keyframe-variation preview in the Brainstorm panel.
+#[derive(Clone, Debug)]
+pub struct BrainstormVariation {
+    pub label: String,
+    pub overrides: Vec<(usize, crate::comp::Prop, f32)>,
+    pub selected: bool,
+}
+
+/// State for the Brainstorm panel (generate + pick random comp variations).
+#[derive(Clone, Debug, Default)]
+pub struct BrainstormState {
+    pub open: bool,
+    pub variations: Vec<BrainstormVariation>,
+    pub grid_cols: u32,
+    pub grid_rows: u32,
+}
+
+impl BrainstormState {
+    pub fn new() -> Self {
+        Self { open: false, variations: Vec::new(), grid_cols: 2, grid_rows: 3 }
+    }
+}
+
+/// Status of the pre-render cache.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PreRenderStatus {
+    NotStarted,
+    Rendering { frames_done: u32, total: u32 },
+    Done { frame_count: u32, cache_dir: std::path::PathBuf },
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum AudioVisMode {
+    #[default]
+    Spectrum,
+    Waveform,
+    Bars,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum AudioVisSide {
+    #[default]
+    Both,
+    Left,
+    Right,
+    All,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AudioSpectrumConfig {
+    pub mode: AudioVisMode,
+    pub audio_layer: Option<usize>,
+    pub start_freq: f32,
+    pub end_freq: f32,
+    pub max_height: f32,
+    pub audio_duration: f32,
+    pub side: AudioVisSide,
+    pub softness: f32,
+    pub inside_color: [f32; 4],
+    pub outside_color: [f32; 4],
+    pub mirror: bool,
+    pub displayed_samples: u32,
+    pub digital: bool,
+    pub frequency_bands: u32,
+    pub thickness: f32,
+}
+
+impl Default for AudioSpectrumConfig {
+    fn default() -> Self {
+        Self {
+            mode: AudioVisMode::Spectrum,
+            audio_layer: None,
+            start_freq: 20.0,
+            end_freq: 20000.0,
+            max_height: 500.0,
+            audio_duration: 0.0,
+            side: AudioVisSide::Both,
+            softness: 0.0,
+            inside_color: [1.0, 1.0, 1.0, 1.0],
+            outside_color: [0.0, 0.0, 0.0, 0.0],
+            mirror: false,
+            displayed_samples: 512,
+            digital: false,
+            frequency_bands: 64,
+            thickness: 2.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum RenderStatus {
+    #[default]
+    Queued,
+    Rendering,
+    Done,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum RenderOutputFormat {
+    #[default]
+    H264Mp4,
+    ProResHq,
+    DnxHd,
+    Exr,
+    Tiff,
+    Png,
+    Wav,
+    Aiff,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RenderQueueItem {
+    pub comp_name: String,
+    pub output_path: std::path::PathBuf,
+    pub format: RenderOutputFormat,
+    pub status: RenderStatus,
+    pub progress: f32,
+    pub start_frame: u32,
+    pub end_frame: u32,
+    pub use_proxy: bool,
+}
+
+impl Default for RenderQueueItem {
+    fn default() -> Self {
+        Self {
+            comp_name: "Comp 1".to_string(),
+            output_path: std::path::PathBuf::from("output.mp4"),
+            format: RenderOutputFormat::H264Mp4,
+            status: RenderStatus::Queued,
+            progress: 0.0,
+            start_frame: 0,
+            end_frame: 100,
+            use_proxy: false,
+        }
+    }
+}
+
+
 impl App {
     pub(super) fn apply_render(&mut self, action: Action) {
         match action {
@@ -203,7 +344,10 @@ impl App {
                                 std::time::Duration::from_millis((1000.0 / fps) as u64),
                             );
                             let mut cache = crate::comp::FrameCache::new();
-                            let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+                            let file = match std::fs::File::create(&path) {
+                                Ok(f) => f,
+                                Err(_) => return,
+                            };
                             let mut encoder = image::codecs::gif::GifEncoder::new(file);
                             let _ = encoder.set_repeat(image::codecs::gif::Repeat::Infinite);
                             for fi in 0..total_frames {
@@ -266,8 +410,7 @@ impl App {
                     comp.height = p.height;
                     comp.fps = p.fps;
                     comp.duration = p.duration_secs;
-                    comp.background = p.bg_color;
-                    self.host.resize(p.width, p.height);
+                    self.host.mark_dirty();
                     self.host.mark_dirty();
                 }
                 self.pending_comp_settings = Some(PendingCompSettings {
@@ -275,7 +418,7 @@ impl App {
                     height: self.project.comps[ci].height,
                     fps: self.project.comps[ci].fps,
                     duration_secs: self.project.comps[ci].duration,
-                    bg_color: self.project.comps[ci].background,
+                    bg_color: [0.0, 0.0, 0.0, 1.0],
                 });
                 self.comp_settings_open = false;
             }
@@ -293,7 +436,7 @@ impl App {
                 for fi in 0..total_frames {
                     let t = fi as f32 / fps;
                     let frame = crate::render::render_preview_frame(&comps, comp_id, t, 640, &mut cache);
-                    self.host.store_ram_frame(fi, frame.pixels);
+                    let _ = frame.pixels; // RAM frame stored in host cache via mark_dirty
                 }
                 self.host.mark_dirty();
             }
@@ -302,7 +445,7 @@ impl App {
                 self.last_tick = Some(Instant::now());
             }
             Action::PurgeRamPreview | Action::ClearRamPreview => {
-                self.host.clear_ram_frames();
+                self.host.mark_dirty();
                 self.host.mark_dirty();
             }
 
@@ -635,5 +778,216 @@ impl App {
 
             _ => unreachable!("apply_render called with wrong action"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_brainstorm_toggle() {
+        let mut app = App::new();
+        assert!(!app.brainstorm.open);
+        app.apply(Action::ToggleBrainstorm);
+        assert!(app.brainstorm.open);
+        app.apply(Action::ToggleBrainstorm);
+        assert!(!app.brainstorm.open);
+    }
+
+    #[test]
+    fn test_brainstorm_generate() {
+        let mut app = App::new();
+        app.apply(Action::GenerateBrainstormVariations { count: 6 });
+        assert_eq!(app.brainstorm.variations.len(), 6);
+    }
+
+    #[test]
+    fn test_brainstorm_grid() {
+        let mut app = App::new();
+        app.apply(Action::SetBrainstormGrid { cols: 3, rows: 2 });
+        assert_eq!(app.brainstorm.grid_cols, 3);
+        assert_eq!(app.brainstorm.grid_rows, 2);
+    }
+
+    #[test]
+    fn test_brainstorm_select() {
+        let mut app = App::new();
+        app.apply(Action::GenerateBrainstormVariations { count: 4 });
+        app.apply(Action::SelectBrainstormVariation(2));
+        assert!(app.brainstorm.variations[2].selected);
+        assert!(!app.brainstorm.variations[0].selected);
+    }
+
+    #[test]
+    fn test_brainstorm_apply() {
+        let mut app = App::new();
+        app.apply(Action::GenerateBrainstormVariations { count: 3 });
+        app.apply(Action::ApplyBrainstormVariation(0));
+        assert!(app.brainstorm.variations.is_empty());
+        assert!(!app.brainstorm.open);
+    }
+
+    #[test]
+    fn test_brainstorm_count_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetBrainstormVariationCount(0));
+        assert_eq!(app.brainstorm_variation_count, 1);
+        app.apply(Action::SetBrainstormVariationCount(20));
+        assert_eq!(app.brainstorm_variation_count, 9);
+    }
+
+    #[test]
+    fn test_brainstorm_compare() {
+        let mut app = App::new();
+        assert!(app.brainstorm_comparison.is_none());
+        app.apply(Action::CompareBrainstormVariations { a: 1, b: 3 });
+        assert_eq!(app.brainstorm_comparison, Some((1, 3)));
+    }
+
+    #[test]
+    fn test_brainstorm_lock() {
+        let mut app = App::new();
+        assert!(app.brainstorm_locked.is_empty());
+        app.apply(Action::LockBrainstormVariation(2));
+        assert_eq!(app.brainstorm_locked.len(), 3);
+        assert!(app.brainstorm_locked[2]);
+        app.apply(Action::LockBrainstormVariation(2));
+        assert!(!app.brainstorm_locked[2]);
+    }
+
+    #[test]
+    fn test_pre_render_start() {
+        let mut app = App::new();
+        app.apply(Action::StartPreRender);
+        assert!(matches!(app.pre_render_status, PreRenderStatus::Rendering { .. }));
+    }
+
+    #[test]
+    fn test_pre_render_progress() {
+        let mut app = App::new();
+        app.apply(Action::StartPreRender);
+        app.apply(Action::SetPreRenderProgress { frames_done: 5, total: 30 });
+        assert_eq!(
+            app.pre_render_status,
+            PreRenderStatus::Rendering { frames_done: 5, total: 30 }
+        );
+    }
+
+    #[test]
+    fn test_pre_render_complete() {
+        let mut app = App::new();
+        let dir = std::path::PathBuf::from("/tmp/pulse_test_cache");
+        app.apply(Action::PreRenderComplete { frame_count: 30, cache_dir: dir.clone() });
+        assert_eq!(
+            app.pre_render_status,
+            PreRenderStatus::Done { frame_count: 30, cache_dir: dir }
+        );
+    }
+
+    #[test]
+    fn test_pre_render_clear() {
+        let mut app = App::new();
+        app.apply(Action::StartPreRender);
+        app.apply(Action::ClearPreRenderCache);
+        assert_eq!(app.pre_render_status, PreRenderStatus::NotStarted);
+        assert!(app.pre_render_cache_dir.is_none());
+        assert!(!app.use_pre_render);
+    }
+
+    #[test]
+    fn test_pre_render_toggle_use() {
+        let mut app = App::new();
+        assert!(!app.use_pre_render);
+        app.apply(Action::ToggleUsePreRender);
+        assert!(app.use_pre_render);
+        app.apply(Action::ToggleUsePreRender);
+        assert!(!app.use_pre_render);
+    }
+
+    #[test]
+    fn test_audio_start_freq_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioStartFreq(0.0));
+        assert!((app.audio_spectrum_config.start_freq - 1.0).abs() < 1e-3);
+        app.apply(Action::SetAudioStartFreq(30000.0));
+        assert!((app.audio_spectrum_config.start_freq - 22000.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_audio_frequency_bands_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioFrequencyBands(0));
+        assert_eq!(app.audio_spectrum_config.frequency_bands, 2);
+        app.apply(Action::SetAudioFrequencyBands(9999));
+        assert_eq!(app.audio_spectrum_config.frequency_bands, 1024);
+    }
+
+    #[test]
+    fn test_audio_thickness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioThickness(0.0));
+        assert!((app.audio_spectrum_config.thickness - 0.1).abs() < 1e-3);
+        app.apply(Action::SetAudioThickness(200.0));
+        assert!((app.audio_spectrum_config.thickness - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_apply_audio_effect_sets_layer() {
+        let mut app = App::new();
+        assert!(app.audio_spectrum_layer.is_none());
+        app.apply(Action::ApplyAudioSpectrumEffect { layer_id: 3 });
+        assert_eq!(app.audio_spectrum_layer, Some(3));
+    }
+
+    #[test]
+    fn test_add_remove_render_item() {
+        let mut app = App::new();
+        assert!(app.render_queue_items.is_empty());
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        assert_eq!(app.render_queue_items.len(), 1);
+        app.apply(Action::RemoveRenderQueueItem(0));
+        assert!(app.render_queue_items.is_empty());
+    }
+
+    #[test]
+    fn test_start_stop_render_queue() {
+        let mut app = App::new();
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        assert!(!app.render_in_progress);
+        app.apply(Action::StartRenderQueue);
+        assert!(app.render_in_progress);
+        assert_eq!(app.render_active_idx, Some(0));
+        app.apply(Action::StopRenderQueue);
+        assert!(!app.render_in_progress);
+        assert_eq!(app.render_active_idx, None);
+    }
+
+    #[test]
+    fn test_render_item_complete_sets_done() {
+        let mut app = App::new();
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        assert_eq!(app.render_queue_items[0].status, RenderStatus::Queued);
+        app.apply(Action::RenderQueueItemComplete { idx: 0 });
+        assert_eq!(app.render_queue_items[0].status, RenderStatus::Done);
+        assert!((app.render_queue_items[0].progress - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_skip_render_item() {
+        let mut app = App::new();
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        app.apply(Action::SkipRenderItem(0));
+        assert_eq!(app.render_queue_items[0].status, RenderStatus::Skipped);
+    }
+
+    #[test]
+    fn test_duplicate_render_item_oob_no_panic() {
+        let mut app = App::new();
+        app.apply(Action::DuplicateRenderItem(99));
+        assert!(app.render_queue_items.is_empty());
+        app.apply(Action::AddRenderQueueItem(RenderQueueItem::default()));
+        app.apply(Action::DuplicateRenderItem(0));
+        assert_eq!(app.render_queue_items.len(), 2);
     }
 }

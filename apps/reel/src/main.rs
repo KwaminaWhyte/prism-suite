@@ -28,6 +28,7 @@ mod export;
 mod panels;
 mod program_frame;
 mod waveform;
+mod welcome;
 
 use program_frame::{GlobalGrade, kelvin_to_rgb_gain};
 
@@ -35,9 +36,9 @@ use std::sync::Arc;
 
 use app_state::App;
 use gpui::{
-    div, img, px, size, AppContext, Application, Bounds, Context, InteractiveElement,
-    IntoElement, ParentElement, Render, RenderImage, StatefulInteractiveElement, Styled, Window,
-    WindowBounds, WindowOptions,
+    div, img, px, size, AppContext, Application, Bounds, Context, FocusHandle,
+    InteractiveElement, IntoElement, ParentElement, Render, RenderImage,
+    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowOptions,
 };
 use prism_ui::colors;
 
@@ -486,6 +487,21 @@ fn main() {
             let bounds = cx.primary_display()
                 .map(|d| d.bounds())
                 .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(
+                        Bounds::centered(None, size(px(900.0), px(560.0)), cx),
+                    )),
+                    ..Default::default()
+                },
+                |win, cx| {
+                    let focus: FocusHandle = cx.focus_handle();
+                    win.focus(&focus);
+                    cx.new(|_cx| welcome::WelcomeView::new(focus))
+                },
+            )
+            .expect("failed to open welcome window");
+
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),

@@ -29,6 +29,8 @@ pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, Sele
 pub use self::ai::{GenerativeFillResult, SkyPreset, SkyReplaceConfig, SelectSubjectMode, SelectSubjectResult};
 pub use self::layer_3d::{Shape3DKind, Layer3DProps};
 pub use self::canvas::{Tool, Slice, ColorProfile, SoftProofMode, HistogramChannel, ColorMode};
+pub use self::painting::{Brush, PenNode, LiquifyMode, HealMode, PatternDef, SpotHealMode, LiquifyTool, LiquifyStroke, LiquifyMesh};
+pub use self::layers::{LayerComp, LayerCompState};
 
 use self::text::TextEdit;
 
@@ -135,35 +137,6 @@ impl AppPrefs {
     }
 }
 
-/// A node in a pen/bézier path: anchor position plus control handles.
-#[derive(Clone, Debug)]
-pub struct PenNode {
-    pub pos: (f32, f32),
-    pub ctrl_in: (f32, f32),
-    pub ctrl_out: (f32, f32),
-}
-
-/// Brush state, mirroring the egui app's defaults. `color` is straight sRGB
-/// RGBA in 0..1 (the egui app stores `Color32::from_rgb(20, 120, 230)`).
-#[derive(Clone, Copy, Debug)]
-pub struct Brush {
-    pub color: [f32; 4],
-    pub size: f32,
-    pub hardness: f32,
-    pub opacity: f32,
-}
-
-impl Default for Brush {
-    fn default() -> Self {
-        Self {
-            // egui: Color32::from_rgb(20, 120, 230)
-            color: [20.0 / 255.0, 120.0 / 255.0, 230.0 / 255.0, 1.0],
-            size: 40.0,
-            hardness: 0.5,
-            opacity: 1.0,
-        }
-    }
-}
 
 /// Every panel→state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
@@ -2092,82 +2065,6 @@ impl ExportPreset {
     }
 }
 
-/// Liquify warp mode — only Warp is currently rasterised; others are stub.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum LiquifyMode {
-    #[default]
-    Warp,
-    Twirl,
-    Pucker,
-    Bloat,
-}
-
-impl LiquifyMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            LiquifyMode::Warp => "Warp",
-            LiquifyMode::Twirl => "Twirl",
-            LiquifyMode::Pucker => "Pucker",
-            LiquifyMode::Bloat => "Bloat",
-        }
-    }
-}
-
-/// Heal tool blending mode.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum HealMode {
-    /// Gaussian feathered blend (default) — 8px feather at patch boundary.
-    #[default]
-    Normal,
-    /// No blending — acts like a clone stamp.
-    Replace,
-    /// Delegates to content-aware fill for the healed area.
-    Content,
-}
-
-impl HealMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            HealMode::Normal => "Normal",
-            HealMode::Replace => "Replace",
-            HealMode::Content => "Content",
-        }
-    }
-}
-
-// ---- Batch 5: Layer Comps -----------------------------------------------
-
-/// Snapshot of a single layer's visual state, stored inside a [`LayerComp`].
-#[derive(Clone, Debug)]
-pub struct LayerCompState {
-    pub visible: bool,
-    pub opacity: f32,
-    pub blend_mode: BlendMode,
-    pub offset_x: i32,
-    pub offset_y: i32,
-}
-
-/// A named snapshot of all layer states, enabling quick switching between
-/// layout/visibility variations (Photoshop "Layer Comps" parity).
-#[derive(Clone, Debug)]
-pub struct LayerComp {
-    pub name: String,
-    /// Per-layer state at the time this comp was captured.
-    pub states: HashMap<LayerId, LayerCompState>,
-}
-
-// ---- Batch 5: Pattern Stamp ---------------------------------------------
-
-/// A repeating tile pattern stored in the pattern library.
-#[derive(Clone, Debug)]
-pub struct PatternDef {
-    pub name: String,
-    /// Row-major RGBA float pixels, linear-light premultiplied.
-    pub pixels: Vec<[f32; 4]>,
-    pub width: u32,
-    pub height: u32,
-}
-
 // ---- Batch 5: Vanishing Point -------------------------------------------
 
 /// Editing mode for the Vanishing Point overlay.
@@ -2232,60 +2129,10 @@ impl Default for BlendIf {
     }
 }
 
-// ---- Batch 7: Spot Heal / Red Eye -------------------------------------------
-
-/// Algorithm used by the Spot Healing Brush.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum SpotHealMode {
-    ContentAware,
-    TextureMatch,
-    ProximityMatch,
-}
-
-impl Default for SpotHealMode {
-    fn default() -> Self { SpotHealMode::ContentAware }
-}
 
 // ---- Batch 6: Select Subject ------------------------------------------------
 
 // (no new structs needed — uses existing selection mask infrastructure)
-
-// ---- Batch 5 (new): Liquify Depth -------------------------------------------
-
-/// Available tools inside the Liquify filter.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum LiquifyTool {
-    #[default]
-    Forward,
-    Reconstruct,
-    Smooth,
-    Twirl,
-    Pucker,
-    Bloat,
-    PushLeft,
-    Mirror,
-    Turbulence,
-}
-
-/// A single Liquify brush stroke recorded for undo / replay.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LiquifyStroke {
-    pub tool: LiquifyTool,
-    pub center: [f32; 2],
-    pub radius: f32,
-    pub pressure: f32,
-    /// Rotation angle in degrees (used by Twirl).
-    pub angle: f32,
-}
-
-/// Warp-mesh metadata (no pixel data — mesh is rebuilt from strokes).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-pub struct LiquifyMesh {
-    pub width: u32,
-    pub height: u32,
-    /// Number of mesh subdivisions (default 4).
-    pub subdivisions: u8,
-}
 
 // ---- Batch 6: Artboards -----------------------------------------------------
 

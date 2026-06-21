@@ -14,6 +14,7 @@ members = [
     "apps/pulse",
     "apps/reel",
     "apps/tone",
+    "apps/drift",
 ]
 default-members = [
     "apps/pigment",
@@ -21,6 +22,7 @@ default-members = [
     "apps/pulse",
     "apps/reel",
     "apps/tone",
+    "apps/drift",
 ]
 
 [workspace.package]

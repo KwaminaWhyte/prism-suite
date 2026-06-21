@@ -45,6 +45,7 @@ pub use types_effects::*;
 mod apply_advanced;
 mod apply_extended;
 mod apply_extended2;
+mod apply_extended3;
 mod apply_waves;
 mod apply_waves2;
 pub(super) mod helpers;

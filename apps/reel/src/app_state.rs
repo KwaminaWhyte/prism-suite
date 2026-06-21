@@ -2054,6 +2054,200 @@ pub struct ClipProxy {
     pub attached: bool,
 }
 
+// ============================================================================
+// Batch 11: AudioTrackMixer
+// ============================================================================
+
+/// Channel format for a mixer track.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AudioTrackKind { Mono, Stereo, Adaptive, Standard }
+
+/// Send destination: master bus or a numbered aux bus.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AudioSendDestination { Master, Bus(usize) }
+
+/// An auxiliary send from a mixer track.
+#[derive(Clone, Debug)]
+pub struct AudioSend {
+    pub destination: AudioSendDestination,
+    /// -100.0 encodes −∞ dB; valid range −100.0..=6.0.
+    pub level: f32,
+    pub pre_fader: bool,
+}
+
+/// One track strip inside the Audio Track Mixer.
+#[derive(Clone, Debug)]
+pub struct AudioTrackMixerTrack {
+    pub track_id: usize,
+    pub kind: AudioTrackKind,
+    /// Fader level in dB-ish units, clamped −100.0..=6.0.
+    pub fader_level: f32,
+    /// Pan: −1.0 (full left) .. 0.0 (centre) .. 1.0 (full right).
+    pub pan: f32,
+    pub muted: bool,
+    pub solo: bool,
+    pub sends: Vec<AudioSend>,
+    /// Names of insert effects on this strip.
+    pub effects: Vec<String>,
+}
+
+/// The Audio Track Mixer panel model.
+#[derive(Clone, Debug)]
+pub struct AudioTrackMixer {
+    pub tracks: Vec<AudioTrackMixerTrack>,
+    /// Master bus fader level, clamped −100.0..=6.0.
+    pub master_fader: f32,
+    pub open: bool,
+}
+
+impl AudioTrackMixer {
+    pub fn new() -> Self {
+        Self { tracks: Vec::new(), master_fader: 0.0, open: false }
+    }
+}
+
+// ============================================================================
+// Batch 11: TitlesGraphics
+// ============================================================================
+
+/// Which title engine rendered this clip.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TitleKind { Legacy, EssentialGraphics }
+
+/// Horizontal text alignment inside a text box.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TitleAlign { Left, Center, Right }
+
+/// A single text layer inside a title clip.
+#[derive(Clone, Debug)]
+pub struct TitleTextBox {
+    pub text: String,
+    pub font_family: String,
+    pub font_size: f32,
+    pub bold: bool,
+    pub italic: bool,
+    /// Hex colour string, e.g. `"#FFFFFF"`.
+    pub color: String,
+    /// X position in the composition (pixels from left).
+    pub x: f32,
+    /// Y position in the composition (pixels from top).
+    pub y: f32,
+    pub align: TitleAlign,
+}
+
+/// A title / graphic clip (motion graphics or legacy title).
+#[derive(Clone, Debug)]
+pub struct TitleClip {
+    pub id: usize,
+    pub name: String,
+    pub kind: TitleKind,
+    pub duration_frames: usize,
+    pub background_color: Option<String>,
+    pub text_boxes: Vec<TitleTextBox>,
+    pub logo_path: Option<String>,
+}
+
+impl TitleClip {
+    pub fn new(id: usize, name: String) -> Self {
+        Self {
+            id,
+            name,
+            kind: TitleKind::EssentialGraphics,
+            duration_frames: 150,
+            background_color: None,
+            text_boxes: Vec::new(),
+            logo_path: None,
+        }
+    }
+}
+
+// ============================================================================
+// Batch 11: ProjectManager
+// ============================================================================
+
+/// How files are collected when consolidating a project.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProjectCollectMode { CopyFiles, MoveFiles, LinkOnly }
+
+/// Configuration for Project Manager / Consolidate & Transcode.
+#[derive(Clone, Debug)]
+pub struct ProjectManagerConfig {
+    pub destination: String,
+    pub mode: ProjectCollectMode,
+    pub include_preview_files: bool,
+    pub include_audio_conform: bool,
+    pub include_proxies: bool,
+    pub rename_media: bool,
+    pub convert_ae_comps: bool,
+}
+
+impl ProjectManagerConfig {
+    pub fn new() -> Self {
+        Self {
+            destination: String::new(),
+            mode: ProjectCollectMode::CopyFiles,
+            include_preview_files: false,
+            include_audio_conform: true,
+            include_proxies: true,
+            rename_media: false,
+            convert_ae_comps: false,
+        }
+    }
+}
+
+/// Summary result from running the Project Manager operation.
+#[derive(Clone, Debug)]
+pub struct ProjectManagerResult {
+    pub files_copied: usize,
+    pub total_size_mb: f32,
+    pub missing_files: Vec<String>,
+    pub success: bool,
+}
+
+// ============================================================================
+// Batch 11: MediaBrowser
+// ============================================================================
+
+/// File-type filter for the Media Browser panel.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MediaBrowserFilter { All, Video, Audio, Image, Sequence, Project }
+
+/// One entry shown in the Media Browser.
+#[derive(Clone, Debug)]
+pub struct MediaBrowserEntry {
+    pub path: String,
+    pub name: String,
+    pub media_type: MediaBrowserFilter,
+    pub duration_frames: Option<usize>,
+    pub frame_rate: Option<f32>,
+    pub is_favorite: bool,
+}
+
+/// The Media Browser panel model.
+#[derive(Clone, Debug)]
+pub struct MediaBrowser {
+    pub current_path: String,
+    pub entries: Vec<MediaBrowserEntry>,
+    pub filter: MediaBrowserFilter,
+    /// Paths the user has starred.
+    pub favorites: Vec<String>,
+    pub search_query: String,
+    pub open: bool,
+}
+
+impl MediaBrowser {
+    pub fn new() -> Self {
+        Self {
+            current_path: String::new(),
+            entries: Vec::new(),
+            filter: MediaBrowserFilter::All,
+            favorites: Vec::new(),
+            search_query: String::new(),
+            open: false,
+        }
+    }
+}
+
 /// Every panel→state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -2590,6 +2784,46 @@ pub enum Action {
     DetachProxy { clip_idx: usize },
     ToggleProxyPlayback,
     DeleteProxies { clip_indices: Vec<usize> },
+
+    // --- Batch 11: AudioTrackMixer ---
+    OpenAudioMixer,
+    CloseAudioMixer,
+    AddAudioMixerTrack { track_id: usize, kind: AudioTrackKind },
+    SetAudioMixerFader { track_id: usize, level: f32 },
+    SetAudioMixerPan { track_id: usize, pan: f32 },
+    SetAudioMixerMute { track_id: usize, muted: bool },
+    SetAudioMixerSolo { track_id: usize, solo: bool },
+    SetMasterFader(f32),
+    AddAudioSend { track_id: usize, destination: AudioSendDestination, level: f32 },
+
+    // --- Batch 11: TitlesGraphics ---
+    CreateTitleClip { name: String },
+    AddTitleTextBox { clip_id: usize, text: String, x: f32, y: f32 },
+    SetTitleTextContent { clip_id: usize, box_index: usize, text: String },
+    SetTitleFont { clip_id: usize, box_index: usize, font: String },
+    SetTitleClipFontSize { clip_id: usize, box_index: usize, size: f32 },
+    SetTitleClipColor { clip_id: usize, box_index: usize, color: String },
+    SetTitleBackground { clip_id: usize, color: Option<String> },
+    DeleteTitleClip(usize),
+
+    // --- Batch 11: ProjectManager ---
+    OpenProjectManager,
+    CloseProjectManager,
+    SetProjectManagerDestination(String),
+    SetProjectManagerMode(ProjectCollectMode),
+    SetProjectManagerIncludeProxies(bool),
+    SetProjectManagerRenamMedia(bool),
+    RunProjectManager,
+
+    // --- Batch 11: MediaBrowser ---
+    OpenMediaBrowser,
+    CloseMediaBrowser,
+    SetMediaBrowserPath(String),
+    SetMediaBrowserFilter(MediaBrowserFilter),
+    SetMediaBrowserSearch(String),
+    AddMediaBrowserEntry(MediaBrowserEntry),
+    ToggleMediaBrowserFavorite(String),
+    ImportFromMediaBrowser { path: String },
 }
 
 /// The laid-out screen bounds of the timeline's scrub region (the lane body,
@@ -2927,6 +3161,22 @@ pub struct App {
     pub proxy_ingest_open: bool,
     pub clip_proxies: Vec<ClipProxy>,
     pub toggle_proxy_enabled: bool,
+
+    // --- Batch 11: AudioTrackMixer ---
+    pub audio_mixer: AudioTrackMixer,
+
+    // --- Batch 11: TitlesGraphics ---
+    pub title_clips: Vec<TitleClip>,
+    pub title_clip_counter: usize,
+    pub active_title_clip: Option<usize>,
+
+    // --- Batch 11: ProjectManager ---
+    pub project_manager_config: ProjectManagerConfig,
+    pub project_manager_result: Option<ProjectManagerResult>,
+    pub project_manager_open: bool,
+
+    // --- Batch 11: MediaBrowser ---
+    pub media_browser: MediaBrowser,
 }
 
 /// Collect snap candidate times: all clip edges + playhead + work area in/out.
@@ -3074,6 +3324,14 @@ impl App {
             proxy_ingest_open: false,
             clip_proxies: Vec::new(),
             toggle_proxy_enabled: false,
+            audio_mixer: AudioTrackMixer::new(),
+            title_clips: Vec::new(),
+            title_clip_counter: 0,
+            active_title_clip: None,
+            project_manager_config: ProjectManagerConfig::new(),
+            project_manager_result: None,
+            project_manager_open: false,
+            media_browser: MediaBrowser::new(),
         }
     }
 
@@ -5167,6 +5425,171 @@ impl App {
             Action::DeleteProxies { clip_indices } => {
                 self.clip_proxies.retain(|cp| !clip_indices.contains(&cp.clip_idx));
             }
+
+            // --- Batch 11: AudioTrackMixer ---
+            Action::OpenAudioMixer => { self.audio_mixer.open = true; }
+            Action::CloseAudioMixer => { self.audio_mixer.open = false; }
+            Action::AddAudioMixerTrack { track_id, kind } => {
+                self.audio_mixer.tracks.push(AudioTrackMixerTrack {
+                    track_id,
+                    kind,
+                    fader_level: 0.0,
+                    pan: 0.0,
+                    muted: false,
+                    solo: false,
+                    sends: Vec::new(),
+                    effects: Vec::new(),
+                });
+            }
+            Action::SetAudioMixerFader { track_id, level } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.fader_level = level.clamp(-100.0, 6.0);
+                }
+            }
+            Action::SetAudioMixerPan { track_id, pan } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.pan = pan.clamp(-1.0, 1.0);
+                }
+            }
+            Action::SetAudioMixerMute { track_id, muted } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.muted = muted;
+                }
+            }
+            Action::SetAudioMixerSolo { track_id, solo } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.solo = solo;
+                }
+            }
+            Action::SetMasterFader(level) => {
+                self.audio_mixer.master_fader = level.clamp(-100.0, 6.0);
+            }
+            Action::AddAudioSend { track_id, destination, level } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.sends.push(AudioSend { destination, level, pre_fader: false });
+                }
+            }
+
+            // --- Batch 11: TitlesGraphics ---
+            Action::CreateTitleClip { name } => {
+                let id = self.title_clip_counter;
+                self.title_clip_counter += 1;
+                self.title_clips.push(TitleClip::new(id, name));
+                self.active_title_clip = Some(id);
+            }
+            Action::AddTitleTextBox { clip_id, text, x, y } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    clip.text_boxes.push(TitleTextBox {
+                        text,
+                        font_family: "Arial".to_string(),
+                        font_size: 72.0,
+                        bold: false,
+                        italic: false,
+                        color: "#FFFFFF".to_string(),
+                        x,
+                        y,
+                        align: TitleAlign::Left,
+                    });
+                }
+            }
+            Action::SetTitleTextContent { clip_id, box_index, text } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.text = text;
+                    }
+                }
+            }
+            Action::SetTitleFont { clip_id, box_index, font } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.font_family = font;
+                    }
+                }
+            }
+            Action::SetTitleClipFontSize { clip_id, box_index, size } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.font_size = size.clamp(1.0, 999.0);
+                    }
+                }
+            }
+            Action::SetTitleClipColor { clip_id, box_index, color } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.color = color;
+                    }
+                }
+            }
+            Action::SetTitleBackground { clip_id, color } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    clip.background_color = color;
+                }
+            }
+            Action::DeleteTitleClip(id) => {
+                self.title_clips.retain(|c| c.id != id);
+                if self.active_title_clip == Some(id) {
+                    self.active_title_clip = None;
+                }
+            }
+
+            // --- Batch 11: ProjectManager ---
+            Action::OpenProjectManager => { self.project_manager_open = true; }
+            Action::CloseProjectManager => { self.project_manager_open = false; }
+            Action::SetProjectManagerDestination(dst) => {
+                self.project_manager_config.destination = dst;
+            }
+            Action::SetProjectManagerMode(mode) => {
+                self.project_manager_config.mode = mode;
+            }
+            Action::SetProjectManagerIncludeProxies(v) => {
+                self.project_manager_config.include_proxies = v;
+            }
+            Action::SetProjectManagerRenamMedia(v) => {
+                self.project_manager_config.rename_media = v;
+            }
+            Action::RunProjectManager => {
+                self.project_manager_result = Some(ProjectManagerResult {
+                    files_copied: 42,
+                    total_size_mb: 1280.5,
+                    missing_files: vec![],
+                    success: true,
+                });
+            }
+
+            // --- Batch 11: MediaBrowser ---
+            Action::OpenMediaBrowser => { self.media_browser.open = true; }
+            Action::CloseMediaBrowser => { self.media_browser.open = false; }
+            Action::SetMediaBrowserPath(path) => {
+                self.media_browser.current_path = path;
+                self.media_browser.entries.clear();
+            }
+            Action::SetMediaBrowserFilter(filter) => {
+                self.media_browser.filter = filter;
+            }
+            Action::SetMediaBrowserSearch(query) => {
+                self.media_browser.search_query = query;
+            }
+            Action::AddMediaBrowserEntry(entry) => {
+                self.media_browser.entries.push(entry);
+            }
+            Action::ToggleMediaBrowserFavorite(path) => {
+                if let Some(pos) = self.media_browser.favorites.iter().position(|p| p == &path) {
+                    self.media_browser.favorites.remove(pos);
+                } else {
+                    self.media_browser.favorites.push(path);
+                }
+            }
+            Action::ImportFromMediaBrowser { path } => {
+                let name = path.split('/').last().unwrap_or(&path).to_string();
+                self.media_browser.entries.push(MediaBrowserEntry {
+                    path: path.clone(),
+                    name,
+                    media_type: MediaBrowserFilter::Video,
+                    duration_frames: None,
+                    frame_rate: None,
+                    is_favorite: false,
+                });
+            }
         }
     }
 }
@@ -6697,5 +7120,247 @@ mod tests {
         assert!(app.toggle_proxy_enabled);
         app.apply(Action::ToggleProxyPlayback);
         assert!(!app.toggle_proxy_enabled);
+    }
+
+    // --- Batch 11: AudioTrackMixer tests -------------------------------------
+
+    #[test]
+    fn test_audio_mixer_open_close() {
+        let mut app = App::new();
+        assert!(!app.audio_mixer.open);
+        app.apply(Action::OpenAudioMixer);
+        assert!(app.audio_mixer.open);
+        app.apply(Action::CloseAudioMixer);
+        assert!(!app.audio_mixer.open);
+    }
+
+    #[test]
+    fn test_add_audio_mixer_track() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 0, kind: AudioTrackKind::Stereo });
+        assert_eq!(app.audio_mixer.tracks.len(), 1);
+        assert_eq!(app.audio_mixer.tracks[0].track_id, 0);
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, 0.0);
+        assert_eq!(app.audio_mixer.tracks[0].pan, 0.0);
+        assert!(!app.audio_mixer.tracks[0].muted);
+        assert!(!app.audio_mixer.tracks[0].solo);
+    }
+
+    #[test]
+    fn test_set_audio_mixer_fader_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 1, kind: AudioTrackKind::Mono });
+        app.apply(Action::SetAudioMixerFader { track_id: 1, level: 3.0 });
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, 3.0);
+        // Clamp above max.
+        app.apply(Action::SetAudioMixerFader { track_id: 1, level: 100.0 });
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, 6.0);
+        // Clamp below min.
+        app.apply(Action::SetAudioMixerFader { track_id: 1, level: -200.0 });
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, -100.0);
+    }
+
+    #[test]
+    fn test_set_audio_mixer_pan_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 2, kind: AudioTrackKind::Stereo });
+        app.apply(Action::SetAudioMixerPan { track_id: 2, pan: 0.5 });
+        assert_eq!(app.audio_mixer.tracks[0].pan, 0.5);
+        app.apply(Action::SetAudioMixerPan { track_id: 2, pan: 5.0 });
+        assert_eq!(app.audio_mixer.tracks[0].pan, 1.0);
+        app.apply(Action::SetAudioMixerPan { track_id: 2, pan: -5.0 });
+        assert_eq!(app.audio_mixer.tracks[0].pan, -1.0);
+    }
+
+    #[test]
+    fn test_audio_mixer_mute_solo() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 3, kind: AudioTrackKind::Standard });
+        app.apply(Action::SetAudioMixerMute { track_id: 3, muted: true });
+        assert!(app.audio_mixer.tracks[0].muted);
+        app.apply(Action::SetAudioMixerSolo { track_id: 3, solo: true });
+        assert!(app.audio_mixer.tracks[0].solo);
+        app.apply(Action::SetAudioMixerMute { track_id: 3, muted: false });
+        assert!(!app.audio_mixer.tracks[0].muted);
+    }
+
+    #[test]
+    fn test_set_master_fader_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMasterFader(2.5));
+        assert_eq!(app.audio_mixer.master_fader, 2.5);
+        app.apply(Action::SetMasterFader(999.0));
+        assert_eq!(app.audio_mixer.master_fader, 6.0);
+        app.apply(Action::SetMasterFader(-999.0));
+        assert_eq!(app.audio_mixer.master_fader, -100.0);
+    }
+
+    #[test]
+    fn test_add_audio_send() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 4, kind: AudioTrackKind::Stereo });
+        app.apply(Action::AddAudioSend { track_id: 4, destination: AudioSendDestination::Bus(1), level: -6.0 });
+        assert_eq!(app.audio_mixer.tracks[0].sends.len(), 1);
+        assert_eq!(app.audio_mixer.tracks[0].sends[0].level, -6.0);
+        match &app.audio_mixer.tracks[0].sends[0].destination {
+            AudioSendDestination::Bus(n) => assert_eq!(*n, 1),
+            _ => panic!("expected Bus(1)"),
+        }
+    }
+
+    // --- Batch 11: TitlesGraphics tests --------------------------------------
+
+    #[test]
+    fn test_create_title_clip() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "Opening Title".to_string() });
+        assert_eq!(app.title_clips.len(), 1);
+        assert_eq!(app.title_clips[0].name, "Opening Title");
+        assert_eq!(app.title_clips[0].id, 0);
+        assert_eq!(app.active_title_clip, Some(0));
+        // Counter increments.
+        app.apply(Action::CreateTitleClip { name: "End Card".to_string() });
+        assert_eq!(app.title_clips.len(), 2);
+        assert_eq!(app.title_clips[1].id, 1);
+        assert_eq!(app.active_title_clip, Some(1));
+    }
+
+    #[test]
+    fn test_add_title_text_box_defaults() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T1".to_string() });
+        app.apply(Action::AddTitleTextBox { clip_id: 0, text: "Hello".to_string(), x: 100.0, y: 200.0 });
+        let tb = &app.title_clips[0].text_boxes[0];
+        assert_eq!(tb.text, "Hello");
+        assert_eq!(tb.font_family, "Arial");
+        assert_eq!(tb.font_size, 72.0);
+        assert_eq!(tb.color, "#FFFFFF");
+        assert_eq!(tb.x, 100.0);
+        assert_eq!(tb.y, 200.0);
+    }
+
+    #[test]
+    fn test_set_title_text_content() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T".to_string() });
+        app.apply(Action::AddTitleTextBox { clip_id: 0, text: "Old".to_string(), x: 0.0, y: 0.0 });
+        app.apply(Action::SetTitleTextContent { clip_id: 0, box_index: 0, text: "New".to_string() });
+        assert_eq!(app.title_clips[0].text_boxes[0].text, "New");
+    }
+
+    #[test]
+    fn test_title_font_size_clamp() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T".to_string() });
+        app.apply(Action::AddTitleTextBox { clip_id: 0, text: "A".to_string(), x: 0.0, y: 0.0 });
+        app.apply(Action::SetTitleClipFontSize { clip_id: 0, box_index: 0, size: 0.0 });
+        assert_eq!(app.title_clips[0].text_boxes[0].font_size, 1.0);
+        app.apply(Action::SetTitleClipFontSize { clip_id: 0, box_index: 0, size: 9999.0 });
+        assert_eq!(app.title_clips[0].text_boxes[0].font_size, 999.0);
+        app.apply(Action::SetTitleClipFontSize { clip_id: 0, box_index: 0, size: 48.0 });
+        assert_eq!(app.title_clips[0].text_boxes[0].font_size, 48.0);
+    }
+
+    #[test]
+    fn test_delete_title_clip_clears_active() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T1".to_string() });
+        assert_eq!(app.active_title_clip, Some(0));
+        app.apply(Action::DeleteTitleClip(0));
+        assert!(app.title_clips.is_empty());
+        assert_eq!(app.active_title_clip, None);
+    }
+
+    // --- Batch 11: ProjectManager tests --------------------------------------
+
+    #[test]
+    fn test_project_manager_open_close() {
+        let mut app = App::new();
+        assert!(!app.project_manager_open);
+        app.apply(Action::OpenProjectManager);
+        assert!(app.project_manager_open);
+        app.apply(Action::CloseProjectManager);
+        assert!(!app.project_manager_open);
+    }
+
+    #[test]
+    fn test_project_manager_destination_and_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetProjectManagerDestination("/tmp/out".to_string()));
+        assert_eq!(app.project_manager_config.destination, "/tmp/out");
+        app.apply(Action::SetProjectManagerMode(ProjectCollectMode::MoveFiles));
+        assert_eq!(app.project_manager_config.mode, ProjectCollectMode::MoveFiles);
+    }
+
+    #[test]
+    fn test_run_project_manager_sets_result() {
+        let mut app = App::new();
+        assert!(app.project_manager_result.is_none());
+        app.apply(Action::RunProjectManager);
+        let result = app.project_manager_result.as_ref().unwrap();
+        assert!(result.success);
+        assert_eq!(result.files_copied, 42);
+        assert!((result.total_size_mb - 1280.5).abs() < 1e-3);
+        assert!(result.missing_files.is_empty());
+    }
+
+    // --- Batch 11: MediaBrowser tests ----------------------------------------
+
+    #[test]
+    fn test_media_browser_open_close() {
+        let mut app = App::new();
+        assert!(!app.media_browser.open);
+        app.apply(Action::OpenMediaBrowser);
+        assert!(app.media_browser.open);
+        app.apply(Action::CloseMediaBrowser);
+        assert!(!app.media_browser.open);
+    }
+
+    #[test]
+    fn test_set_media_browser_path_clears_entries() {
+        let mut app = App::new();
+        app.apply(Action::AddMediaBrowserEntry(MediaBrowserEntry {
+            path: "/foo.mp4".to_string(),
+            name: "foo.mp4".to_string(),
+            media_type: MediaBrowserFilter::Video,
+            duration_frames: None,
+            frame_rate: None,
+            is_favorite: false,
+        }));
+        assert_eq!(app.media_browser.entries.len(), 1);
+        app.apply(Action::SetMediaBrowserPath("/media/projects".to_string()));
+        assert_eq!(app.media_browser.current_path, "/media/projects");
+        assert!(app.media_browser.entries.is_empty());
+    }
+
+    #[test]
+    fn test_toggle_media_browser_favorite() {
+        let mut app = App::new();
+        let path = "/media/clip.mp4".to_string();
+        // Add favorite.
+        app.apply(Action::ToggleMediaBrowserFavorite(path.clone()));
+        assert_eq!(app.media_browser.favorites.len(), 1);
+        assert_eq!(app.media_browser.favorites[0], path);
+        // Remove favorite.
+        app.apply(Action::ToggleMediaBrowserFavorite(path.clone()));
+        assert!(app.media_browser.favorites.is_empty());
+    }
+
+    #[test]
+    fn test_import_from_media_browser() {
+        let mut app = App::new();
+        app.apply(Action::ImportFromMediaBrowser { path: "/footage/shot_01.mp4".to_string() });
+        assert_eq!(app.media_browser.entries.len(), 1);
+        assert_eq!(app.media_browser.entries[0].name, "shot_01.mp4");
+        assert_eq!(app.media_browser.entries[0].path, "/footage/shot_01.mp4");
+    }
+
+    #[test]
+    fn test_media_browser_filter_and_search() {
+        let mut app = App::new();
+        app.apply(Action::SetMediaBrowserFilter(MediaBrowserFilter::Audio));
+        assert_eq!(app.media_browser.filter, MediaBrowserFilter::Audio);
+        app.apply(Action::SetMediaBrowserSearch("interview".to_string()));
+        assert_eq!(app.media_browser.search_query, "interview");
     }
 }

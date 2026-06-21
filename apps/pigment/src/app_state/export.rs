@@ -1,5 +1,246 @@
 use super::*;
 
+// ---- Batch 4 extended: Print Layout ---------------------------------------------
+
+/// Extended print layout options shown in the print dialog.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrintLayout {
+    /// Number of copies to print (minimum 1).
+    pub copies: u8,
+    /// Whether copies are collated (true = 1-2-3 1-2-3, false = 1-1 2-2 3-3).
+    pub collate: bool,
+    /// Border width around the image in mm (minimum 0).
+    pub border_width: f32,
+    /// Whether the image is centred on the page.
+    pub center_image: bool,
+    /// Whether to include crop / registration marks.
+    pub print_marks: bool,
+    /// Bleed area in mm added outside the trim edge (0..=25).
+    pub bleed: f32,
+    /// Output resolution in dpi (72..=2400).
+    pub print_resolution: u32,
+}
+
+impl Default for PrintLayout {
+    fn default() -> Self {
+        Self {
+            copies: 1,
+            collate: true,
+            border_width: 0.0,
+            center_image: true,
+            print_marks: false,
+            bleed: 3.0,
+            print_resolution: 300,
+        }
+    }
+}
+// ---- Batch 6: Match Color (new config struct) -----------------------------------
+
+/// Extended Match Color parameters (Batch 6).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MatchColorConfig {
+    pub source_layer_name: String,
+    /// 0..=200, default 100
+    pub luminance: f32,
+    /// 0..=200, default 100
+    pub color_intensity: f32,
+    /// 0..=100, default 0
+    pub fade: f32,
+    pub neutralize: bool,
+    pub use_selection_source: bool,
+    pub use_selection_target: bool,
+}
+
+impl Default for MatchColorConfig {
+    fn default() -> Self {
+        Self {
+            source_layer_name: String::new(),
+            luminance: 100.0,
+            color_intensity: 100.0,
+            fade: 0.0,
+            neutralize: false,
+            use_selection_source: false,
+            use_selection_target: false,
+        }
+    }
+}
+// ---- Batch 6: Camera Raw Filter (new config) ------------------------------------
+
+/// Full Camera Raw dialog parameters (Batch 6).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CameraRawConfig {
+    /// 2000..=50000, default 6500
+    pub temperature: f32,
+    /// -150..=150, default 0
+    pub tint: f32,
+    /// -5..=5, default 0
+    pub exposure: f32,
+    /// -100..=100, default 0
+    pub contrast: f32,
+    /// -100..=100, default 0
+    pub highlights: f32,
+    /// -100..=100, default 0
+    pub shadows: f32,
+    /// -100..=100, default 0
+    pub whites: f32,
+    /// -100..=100, default 0
+    pub blacks: f32,
+    /// -100..=100, default 0
+    pub clarity: f32,
+    /// -100..=100, default 0
+    pub dehaze: f32,
+    /// -100..=100, default 0
+    pub vibrance: f32,
+    /// -100..=100, default 0
+    pub saturation: f32,
+    /// 0..=100, default 0
+    pub noise_luminance: f32,
+    /// 0..=100, default 25
+    pub noise_color: f32,
+    /// 0..=150, default 40
+    pub sharpness: f32,
+    pub lens_correction: bool,
+    pub chromatic_aberration: bool,
+}
+
+impl Default for CameraRawConfig {
+    fn default() -> Self {
+        Self {
+            temperature: 6500.0,
+            tint: 0.0,
+            exposure: 0.0,
+            contrast: 0.0,
+            highlights: 0.0,
+            shadows: 0.0,
+            whites: 0.0,
+            blacks: 0.0,
+            clarity: 0.0,
+            dehaze: 0.0,
+            vibrance: 0.0,
+            saturation: 0.0,
+            noise_luminance: 0.0,
+            noise_color: 25.0,
+            sharpness: 40.0,
+            lens_correction: false,
+            chromatic_aberration: false,
+        }
+    }
+}
+// ---- Batch 6: HDR Merge ---------------------------------------------------------
+
+/// Tone-mapping method for HDR Merge.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum HdrToneMappingMethod {
+    #[default]
+    Local,
+    Equal,
+    Highlight,
+    Photoreceptor,
+}
+
+/// Configuration for the HDR Merge / Photomerge stub.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HdrMergeConfig {
+    pub method: HdrToneMappingMethod,
+    pub remove_ghosts: bool,
+    /// Number of source exposures to merge (default 0).
+    pub source_count: usize,
+    /// Output bit depth: 8, 16, or 32 (default 32).
+    pub bit_depth_output: u8,
+}
+
+impl Default for HdrMergeConfig {
+    fn default() -> Self {
+        Self {
+            method: HdrToneMappingMethod::Local,
+            remove_ghosts: true,
+            source_count: 0,
+            bit_depth_output: 32,
+        }
+    }
+}
+/// Non-destructive filter applied on top of a layer without touching its pixels.
+#[derive(Clone, Debug)]
+pub enum SmartFilter {
+    Blur(f32),
+    Sharpen(f32),
+    Brightness(f32, f32),
+    HueSat(f32),
+}
+
+impl SmartFilter {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SmartFilter::Blur(_) => "Gaussian Blur",
+            SmartFilter::Sharpen(_) => "Sharpen",
+            SmartFilter::Brightness(..) => "Brightness/Contrast",
+            SmartFilter::HueSat(_) => "Hue/Saturation",
+        }
+    }
+}
+
+/// Format for export presets.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum ExportFormat {
+    Jpeg,
+    Png,
+    Tiff,
+    Webp,
+}
+
+impl ExportFormat {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ExportFormat::Jpeg => "JPEG",
+            ExportFormat::Png => "PNG",
+            ExportFormat::Tiff => "TIFF",
+            ExportFormat::Webp => "WebP",
+        }
+    }
+    pub fn extension(&self) -> &'static str {
+        match self {
+            ExportFormat::Jpeg => "jpg",
+            ExportFormat::Png => "png",
+            ExportFormat::Tiff => "tif",
+            ExportFormat::Webp => "webp",
+        }
+    }
+}
+
+/// A named export preset.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ExportPreset {
+    pub name: String,
+    pub format: ExportFormat,
+    pub quality: u8,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub dpi: u32,
+}
+
+impl ExportPreset {
+    pub fn jpeg_90() -> Self {
+        Self {
+            name: "JPEG 90%".into(),
+            format: ExportFormat::Jpeg,
+            quality: 90,
+            width: None,
+            height: None,
+            dpi: 72,
+        }
+    }
+    pub fn png_lossless() -> Self {
+        Self {
+            name: "PNG Lossless".into(),
+            format: ExportFormat::Png,
+            quality: 100,
+            width: None,
+            height: None,
+            dpi: 72,
+        }
+    }
+}
+
 impl App {
     pub(super) fn apply_export(&mut self, action: Action) {
         match action {
@@ -517,5 +758,75 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_print_layout_default() {
+        let pl = PrintLayout::default();
+        assert_eq!(pl.copies, 1);
+        assert!(pl.collate);
+        assert_eq!(pl.print_resolution, 300);
+        assert_eq!(pl.bleed, 3.0);
+    }
+
+    #[test]
+    fn test_camera_raw_config_default() {
+        let c = CameraRawConfig::default();
+        assert_eq!(c.exposure, 0.0);
+        assert_eq!(c.contrast, 0.0);
+        assert_eq!(c.temperature, 6500.0);
+    }
+
+    #[test]
+    fn test_hdr_tone_mapping_method_variants() {
+        let _ = HdrToneMappingMethod::Local;
+        let _ = HdrToneMappingMethod::Equal;
+        let _ = HdrToneMappingMethod::Highlight;
+    }
+
+    #[test]
+    fn test_hdr_merge_config_default() {
+        let h = HdrMergeConfig::default();
+        assert_eq!(h.bit_depth_output, 32);
+    }
+
+    #[test]
+    fn test_smart_filter_label() {
+        let f = SmartFilter::Blur(5.0);
+        let _ = f.label();  // just verify no panic
+    }
+
+    #[test]
+    fn test_export_format_label() {
+        assert_eq!(ExportFormat::Jpeg.label(), "JPEG");
+        assert_eq!(ExportFormat::Png.label(), "PNG");
+    }
+
+    #[test]
+    fn test_export_preset_jpeg90() {
+        let ep = ExportPreset::jpeg_90();
+        assert_eq!(ep.dpi, 72);
+        assert!(matches!(ep.format, ExportFormat::Jpeg));
+        assert_eq!(ep.quality, 90);
+    }
+
+    #[test]
+    fn test_export_presets_vector() {
+        let app = App::new();
+        // app starts with jpeg_90 and png_lossless presets
+        assert!(app.export_presets.len() >= 2);
+    }
+
+    #[test]
+    fn test_match_color_config_default() {
+        let m = MatchColorConfig::default();
+        assert_eq!(m.luminance, 100.0);
+        assert_eq!(m.color_intensity, 100.0);
+        assert_eq!(m.fade, 0.0);
     }
 }

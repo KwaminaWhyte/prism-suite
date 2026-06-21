@@ -1,6 +1,101 @@
 use super::{App, Action, is_video_path, is_audio_path};
 pub use super::timeline::{Bin, BinClip, BinClipType};
 
+// ============================================================================
+// Batch 11: ProjectManager
+// ============================================================================
+
+/// How files are collected when consolidating a project.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProjectCollectMode { CopyFiles, MoveFiles, LinkOnly }
+
+/// Configuration for Project Manager / Consolidate & Transcode.
+#[derive(Clone, Debug)]
+pub struct ProjectManagerConfig {
+    pub destination: String,
+    pub mode: ProjectCollectMode,
+    pub include_preview_files: bool,
+    pub include_audio_conform: bool,
+    pub include_proxies: bool,
+    pub rename_media: bool,
+    pub convert_ae_comps: bool,
+}
+
+impl ProjectManagerConfig {
+    pub fn new() -> Self {
+        Self {
+            destination: String::new(),
+            mode: ProjectCollectMode::CopyFiles,
+            include_preview_files: false,
+            include_audio_conform: true,
+            include_proxies: true,
+            rename_media: false,
+            convert_ae_comps: false,
+        }
+    }
+}
+
+impl Default for ProjectManagerConfig {
+    fn default() -> Self { Self::new() }
+}
+
+/// Summary result from running the Project Manager operation.
+#[derive(Clone, Debug)]
+pub struct ProjectManagerResult {
+    pub files_copied: usize,
+    pub total_size_mb: f32,
+    pub missing_files: Vec<String>,
+    pub success: bool,
+}
+
+// ============================================================================
+// Batch 11: MediaBrowser
+// ============================================================================
+
+/// File-type filter for the Media Browser panel.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MediaBrowserFilter { All, Video, Audio, Image, Sequence, Project }
+
+/// One entry shown in the Media Browser.
+#[derive(Clone, Debug)]
+pub struct MediaBrowserEntry {
+    pub path: String,
+    pub name: String,
+    pub media_type: MediaBrowserFilter,
+    pub duration_frames: Option<usize>,
+    pub frame_rate: Option<f32>,
+    pub is_favorite: bool,
+}
+
+/// The Media Browser panel model.
+#[derive(Clone, Debug)]
+pub struct MediaBrowser {
+    pub current_path: String,
+    pub entries: Vec<MediaBrowserEntry>,
+    pub filter: MediaBrowserFilter,
+    /// Paths the user has starred.
+    pub favorites: Vec<String>,
+    pub search_query: String,
+    pub open: bool,
+}
+
+impl MediaBrowser {
+    pub fn new() -> Self {
+        Self {
+            current_path: String::new(),
+            entries: Vec::new(),
+            filter: MediaBrowserFilter::All,
+            favorites: Vec::new(),
+            search_query: String::new(),
+            open: false,
+        }
+    }
+}
+
+impl Default for MediaBrowser {
+    fn default() -> Self { Self::new() }
+}
+
 pub trait AppMediaExt {
     fn apply_media(&mut self, action: Action);
 }
@@ -74,6 +169,65 @@ impl AppMediaExt for App {
             Action::SetSourceOut(t) => { self.source_out = t.clamp(0.0, self.project.duration); }
             Action::InsertFromSource { clip_id, in_t, out_t } => {
                 log::info!("reel-gpui: InsertFromSource clip={clip_id} in={in_t:.2} out={out_t:.2}");
+            }
+
+            // --- Batch 11: ProjectManager ---
+            Action::OpenProjectManager => { self.project_manager_open = true; }
+            Action::CloseProjectManager => { self.project_manager_open = false; }
+            Action::SetProjectManagerDestination(dst) => {
+                self.project_manager_config.destination = dst;
+            }
+            Action::SetProjectManagerMode(mode) => {
+                self.project_manager_config.mode = mode;
+            }
+            Action::SetProjectManagerIncludeProxies(v) => {
+                self.project_manager_config.include_proxies = v;
+            }
+            Action::SetProjectManagerRenamMedia(v) => {
+                self.project_manager_config.rename_media = v;
+            }
+            Action::RunProjectManager => {
+                self.project_manager_result = Some(ProjectManagerResult {
+                    files_copied: 42,
+                    total_size_mb: 1280.5,
+                    missing_files: vec![],
+                    success: true,
+                });
+            }
+
+            // --- Batch 11: MediaBrowser ---
+            Action::OpenMediaBrowser => { self.media_browser.open = true; }
+            Action::CloseMediaBrowser => { self.media_browser.open = false; }
+            Action::SetMediaBrowserPath(path) => {
+                self.media_browser.current_path = path;
+                self.media_browser.entries.clear();
+            }
+            Action::SetMediaBrowserFilter(filter) => {
+                self.media_browser.filter = filter;
+            }
+            Action::SetMediaBrowserSearch(query) => {
+                self.media_browser.search_query = query;
+            }
+            Action::AddMediaBrowserEntry(entry) => {
+                self.media_browser.entries.push(entry);
+            }
+            Action::ToggleMediaBrowserFavorite(path) => {
+                if let Some(pos) = self.media_browser.favorites.iter().position(|p| p == &path) {
+                    self.media_browser.favorites.remove(pos);
+                } else {
+                    self.media_browser.favorites.push(path);
+                }
+            }
+            Action::ImportFromMediaBrowser { path } => {
+                let name = path.split('/').last().unwrap_or(&path).to_string();
+                self.media_browser.entries.push(MediaBrowserEntry {
+                    path: path.clone(),
+                    name,
+                    media_type: MediaBrowserFilter::Video,
+                    duration_frames: None,
+                    frame_rate: None,
+                    is_favorite: false,
+                });
             }
 
             _ => {}
@@ -226,5 +380,98 @@ mod tests {
         assert!(app.source_playing);
         app.apply(Action::ToggleSourcePlay);
         assert!(!app.source_playing);
+    }
+
+    // --- Batch 11: ProjectManager tests --------------------------------------
+
+    #[test]
+    fn test_project_manager_open_close() {
+        let mut app = App::new();
+        assert!(!app.project_manager_open);
+        app.apply(Action::OpenProjectManager);
+        assert!(app.project_manager_open);
+        app.apply(Action::CloseProjectManager);
+        assert!(!app.project_manager_open);
+    }
+
+    #[test]
+    fn test_project_manager_destination_and_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetProjectManagerDestination("/tmp/out".to_string()));
+        assert_eq!(app.project_manager_config.destination, "/tmp/out");
+        app.apply(Action::SetProjectManagerMode(ProjectCollectMode::MoveFiles));
+        assert_eq!(app.project_manager_config.mode, ProjectCollectMode::MoveFiles);
+    }
+
+    #[test]
+    fn test_run_project_manager_sets_result() {
+        let mut app = App::new();
+        assert!(app.project_manager_result.is_none());
+        app.apply(Action::RunProjectManager);
+        let result = app.project_manager_result.as_ref().unwrap();
+        assert!(result.success);
+        assert_eq!(result.files_copied, 42);
+        assert!((result.total_size_mb - 1280.5).abs() < 1e-3);
+        assert!(result.missing_files.is_empty());
+    }
+
+    // --- Batch 11: MediaBrowser tests ----------------------------------------
+
+    #[test]
+    fn test_media_browser_open_close() {
+        let mut app = App::new();
+        assert!(!app.media_browser.open);
+        app.apply(Action::OpenMediaBrowser);
+        assert!(app.media_browser.open);
+        app.apply(Action::CloseMediaBrowser);
+        assert!(!app.media_browser.open);
+    }
+
+    #[test]
+    fn test_set_media_browser_path_clears_entries() {
+        let mut app = App::new();
+        app.apply(Action::AddMediaBrowserEntry(MediaBrowserEntry {
+            path: "/foo.mp4".to_string(),
+            name: "foo.mp4".to_string(),
+            media_type: MediaBrowserFilter::Video,
+            duration_frames: None,
+            frame_rate: None,
+            is_favorite: false,
+        }));
+        assert_eq!(app.media_browser.entries.len(), 1);
+        app.apply(Action::SetMediaBrowserPath("/media/projects".to_string()));
+        assert_eq!(app.media_browser.current_path, "/media/projects");
+        assert!(app.media_browser.entries.is_empty());
+    }
+
+    #[test]
+    fn test_toggle_media_browser_favorite() {
+        let mut app = App::new();
+        let path = "/media/clip.mp4".to_string();
+        // Add favorite.
+        app.apply(Action::ToggleMediaBrowserFavorite(path.clone()));
+        assert_eq!(app.media_browser.favorites.len(), 1);
+        assert_eq!(app.media_browser.favorites[0], path);
+        // Remove favorite.
+        app.apply(Action::ToggleMediaBrowserFavorite(path.clone()));
+        assert!(app.media_browser.favorites.is_empty());
+    }
+
+    #[test]
+    fn test_import_from_media_browser() {
+        let mut app = App::new();
+        app.apply(Action::ImportFromMediaBrowser { path: "/footage/shot_01.mp4".to_string() });
+        assert_eq!(app.media_browser.entries.len(), 1);
+        assert_eq!(app.media_browser.entries[0].name, "shot_01.mp4");
+        assert_eq!(app.media_browser.entries[0].path, "/footage/shot_01.mp4");
+    }
+
+    #[test]
+    fn test_media_browser_filter_and_search() {
+        let mut app = App::new();
+        app.apply(Action::SetMediaBrowserFilter(MediaBrowserFilter::Audio));
+        assert_eq!(app.media_browser.filter, MediaBrowserFilter::Audio);
+        app.apply(Action::SetMediaBrowserSearch("interview".to_string()));
+        assert_eq!(app.media_browser.search_query, "interview");
     }
 }

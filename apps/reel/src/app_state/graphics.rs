@@ -77,6 +77,61 @@ pub struct NestedSequence {
     pub duration: f32,
 }
 
+// ============================================================================
+// Batch 11: TitlesGraphics
+// ============================================================================
+
+/// Which title engine rendered this clip.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TitleKind { Legacy, EssentialGraphics }
+
+/// Horizontal text alignment inside a text box.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TitleAlign { Left, Center, Right }
+
+/// A single text layer inside a title clip.
+#[derive(Clone, Debug)]
+pub struct TitleTextBox {
+    pub text: String,
+    pub font_family: String,
+    pub font_size: f32,
+    pub bold: bool,
+    pub italic: bool,
+    /// Hex colour string, e.g. `"#FFFFFF"`.
+    pub color: String,
+    /// X position in the composition (pixels from left).
+    pub x: f32,
+    /// Y position in the composition (pixels from top).
+    pub y: f32,
+    pub align: TitleAlign,
+}
+
+/// A title / graphic clip (motion graphics or legacy title).
+#[derive(Clone, Debug)]
+pub struct TitleClip {
+    pub id: usize,
+    pub name: String,
+    pub kind: TitleKind,
+    pub duration_frames: usize,
+    pub background_color: Option<String>,
+    pub text_boxes: Vec<TitleTextBox>,
+    pub logo_path: Option<String>,
+}
+
+impl TitleClip {
+    pub fn new(id: usize, name: String) -> Self {
+        Self {
+            id,
+            name,
+            kind: TitleKind::EssentialGraphics,
+            duration_frames: 150,
+            background_color: None,
+            text_boxes: Vec::new(),
+            logo_path: None,
+        }
+    }
+}
+
 pub trait AppGraphicsExt {
     fn apply_graphics(&mut self, action: Action);
 }
@@ -173,6 +228,69 @@ impl AppGraphicsExt for App {
                     self.nested_sequences.push(clone);
                 }
             }
+
+            // --- Batch 11: TitlesGraphics ---
+            Action::CreateTitleClip { name } => {
+                let id = self.title_clip_counter;
+                self.title_clip_counter += 1;
+                self.title_clips.push(TitleClip::new(id, name));
+                self.active_title_clip = Some(id);
+            }
+            Action::AddTitleTextBox { clip_id, text, x, y } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    clip.text_boxes.push(TitleTextBox {
+                        text,
+                        font_family: "Arial".to_string(),
+                        font_size: 72.0,
+                        bold: false,
+                        italic: false,
+                        color: "#FFFFFF".to_string(),
+                        x,
+                        y,
+                        align: TitleAlign::Left,
+                    });
+                }
+            }
+            Action::SetTitleTextContent { clip_id, box_index, text } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.text = text;
+                    }
+                }
+            }
+            Action::SetTitleFont { clip_id, box_index, font } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.font_family = font;
+                    }
+                }
+            }
+            Action::SetTitleClipFontSize { clip_id, box_index, size } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.font_size = size.clamp(1.0, 999.0);
+                    }
+                }
+            }
+            Action::SetTitleClipColor { clip_id, box_index, color } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    if let Some(tb) = clip.text_boxes.get_mut(box_index) {
+                        tb.color = color;
+                    }
+                }
+            }
+            Action::SetTitleBackground { clip_id, color } => {
+                if let Some(clip) = self.title_clips.iter_mut().find(|c| c.id == clip_id) {
+                    clip.background_color = color;
+                }
+            }
+            Action::DeleteTitleClip(id) => {
+                self.title_clips.retain(|c| c.id != id);
+                if self.active_title_clip == Some(id) {
+                    self.active_title_clip = None;
+                }
+            }
+
             _ => {}
         }
     }
@@ -309,5 +427,68 @@ mod tests {
         app.apply(Action::NestSelectedClipsB9 { name: "OldName".to_string() });
         app.apply(Action::RenameNestedSequence { idx: 0, name: "MySeq".to_string() });
         assert_eq!(app.nested_sequences[0].name, "MySeq");
+    }
+
+    // --- Batch 11: TitlesGraphics tests --------------------------------------
+
+    #[test]
+    fn test_create_title_clip() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "Opening Title".to_string() });
+        assert_eq!(app.title_clips.len(), 1);
+        assert_eq!(app.title_clips[0].name, "Opening Title");
+        assert_eq!(app.title_clips[0].id, 0);
+        assert_eq!(app.active_title_clip, Some(0));
+        // Counter increments.
+        app.apply(Action::CreateTitleClip { name: "End Card".to_string() });
+        assert_eq!(app.title_clips.len(), 2);
+        assert_eq!(app.title_clips[1].id, 1);
+        assert_eq!(app.active_title_clip, Some(1));
+    }
+
+    #[test]
+    fn test_add_title_text_box_defaults() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T1".to_string() });
+        app.apply(Action::AddTitleTextBox { clip_id: 0, text: "Hello".to_string(), x: 100.0, y: 200.0 });
+        let tb = &app.title_clips[0].text_boxes[0];
+        assert_eq!(tb.text, "Hello");
+        assert_eq!(tb.font_family, "Arial");
+        assert_eq!(tb.font_size, 72.0);
+        assert_eq!(tb.color, "#FFFFFF");
+        assert_eq!(tb.x, 100.0);
+        assert_eq!(tb.y, 200.0);
+    }
+
+    #[test]
+    fn test_set_title_text_content() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T".to_string() });
+        app.apply(Action::AddTitleTextBox { clip_id: 0, text: "Old".to_string(), x: 0.0, y: 0.0 });
+        app.apply(Action::SetTitleTextContent { clip_id: 0, box_index: 0, text: "New".to_string() });
+        assert_eq!(app.title_clips[0].text_boxes[0].text, "New");
+    }
+
+    #[test]
+    fn test_title_font_size_clamp() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T".to_string() });
+        app.apply(Action::AddTitleTextBox { clip_id: 0, text: "A".to_string(), x: 0.0, y: 0.0 });
+        app.apply(Action::SetTitleClipFontSize { clip_id: 0, box_index: 0, size: 0.0 });
+        assert_eq!(app.title_clips[0].text_boxes[0].font_size, 1.0);
+        app.apply(Action::SetTitleClipFontSize { clip_id: 0, box_index: 0, size: 9999.0 });
+        assert_eq!(app.title_clips[0].text_boxes[0].font_size, 999.0);
+        app.apply(Action::SetTitleClipFontSize { clip_id: 0, box_index: 0, size: 48.0 });
+        assert_eq!(app.title_clips[0].text_boxes[0].font_size, 48.0);
+    }
+
+    #[test]
+    fn test_delete_title_clip_clears_active() {
+        let mut app = App::new();
+        app.apply(Action::CreateTitleClip { name: "T1".to_string() });
+        assert_eq!(app.active_title_clip, Some(0));
+        app.apply(Action::DeleteTitleClip(0));
+        assert!(app.title_clips.is_empty());
+        assert_eq!(app.active_title_clip, None);
     }
 }

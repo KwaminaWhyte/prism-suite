@@ -45,8 +45,9 @@ use timeline::AppTimelineExt;
 
 // Audio domain
 pub use audio::{
-    AudioEffect, AudioSuiteConfig, AudioSuiteKind, AudioTrackType, EqBand, TrackCompressor,
-    TrackEq, TrackEq3,
+    AudioEffect, AudioSend, AudioSendDestination, AudioSuiteConfig, AudioSuiteKind,
+    AudioTrackKind, AudioTrackMixer, AudioTrackMixerTrack, AudioTrackType, EqBand,
+    TrackCompressor, TrackEq, TrackEq3,
 };
 
 // Captions domain
@@ -66,13 +67,19 @@ pub use export_presets::{
 // Graphics domain
 pub use graphics::{
     MogrParam, MogrParamValue, MogrTemplate, NestedSequence, SeqFrameRate, SeqPixelAspect,
-    SequenceSettings,
+    SequenceSettings, TitleAlign, TitleClip, TitleKind, TitleTextBox,
 };
 
 // Multicam domain
 pub use multicam::{
     AutoReframeConfig, EdlConfig, EdlFormat, MulticamAngle, MulticamDisplayMode, MulticamSyncMode,
     ReframeMotion,
+};
+
+// Media domain (extended Batch 11 types)
+pub use media::{
+    MediaBrowser, MediaBrowserEntry, MediaBrowserFilter,
+    ProjectCollectMode, ProjectManagerConfig, ProjectManagerResult,
 };
 
 // Proxy domain
@@ -752,6 +759,46 @@ pub enum Action {
     DetachProxy { clip_idx: usize },
     ToggleProxyPlayback,
     DeleteProxies { clip_indices: Vec<usize> },
+
+    // --- Batch 11: AudioTrackMixer ---
+    OpenAudioMixer,
+    CloseAudioMixer,
+    AddAudioMixerTrack { track_id: usize, kind: AudioTrackKind },
+    SetAudioMixerFader { track_id: usize, level: f32 },
+    SetAudioMixerPan { track_id: usize, pan: f32 },
+    SetAudioMixerMute { track_id: usize, muted: bool },
+    SetAudioMixerSolo { track_id: usize, solo: bool },
+    SetMasterFader(f32),
+    AddAudioSend { track_id: usize, destination: AudioSendDestination, level: f32 },
+
+    // --- Batch 11: TitlesGraphics ---
+    CreateTitleClip { name: String },
+    AddTitleTextBox { clip_id: usize, text: String, x: f32, y: f32 },
+    SetTitleTextContent { clip_id: usize, box_index: usize, text: String },
+    SetTitleFont { clip_id: usize, box_index: usize, font: String },
+    SetTitleClipFontSize { clip_id: usize, box_index: usize, size: f32 },
+    SetTitleClipColor { clip_id: usize, box_index: usize, color: String },
+    SetTitleBackground { clip_id: usize, color: Option<String> },
+    DeleteTitleClip(usize),
+
+    // --- Batch 11: ProjectManager ---
+    OpenProjectManager,
+    CloseProjectManager,
+    SetProjectManagerDestination(String),
+    SetProjectManagerMode(ProjectCollectMode),
+    SetProjectManagerIncludeProxies(bool),
+    SetProjectManagerRenamMedia(bool),
+    RunProjectManager,
+
+    // --- Batch 11: MediaBrowser ---
+    OpenMediaBrowser,
+    CloseMediaBrowser,
+    SetMediaBrowserPath(String),
+    SetMediaBrowserFilter(MediaBrowserFilter),
+    SetMediaBrowserSearch(String),
+    AddMediaBrowserEntry(MediaBrowserEntry),
+    ToggleMediaBrowserFavorite(String),
+    ImportFromMediaBrowser { path: String },
 }
 
 // --- App struct --------------------------------------------------------------
@@ -966,6 +1013,22 @@ pub struct App {
     pub proxy_ingest_open: bool,
     pub clip_proxies: Vec<ClipProxy>,
     pub toggle_proxy_enabled: bool,
+
+    // --- Batch 11: AudioTrackMixer ---
+    pub audio_mixer: AudioTrackMixer,
+
+    // --- Batch 11: TitlesGraphics ---
+    pub title_clips: Vec<TitleClip>,
+    pub title_clip_counter: usize,
+    pub active_title_clip: Option<usize>,
+
+    // --- Batch 11: ProjectManager ---
+    pub project_manager_config: ProjectManagerConfig,
+    pub project_manager_result: Option<ProjectManagerResult>,
+    pub project_manager_open: bool,
+
+    // --- Batch 11: MediaBrowser ---
+    pub media_browser: MediaBrowser,
 }
 
 impl App {
@@ -1101,6 +1164,14 @@ impl App {
             proxy_ingest_open: false,
             clip_proxies: Vec::new(),
             toggle_proxy_enabled: false,
+            audio_mixer: AudioTrackMixer::new(),
+            title_clips: Vec::new(),
+            title_clip_counter: 0,
+            active_title_clip: None,
+            project_manager_config: ProjectManagerConfig::new(),
+            project_manager_result: None,
+            project_manager_open: false,
+            media_browser: MediaBrowser::new(),
         }
     }
 
@@ -1138,7 +1209,17 @@ impl App {
             | Action::SetAudioSuitePitch(_)
             | Action::SetAudioSuiteStretch(_)
             | Action::ToggleAudioSuitePreview
-            | Action::ApplyAudioSuite { .. } => {
+            | Action::ApplyAudioSuite { .. }
+            // Batch 11: AudioTrackMixer
+            | Action::OpenAudioMixer
+            | Action::CloseAudioMixer
+            | Action::AddAudioMixerTrack { .. }
+            | Action::SetAudioMixerFader { .. }
+            | Action::SetAudioMixerPan { .. }
+            | Action::SetAudioMixerMute { .. }
+            | Action::SetAudioMixerSolo { .. }
+            | Action::SetMasterFader(_)
+            | Action::AddAudioSend { .. } => {
                 self.apply_audio(action);
             }
 
@@ -1277,7 +1358,16 @@ impl App {
             | Action::EnterNestedSequence(_)
             | Action::ExitNestedSequence
             | Action::RenameNestedSequence { .. }
-            | Action::DuplicateNestedSequence(_) => {
+            | Action::DuplicateNestedSequence(_)
+            // Batch 11: TitlesGraphics
+            | Action::CreateTitleClip { .. }
+            | Action::AddTitleTextBox { .. }
+            | Action::SetTitleTextContent { .. }
+            | Action::SetTitleFont { .. }
+            | Action::SetTitleClipFontSize { .. }
+            | Action::SetTitleClipColor { .. }
+            | Action::SetTitleBackground { .. }
+            | Action::DeleteTitleClip(_) => {
                 self.apply_graphics(action);
             }
 
@@ -1294,7 +1384,24 @@ impl App {
             | Action::ToggleSourcePlay
             | Action::SetSourceIn(_)
             | Action::SetSourceOut(_)
-            | Action::InsertFromSource { .. } => {
+            | Action::InsertFromSource { .. }
+            // Batch 11: ProjectManager
+            | Action::OpenProjectManager
+            | Action::CloseProjectManager
+            | Action::SetProjectManagerDestination(_)
+            | Action::SetProjectManagerMode(_)
+            | Action::SetProjectManagerIncludeProxies(_)
+            | Action::SetProjectManagerRenamMedia(_)
+            | Action::RunProjectManager
+            // Batch 11: MediaBrowser
+            | Action::OpenMediaBrowser
+            | Action::CloseMediaBrowser
+            | Action::SetMediaBrowserPath(_)
+            | Action::SetMediaBrowserFilter(_)
+            | Action::SetMediaBrowserSearch(_)
+            | Action::AddMediaBrowserEntry(_)
+            | Action::ToggleMediaBrowserFavorite(_)
+            | Action::ImportFromMediaBrowser { .. } => {
                 self.apply_media(action);
             }
 

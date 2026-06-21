@@ -135,6 +135,62 @@ impl Default for AudioSuiteConfig {
     }
 }
 
+// ============================================================================
+// Batch 11: AudioTrackMixer
+// ============================================================================
+
+/// Channel format for a mixer track.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AudioTrackKind { Mono, Stereo, Adaptive, Standard }
+
+/// Send destination: master bus or a numbered aux bus.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AudioSendDestination { Master, Bus(usize) }
+
+/// An auxiliary send from a mixer track.
+#[derive(Clone, Debug)]
+pub struct AudioSend {
+    pub destination: AudioSendDestination,
+    /// -100.0 encodes −∞ dB; valid range −100.0..=6.0.
+    pub level: f32,
+    pub pre_fader: bool,
+}
+
+/// One track strip inside the Audio Track Mixer.
+#[derive(Clone, Debug)]
+pub struct AudioTrackMixerTrack {
+    pub track_id: usize,
+    pub kind: AudioTrackKind,
+    /// Fader level in dB-ish units, clamped −100.0..=6.0.
+    pub fader_level: f32,
+    /// Pan: −1.0 (full left) .. 0.0 (centre) .. 1.0 (full right).
+    pub pan: f32,
+    pub muted: bool,
+    pub solo: bool,
+    pub sends: Vec<AudioSend>,
+    /// Names of insert effects on this strip.
+    pub effects: Vec<String>,
+}
+
+/// The Audio Track Mixer panel model.
+#[derive(Clone, Debug)]
+pub struct AudioTrackMixer {
+    pub tracks: Vec<AudioTrackMixerTrack>,
+    /// Master bus fader level, clamped −100.0..=6.0.
+    pub master_fader: f32,
+    pub open: bool,
+}
+
+impl AudioTrackMixer {
+    pub fn new() -> Self {
+        Self { tracks: Vec::new(), master_fader: 0.0, open: false }
+    }
+}
+
+impl Default for AudioTrackMixer {
+    fn default() -> Self { Self::new() }
+}
+
 pub trait AppAudioExt {
     fn apply_audio(&mut self, action: Action);
 }
@@ -242,6 +298,51 @@ impl AppAudioExt for App {
                     }
                 }
             }
+
+            // --- Batch 11: AudioTrackMixer ---
+            Action::OpenAudioMixer => { self.audio_mixer.open = true; }
+            Action::CloseAudioMixer => { self.audio_mixer.open = false; }
+            Action::AddAudioMixerTrack { track_id, kind } => {
+                self.audio_mixer.tracks.push(AudioTrackMixerTrack {
+                    track_id,
+                    kind,
+                    fader_level: 0.0,
+                    pan: 0.0,
+                    muted: false,
+                    solo: false,
+                    sends: Vec::new(),
+                    effects: Vec::new(),
+                });
+            }
+            Action::SetAudioMixerFader { track_id, level } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.fader_level = level.clamp(-100.0, 6.0);
+                }
+            }
+            Action::SetAudioMixerPan { track_id, pan } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.pan = pan.clamp(-1.0, 1.0);
+                }
+            }
+            Action::SetAudioMixerMute { track_id, muted } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.muted = muted;
+                }
+            }
+            Action::SetAudioMixerSolo { track_id, solo } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.solo = solo;
+                }
+            }
+            Action::SetMasterFader(level) => {
+                self.audio_mixer.master_fader = level.clamp(-100.0, 6.0);
+            }
+            Action::AddAudioSend { track_id, destination, level } => {
+                if let Some(t) = self.audio_mixer.tracks.iter_mut().find(|t| t.track_id == track_id) {
+                    t.sends.push(AudioSend { destination, level, pre_fader: false });
+                }
+            }
+
             _ => {}
         }
     }
@@ -314,5 +415,91 @@ mod tests {
         assert!(!app.audio_suite_preview);
         app.apply(Action::ToggleAudioSuitePreview);
         assert!(app.audio_suite_preview);
+    }
+
+    // --- Batch 11: AudioTrackMixer tests -------------------------------------
+
+    #[test]
+    fn test_audio_mixer_open_close() {
+        let mut app = App::new();
+        assert!(!app.audio_mixer.open);
+        app.apply(Action::OpenAudioMixer);
+        assert!(app.audio_mixer.open);
+        app.apply(Action::CloseAudioMixer);
+        assert!(!app.audio_mixer.open);
+    }
+
+    #[test]
+    fn test_add_audio_mixer_track() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 0, kind: AudioTrackKind::Stereo });
+        assert_eq!(app.audio_mixer.tracks.len(), 1);
+        assert_eq!(app.audio_mixer.tracks[0].track_id, 0);
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, 0.0);
+        assert_eq!(app.audio_mixer.tracks[0].pan, 0.0);
+        assert!(!app.audio_mixer.tracks[0].muted);
+        assert!(!app.audio_mixer.tracks[0].solo);
+    }
+
+    #[test]
+    fn test_set_audio_mixer_fader_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 1, kind: AudioTrackKind::Mono });
+        app.apply(Action::SetAudioMixerFader { track_id: 1, level: 3.0 });
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, 3.0);
+        // Clamp above max.
+        app.apply(Action::SetAudioMixerFader { track_id: 1, level: 100.0 });
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, 6.0);
+        // Clamp below min.
+        app.apply(Action::SetAudioMixerFader { track_id: 1, level: -200.0 });
+        assert_eq!(app.audio_mixer.tracks[0].fader_level, -100.0);
+    }
+
+    #[test]
+    fn test_set_audio_mixer_pan_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 2, kind: AudioTrackKind::Stereo });
+        app.apply(Action::SetAudioMixerPan { track_id: 2, pan: 0.5 });
+        assert_eq!(app.audio_mixer.tracks[0].pan, 0.5);
+        app.apply(Action::SetAudioMixerPan { track_id: 2, pan: 5.0 });
+        assert_eq!(app.audio_mixer.tracks[0].pan, 1.0);
+        app.apply(Action::SetAudioMixerPan { track_id: 2, pan: -5.0 });
+        assert_eq!(app.audio_mixer.tracks[0].pan, -1.0);
+    }
+
+    #[test]
+    fn test_audio_mixer_mute_solo() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 3, kind: AudioTrackKind::Standard });
+        app.apply(Action::SetAudioMixerMute { track_id: 3, muted: true });
+        assert!(app.audio_mixer.tracks[0].muted);
+        app.apply(Action::SetAudioMixerSolo { track_id: 3, solo: true });
+        assert!(app.audio_mixer.tracks[0].solo);
+        app.apply(Action::SetAudioMixerMute { track_id: 3, muted: false });
+        assert!(!app.audio_mixer.tracks[0].muted);
+    }
+
+    #[test]
+    fn test_set_master_fader_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMasterFader(2.5));
+        assert_eq!(app.audio_mixer.master_fader, 2.5);
+        app.apply(Action::SetMasterFader(999.0));
+        assert_eq!(app.audio_mixer.master_fader, 6.0);
+        app.apply(Action::SetMasterFader(-999.0));
+        assert_eq!(app.audio_mixer.master_fader, -100.0);
+    }
+
+    #[test]
+    fn test_add_audio_send() {
+        let mut app = App::new();
+        app.apply(Action::AddAudioMixerTrack { track_id: 4, kind: AudioTrackKind::Stereo });
+        app.apply(Action::AddAudioSend { track_id: 4, destination: AudioSendDestination::Bus(1), level: -6.0 });
+        assert_eq!(app.audio_mixer.tracks[0].sends.len(), 1);
+        assert_eq!(app.audio_mixer.tracks[0].sends[0].level, -6.0);
+        match &app.audio_mixer.tracks[0].sends[0].destination {
+            AudioSendDestination::Bus(n) => assert_eq!(*n, 1),
+            _ => panic!("expected Bus(1)"),
+        }
     }
 }

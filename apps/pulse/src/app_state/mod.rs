@@ -45,6 +45,7 @@ pub use text_anim::{TextAnimPreset, TextAnimProperty, TextAnimRange, TextAnimato
 pub use tracking::{TrackPoint, CameraTracker, MotionSketchStroke, MotionSketchConfig, StabilizeResult, StabilizeMethod, StabilizeFraming, WarpStabConfig, CameraTrackStatus, CameraTrackPoint, CameraTrackSolve};
 pub use puppeting::{MorphMode, CorrespondenceMode, ShapeMorphKeyframe, ShapeMorphConfig, PuppetPinMode, PuppetPin, PuppetMesh};
 pub use render::{BrainstormVariation, BrainstormState, PreRenderStatus, AudioVisMode, AudioVisSide, AudioSpectrumConfig, RenderStatus, RenderOutputFormat, RenderQueueItem};
+pub use precomp::{MatteMode, TrackMatteConfig, PrecompConfig, PrecompInfo};
 
 /// Status of a job in the render queue.
 #[derive(Clone, Debug)]
@@ -303,54 +304,6 @@ impl Default for CollectFilesConfig {
             reduce_project: false,
         }
     }
-}
-
-// ─── Batch 6 depth types ──────────────────────────────────────────────────────
-
-/// Track Matte compositing mode (mirrors After Effects' matte-type options).
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum MatteMode {
-    #[default]
-    None_,
-    AlphaInverted,
-    Alpha,
-    LumaInverted,
-    Luma,
-}
-
-/// Per-layer track matte configuration (who mattes this layer and how).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-pub struct TrackMatteConfig {
-    pub matte_layer_id: Option<usize>,
-    pub mode: MatteMode,
-    pub invert: bool,
-    pub preserve_transparency: bool,
-}
-
-/// Configuration for the Pre-compose dialog (name, attribute handling, etc.).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PrecompConfig {
-    pub name: String,
-    pub move_all_attributes: bool,
-    pub adjust_comp_duration: bool,
-}
-
-impl Default for PrecompConfig {
-    fn default() -> Self {
-        Self {
-            name: "Precomp 1".to_string(),
-            move_all_attributes: true,
-            adjust_comp_duration: true,
-        }
-    }
-}
-
-/// A pre-composition created by `PrecomposeSelected`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PrecompInfo {
-    pub name: String,
-    pub layer_ids: Vec<usize>,
-    pub duration_frames: u32,
 }
 
 /// Full 3-D spatial configuration for a layer (enabled when the 3-D flag is set).
@@ -3474,84 +3427,6 @@ mod tests {
         assert!((app.warp_stab_config.rolling_shutter_ripple - 100.0).abs() < 1e-3);
         app.apply(Action::SetWarpStabRollingShutter(-1.0));
         assert!((app.warp_stab_config.rolling_shutter_ripple - 0.0).abs() < 1e-3);
-    }
-
-    // ── Batch 6 depth: Track Matte ────────────────────────────────────────────
-
-    #[test]
-    fn test_set_track_matte_mode() {
-        let mut app = App::new();
-        app.apply(Action::SetTrackMatteMode { layer_id: 0, mode: MatteMode::Luma });
-        assert_eq!(app.track_matte_configs[&0].mode, MatteMode::Luma);
-        app.apply(Action::SetTrackMatteMode { layer_id: 0, mode: MatteMode::Alpha });
-        assert_eq!(app.track_matte_configs[&0].mode, MatteMode::Alpha);
-    }
-
-    #[test]
-    fn test_toggle_track_matte_invert() {
-        let mut app = App::new();
-        assert!(!app.track_matte_configs.contains_key(&1));
-        app.apply(Action::ToggleTrackMatteInvert { layer_id: 1 });
-        assert!(app.track_matte_configs[&1].invert);
-        app.apply(Action::ToggleTrackMatteInvert { layer_id: 1 });
-        assert!(!app.track_matte_configs[&1].invert);
-    }
-
-    #[test]
-    fn test_clear_track_matte() {
-        let mut app = App::new();
-        let config = TrackMatteConfig { matte_layer_id: Some(2), mode: MatteMode::Alpha, invert: false, preserve_transparency: true };
-        app.apply(Action::SetTrackMatte { layer_id: 0, config });
-        assert!(app.track_matte_configs.contains_key(&0));
-        app.apply(Action::ClearTrackMatte { layer_id: 0 });
-        assert!(!app.track_matte_configs.contains_key(&0));
-    }
-
-    // ── Batch 6 depth: Precomp ────────────────────────────────────────────────
-
-    #[test]
-    fn test_precompose_selected_pushes() {
-        let mut app = App::new();
-        assert!(app.precomps.is_empty());
-        app.apply(Action::SetPrecompName("My Precomp".to_string()));
-        app.apply(Action::PrecomposeSelected);
-        assert_eq!(app.precomps.len(), 1);
-        assert_eq!(app.precomps[0].name, "My Precomp");
-    }
-
-    #[test]
-    fn test_open_close_precomp() {
-        let mut app = App::new();
-        app.apply(Action::PrecomposeSelected);
-        app.apply(Action::OpenPrecomp(0));
-        assert_eq!(app.active_precomp, Some(0));
-        app.apply(Action::ClosePrecomp);
-        assert_eq!(app.active_precomp, None);
-        app.apply(Action::OpenPrecomp(0));
-        assert_eq!(app.active_precomp, Some(0));
-        app.apply(Action::ReturnToMain);
-        assert_eq!(app.active_precomp, None);
-    }
-
-    #[test]
-    fn test_rename_precomp() {
-        let mut app = App::new();
-        app.apply(Action::PrecomposeSelected);
-        app.apply(Action::RenamePrecomp { idx: 0, name: "Renamed".to_string() });
-        assert_eq!(app.precomps[0].name, "Renamed");
-        // Out-of-bounds rename is a no-op (no panic).
-        app.apply(Action::RenamePrecomp { idx: 99, name: "Oob".to_string() });
-    }
-
-    #[test]
-    fn test_collapse_transforms_toggles() {
-        let mut app = App::new();
-        assert!(!app.collapse_transforms.contains(&5));
-        app.apply(Action::CollapseTransformations { layer_id: 5 });
-        assert!(app.collapse_transforms.contains(&5));
-        // Apply twice → back to absent.
-        app.apply(Action::CollapseTransformations { layer_id: 5 });
-        assert!(!app.collapse_transforms.contains(&5));
     }
 
     // ── Batch 6 depth: 3D Layer ───────────────────────────────────────────────

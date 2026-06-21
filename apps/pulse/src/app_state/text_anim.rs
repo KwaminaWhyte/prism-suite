@@ -1,5 +1,104 @@
 use super::*;
 
+/// Built-in text animation presets.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TextAnimPreset {
+    FlyInFromLeft,
+    FlyInFromRight,
+    FadeIn,
+    FadeOut,
+    Typewriter,
+    Wiggle,
+    ScaleUp,
+    Bounce,
+    SpiralIn,
+    Blur,
+}
+
+/// Which properties a text animator affects.
+#[derive(Clone, Debug, Default)]
+pub struct TextAnimProperty {
+    pub anchor_point: bool,
+    pub position: bool,
+    pub scale: bool,
+    pub rotation: bool,
+    pub opacity: bool,
+    pub fill_color: bool,
+    pub stroke_color: bool,
+    pub blur: bool,
+}
+
+/// Range selector for a text animator.
+#[derive(Clone, Debug)]
+pub struct TextAnimRange {
+    /// 0..=100
+    pub start: f32,
+    pub end: f32,
+    pub offset: f32,
+    /// "Percentage" or "Index"
+    pub units: String,
+    /// "Characters", "Words", or "Lines"
+    pub based_on: String,
+}
+
+impl Default for TextAnimRange {
+    fn default() -> Self {
+        Self {
+            start: 0.0,
+            end: 100.0,
+            offset: 0.0,
+            units: "Percentage".to_string(),
+            based_on: "Characters".to_string(),
+        }
+    }
+}
+
+/// An app-level text animator (separate from comp-model TextAnimator).
+#[derive(Clone, Debug)]
+pub struct TextAnimator {
+    pub id: usize,
+    pub layer_id: usize,
+    pub name: String,
+    pub preset: Option<TextAnimPreset>,
+    pub properties: TextAnimProperty,
+    pub range: TextAnimRange,
+}
+
+/// Parameter kind in a MOGRT template.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MogrParamKind {
+    Text,
+    Color,
+    Number,
+    Bool,
+    Dropdown,
+    Slider,
+}
+
+/// A single editable parameter in a MOGRT template.
+#[derive(Clone, Debug)]
+pub struct MogrParam {
+    pub id: String,
+    pub label: String,
+    pub kind: MogrParamKind,
+    /// Value serialized as string for simplicity.
+    pub value: String,
+    pub min: Option<f32>,
+    pub max: Option<f32>,
+    pub options: Vec<String>,
+}
+
+/// A Motion Graphics Template (MOGRT) for the Essential Graphics panel.
+#[derive(Clone, Debug)]
+pub struct MogrTemplate {
+    pub id: usize,
+    pub name: String,
+    pub description: String,
+    pub params: Vec<MogrParam>,
+    pub composition_id: Option<usize>,
+    pub is_responsive: bool,
+}
+
 impl App {
     pub(super) fn apply_text_anim(&mut self, action: Action) {
         match action {
@@ -211,5 +310,162 @@ impl App {
 
             _ => unreachable!("apply_text_anim called with wrong action"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_text_animator_ext() {
+        let mut app = App::new();
+        assert!(app.text_animators.is_empty());
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        assert_eq!(app.text_animators.len(), 1);
+        assert_eq!(app.text_animators[0].layer_id, 0);
+        assert_eq!(app.text_animators[0].name, "Animator 1");
+        assert!(app.text_animators[0].preset.is_none());
+    }
+
+    #[test]
+    fn test_apply_text_anim_preset() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::ApplyTextAnimPreset { animator_id: id, preset: TextAnimPreset::FadeIn });
+        assert_eq!(app.text_animators[0].preset, Some(TextAnimPreset::FadeIn));
+        app.apply(Action::ApplyTextAnimPreset { animator_id: id, preset: TextAnimPreset::Typewriter });
+        assert_eq!(app.text_animators[0].preset, Some(TextAnimPreset::Typewriter));
+    }
+
+    #[test]
+    fn test_set_text_anim_range() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimRange { animator_id: id, start: 25.0, end: 75.0 });
+        assert!((app.text_animators[0].range.start - 25.0).abs() < 1e-5);
+        assert!((app.text_animators[0].range.end - 75.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_text_anim_range_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimRange { animator_id: id, start: -10.0, end: 200.0 });
+        assert!((app.text_animators[0].range.start - 0.0).abs() < 1e-5);
+        assert!((app.text_animators[0].range.end - 100.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_text_anim_units() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimRangeUnits { animator_id: id, units: "Index".to_string() });
+        assert_eq!(app.text_animators[0].range.units, "Index");
+    }
+
+    #[test]
+    fn test_set_text_anim_based_on() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimBasedOn { animator_id: id, based_on: "Words".to_string() });
+        assert_eq!(app.text_animators[0].range.based_on, "Words");
+    }
+
+    #[test]
+    fn test_remove_text_animator_ext() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        app.apply(Action::AddTextAnimatorExt { layer_id: 1 });
+        assert_eq!(app.text_animators.len(), 2);
+        let id = app.text_animators[0].id;
+        app.apply(Action::RemoveTextAnimatorExt(id));
+        assert_eq!(app.text_animators.len(), 1);
+        assert_eq!(app.text_animators[0].layer_id, 1);
+    }
+
+    #[test]
+    fn test_essential_graphics_open_close() {
+        let mut app = App::new();
+        assert!(!app.essential_graphics_open);
+        app.apply(Action::OpenEssentialGraphics);
+        assert!(app.essential_graphics_open);
+        app.apply(Action::CloseEssentialGraphics);
+        assert!(!app.essential_graphics_open);
+    }
+
+    #[test]
+    fn test_create_mogr_template() {
+        let mut app = App::new();
+        assert!(app.mogrt_templates_v2.is_empty());
+        app.apply(Action::CreateMogrTemplate { name: "Lower Third".to_string(), composition_id: 0 });
+        assert_eq!(app.mogrt_templates_v2.len(), 1);
+        assert_eq!(app.mogrt_templates_v2[0].name, "Lower Third");
+        assert_eq!(app.mogrt_templates_v2[0].composition_id, Some(0));
+        assert!(!app.mogrt_templates_v2[0].is_responsive);
+    }
+
+    #[test]
+    fn test_add_mogr_param() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "T".to_string(), composition_id: 0 });
+        let tid = app.mogrt_templates_v2[0].id;
+        let param = MogrParam {
+            id: "title".to_string(),
+            label: "Title".to_string(),
+            kind: MogrParamKind::Text,
+            value: "Hello".to_string(),
+            min: None,
+            max: None,
+            options: vec![],
+        };
+        app.apply(Action::AddMogrParam { template_id: tid, param });
+        assert_eq!(app.mogrt_templates_v2[0].params.len(), 1);
+        assert_eq!(app.mogrt_templates_v2[0].params[0].label, "Title");
+    }
+
+    #[test]
+    fn test_set_mogr_param_value() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "T".to_string(), composition_id: 0 });
+        let tid = app.mogrt_templates_v2[0].id;
+        let param = MogrParam {
+            id: "speed".to_string(),
+            label: "Speed".to_string(),
+            kind: MogrParamKind::Slider,
+            value: "50".to_string(),
+            min: Some(0.0),
+            max: Some(100.0),
+            options: vec![],
+        };
+        app.apply(Action::AddMogrParam { template_id: tid, param });
+        app.apply(Action::SetMogrParamValue { template_id: tid, param_id: "speed".to_string(), value: "80".to_string() });
+        assert_eq!(app.mogrt_templates_v2[0].params[0].value, "80");
+    }
+
+    #[test]
+    fn test_export_mogrt_sets_responsive() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "T".to_string(), composition_id: 0 });
+        let tid = app.mogrt_templates_v2[0].id;
+        assert!(!app.mogrt_templates_v2[0].is_responsive);
+        app.apply(Action::ExportMogrt { template_id: tid });
+        assert!(app.mogrt_templates_v2[0].is_responsive);
+    }
+
+    #[test]
+    fn test_delete_mogr_template() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "A".to_string(), composition_id: 0 });
+        app.apply(Action::CreateMogrTemplate { name: "B".to_string(), composition_id: 0 });
+        let tid_a = app.mogrt_templates_v2[0].id;
+        app.apply(Action::DeleteMogrTemplate(tid_a));
+        assert_eq!(app.mogrt_templates_v2.len(), 1);
+        assert_eq!(app.mogrt_templates_v2[0].name, "B");
     }
 }

@@ -1,5 +1,196 @@
 use super::*;
 
+/// The editing tools, mirroring the egui app's `Tool` enum (see
+/// `pigment-app/src/app/mod.rs`). The full retouch family (Clone/Heal/etc.) is
+/// included so panel parity is reachable; the GPUI host wires behavior per wave.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tool {
+    Move,      // pan the view (hand)
+    MoveLayer, // translate the active layer
+    Brush,
+    Eraser,
+    Clone, // clone stamp
+    Heal,  // healing brush
+    Dodge, // dodge (lighten)
+    Burn,  // burn (darken)
+    Smudge, // smudge (blend)
+    Fill,
+    Eyedropper,
+    SelectRect,
+    SelectEllipse,
+    Lasso,
+    MagicWand,
+    Transform,
+    Crop,
+    Text,
+    Pen,
+    ShapeRect,
+    ShapeEllipse,
+    Gradient,
+    Slice, // mark rectangular export regions
+    Liquify, // warp mesh push/pull
+}
+
+/// A named rectangular region of the canvas for per-slice export.
+#[derive(Clone, Debug)]
+pub struct Slice {
+    pub id: u32,
+    /// `[x, y, w, h]` in document pixels.
+    pub rect: [f32; 4],
+    pub name: String,
+}
+
+impl Tool {
+    /// Short label for the tools strip / toolbar.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tool::Move => "Move",
+            Tool::MoveLayer => "MoveL",
+            Tool::Brush => "Brush",
+            Tool::Eraser => "Eraser",
+            Tool::Clone => "Clone",
+            Tool::Heal => "Heal",
+            Tool::Dodge => "Dodge",
+            Tool::Burn => "Burn",
+            Tool::Smudge => "Smudge",
+            Tool::Fill => "Fill",
+            Tool::Eyedropper => "Eyedr",
+            Tool::SelectRect => "Rect",
+            Tool::SelectEllipse => "Ellip",
+            Tool::Lasso => "Lasso",
+            Tool::MagicWand => "Wand",
+            Tool::Transform => "Xform",
+            Tool::Crop => "Crop",
+            Tool::Text => "Text",
+            Tool::Pen => "Pen",
+            Tool::ShapeRect => "RectS",
+            Tool::ShapeEllipse => "EllpS",
+            Tool::Gradient => "Grad",
+            Tool::Slice => "Slice",
+            Tool::Liquify => "Liqfy",
+        }
+    }
+
+    /// Stable ordering for the tools strip (matches the egui palette grouping).
+    pub const ALL: [Tool; 24] = [
+        Tool::Move,
+        Tool::MoveLayer,
+        Tool::Brush,
+        Tool::Eraser,
+        Tool::Clone,
+        Tool::Heal,
+        Tool::Dodge,
+        Tool::Burn,
+        Tool::Smudge,
+        Tool::Fill,
+        Tool::Eyedropper,
+        Tool::SelectRect,
+        Tool::SelectEllipse,
+        Tool::Lasso,
+        Tool::MagicWand,
+        Tool::Transform,
+        Tool::Crop,
+        Tool::Text,
+        Tool::Pen,
+        Tool::ShapeRect,
+        Tool::ShapeEllipse,
+        Tool::Gradient,
+        Tool::Slice,
+        Tool::Liquify,
+    ];
+}
+
+
+/// Color profile for display simulation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ColorProfile {
+    #[default]
+    Srgb,
+    AdobeRgb,
+    P3,
+    ProPhoto,
+}
+
+impl ColorProfile {
+    pub fn label(self) -> &'static str {
+        match self {
+            ColorProfile::Srgb => "sRGB",
+            ColorProfile::AdobeRgb => "Adobe RGB",
+            ColorProfile::P3 => "Display P3",
+            ColorProfile::ProPhoto => "ProPhoto RGB",
+        }
+    }
+}
+
+/// Soft-proof mode: simulates output gamut by converting to CMYK and back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SoftProofMode {
+    #[default]
+    Off,
+    Cmyk,
+    PrinterProfile,
+}
+
+impl SoftProofMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            SoftProofMode::Off => "Off",
+            SoftProofMode::Cmyk => "CMYK",
+            SoftProofMode::PrinterProfile => "Printer Profile",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            SoftProofMode::Off => SoftProofMode::Cmyk,
+            SoftProofMode::Cmyk => SoftProofMode::PrinterProfile,
+            SoftProofMode::PrinterProfile => SoftProofMode::Off,
+        }
+    }
+}
+
+
+/// Histogram display channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HistogramChannel {
+    #[default]
+    Luminosity,
+    Rgb,
+    Red,
+    Green,
+    Blue,
+}
+
+impl HistogramChannel {
+    pub fn label(self) -> &'static str {
+        match self {
+            HistogramChannel::Luminosity => "Luma",
+            HistogramChannel::Rgb => "RGB",
+            HistogramChannel::Red => "R",
+            HistogramChannel::Green => "G",
+            HistogramChannel::Blue => "B",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            HistogramChannel::Luminosity => HistogramChannel::Rgb,
+            HistogramChannel::Rgb => HistogramChannel::Red,
+            HistogramChannel::Red => HistogramChannel::Green,
+            HistogramChannel::Green => HistogramChannel::Blue,
+            HistogramChannel::Blue => HistogramChannel::Luminosity,
+        }
+    }
+}
+
+/// Color mode for the document.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorMode {
+    Rgb,
+    Cmyk,
+    Hsl,
+    Lab,
+}
+
+
 impl App {
     pub(super) fn apply_canvas(&mut self, action: Action) {
         match action {
@@ -143,5 +334,79 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_label() {
+        assert_eq!(Tool::Brush.label(), "Brush");
+        assert_eq!(Tool::Eraser.label(), "Eraser");
+        assert_eq!(Tool::Liquify.label(), "Liqfy");
+    }
+
+    #[test]
+    fn test_tool_all_count() {
+        assert_eq!(Tool::ALL.len(), 24);
+    }
+
+    #[test]
+    fn test_color_profile_label() {
+        assert_eq!(ColorProfile::Srgb.label(), "sRGB");
+        assert_eq!(ColorProfile::AdobeRgb.label(), "Adobe RGB");
+        assert_eq!(ColorProfile::P3.label(), "Display P3");
+    }
+
+    #[test]
+    fn test_soft_proof_mode_cycle() {
+        assert_eq!(SoftProofMode::Off.next(), SoftProofMode::Cmyk);
+        assert_eq!(SoftProofMode::Cmyk.next(), SoftProofMode::PrinterProfile);
+        assert_eq!(SoftProofMode::PrinterProfile.next(), SoftProofMode::Off);
+    }
+
+    #[test]
+    fn test_histogram_channel_cycle() {
+        assert_eq!(HistogramChannel::Luminosity.next(), HistogramChannel::Rgb);
+        assert_eq!(HistogramChannel::Blue.next(), HistogramChannel::Luminosity);
+    }
+
+    #[test]
+    fn test_histogram_channel_label() {
+        assert_eq!(HistogramChannel::Luminosity.label(), "Luma");
+        assert_eq!(HistogramChannel::Red.label(), "R");
+    }
+
+    #[test]
+    fn test_set_color_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetColorMode(ColorMode::Cmyk));
+        assert_eq!(app.color_mode, ColorMode::Cmyk);
+    }
+
+    #[test]
+    fn test_set_color_profile() {
+        let mut app = App::new();
+        app.apply(Action::SetColorProfile(ColorProfile::P3));
+        assert_eq!(app.color_profile, ColorProfile::P3);
+    }
+
+    #[test]
+    fn test_toggle_grid_snap() {
+        let mut app = App::new();
+        let before = app.snap_to_grid;
+        app.apply(Action::ToggleGridSnap);
+        assert_eq!(app.snap_to_grid, !before);
+    }
+
+    #[test]
+    fn test_add_remove_guide() {
+        let mut app = App::new();
+        app.apply(Action::AddGuideH(100.0));
+        assert_eq!(app.guides_h.len(), 1);
+        app.apply(Action::RemoveGuide { horizontal: true, idx: 0 });
+        assert_eq!(app.guides_h.len(), 0);
     }
 }

@@ -1,5 +1,145 @@
 use super::*;
 
+/// A node in a pen/bézier path: anchor position plus control handles.
+#[derive(Clone, Debug)]
+pub struct PenNode {
+    pub pos: (f32, f32),
+    pub ctrl_in: (f32, f32),
+    pub ctrl_out: (f32, f32),
+}
+
+/// Brush state, mirroring the egui app's defaults. `color` is straight sRGB
+/// RGBA in 0..1 (the egui app stores `Color32::from_rgb(20, 120, 230)`).
+#[derive(Clone, Copy, Debug)]
+pub struct Brush {
+    pub color: [f32; 4],
+    pub size: f32,
+    pub hardness: f32,
+    pub opacity: f32,
+}
+
+impl Default for Brush {
+    fn default() -> Self {
+        Self {
+            // egui: Color32::from_rgb(20, 120, 230)
+            color: [20.0 / 255.0, 120.0 / 255.0, 230.0 / 255.0, 1.0],
+            size: 40.0,
+            hardness: 0.5,
+            opacity: 1.0,
+        }
+    }
+}
+
+/// Liquify warp mode — only Warp is currently rasterised; others are stub.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LiquifyMode {
+    #[default]
+    Warp,
+    Twirl,
+    Pucker,
+    Bloat,
+}
+
+impl LiquifyMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            LiquifyMode::Warp => "Warp",
+            LiquifyMode::Twirl => "Twirl",
+            LiquifyMode::Pucker => "Pucker",
+            LiquifyMode::Bloat => "Bloat",
+        }
+    }
+}
+
+/// Heal tool blending mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HealMode {
+    /// Gaussian feathered blend (default) — 8px feather at patch boundary.
+    #[default]
+    Normal,
+    /// No blending — acts like a clone stamp.
+    Replace,
+    /// Delegates to content-aware fill for the healed area.
+    Content,
+}
+
+impl HealMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            HealMode::Normal => "Normal",
+            HealMode::Replace => "Replace",
+            HealMode::Content => "Content",
+        }
+    }
+}
+
+
+// ---- Batch 5: Pattern Stamp ---------------------------------------------
+
+/// A repeating tile pattern stored in the pattern library.
+#[derive(Clone, Debug)]
+pub struct PatternDef {
+    pub name: String,
+    /// Row-major RGBA float pixels, linear-light premultiplied.
+    pub pixels: Vec<[f32; 4]>,
+    pub width: u32,
+    pub height: u32,
+}
+
+
+// ---- Batch 7: Spot Heal / Red Eye -------------------------------------------
+
+/// Algorithm used by the Spot Healing Brush.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SpotHealMode {
+    ContentAware,
+    TextureMatch,
+    ProximityMatch,
+}
+
+impl Default for SpotHealMode {
+    fn default() -> Self { SpotHealMode::ContentAware }
+}
+
+// ---- Batch 5 (new): Liquify Depth -------------------------------------------
+
+/// Available tools inside the Liquify filter.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum LiquifyTool {
+    #[default]
+    Forward,
+    Reconstruct,
+    Smooth,
+    Twirl,
+    Pucker,
+    Bloat,
+    PushLeft,
+    Mirror,
+    Turbulence,
+}
+
+/// A single Liquify brush stroke recorded for undo / replay.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LiquifyStroke {
+    pub tool: LiquifyTool,
+    pub center: [f32; 2],
+    pub radius: f32,
+    pub pressure: f32,
+    /// Rotation angle in degrees (used by Twirl).
+    pub angle: f32,
+}
+
+/// Warp-mesh metadata (no pixel data — mesh is rebuilt from strokes).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct LiquifyMesh {
+    pub width: u32,
+    pub height: u32,
+    /// Number of mesh subdivisions (default 4).
+    pub subdivisions: u8,
+}
+
+
+
 impl App {
     pub(super) fn apply_painting(&mut self, action: Action) {
         match action {
@@ -151,5 +291,94 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_brush_default() {
+        let b = Brush::default();
+        assert_eq!(b.size, 40.0);
+        assert_eq!(b.hardness, 0.5);
+        assert_eq!(b.opacity, 1.0);
+    }
+
+    #[test]
+    fn test_pen_node_fields() {
+        let n = PenNode { pos: (1.0, 2.0), ctrl_in: (0.0, 0.0), ctrl_out: (3.0, 4.0) };
+        assert_eq!(n.pos, (1.0, 2.0));
+        assert_eq!(n.ctrl_out, (3.0, 4.0));
+    }
+
+    #[test]
+    fn test_liquify_mode_label() {
+        assert_eq!(LiquifyMode::Warp.label(), "Warp");
+        assert_eq!(LiquifyMode::Twirl.label(), "Twirl");
+    }
+
+    #[test]
+    fn test_heal_mode_label() {
+        assert_eq!(HealMode::Normal.label(), "Normal");
+        assert_eq!(HealMode::Content.label(), "Content");
+    }
+
+    #[test]
+    fn test_spot_heal_mode_default() {
+        assert_eq!(SpotHealMode::default(), SpotHealMode::ContentAware);
+    }
+
+    #[test]
+    fn test_liquify_tool_default() {
+        assert_eq!(LiquifyTool::default(), LiquifyTool::Forward);
+    }
+
+    #[test]
+    fn test_liquify_mesh_default() {
+        let mesh = LiquifyMesh::default();
+        assert_eq!(mesh.subdivisions, 0);
+    }
+
+    #[test]
+    fn test_pattern_def_fields() {
+        let p = PatternDef {
+            name: "dots".into(),
+            pixels: vec![[1.0, 0.0, 0.0, 1.0]],
+            width: 1,
+            height: 1,
+        };
+        assert_eq!(p.name, "dots");
+        assert_eq!(p.width, 1);
+    }
+
+    #[test]
+    fn test_set_brush_size() {
+        let mut app = App::new();
+        app.apply(Action::SetBrushSize(80.0));
+        assert_eq!(app.brush.size, 80.0);
+    }
+
+    #[test]
+    fn test_set_brush_color() {
+        let mut app = App::new();
+        app.apply(Action::SetBrushColor([1.0, 0.0, 0.0, 1.0]));
+        assert_eq!(app.brush.color[0], 1.0);
+        assert_eq!(app.brush.color[1], 0.0);
+    }
+
+    #[test]
+    fn test_set_heal_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetHealMode(HealMode::Replace));
+        assert_eq!(app.heal_mode, HealMode::Replace);
+    }
+
+    #[test]
+    fn test_set_spot_heal_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetSpotHealMode(SpotHealMode::TextureMatch));
+        assert_eq!(app.spot_heal_mode, SpotHealMode::TextureMatch);
     }
 }

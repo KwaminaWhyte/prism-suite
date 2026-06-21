@@ -1,5 +1,33 @@
 use super::*;
 
+// ---- Batch 5 (new): Content-Aware Crop --------------------------------------
+
+/// Fill method used when Content-Aware Crop extends canvas edges.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub enum CaFillMethod {
+    #[default]
+    ContentAware,
+    EdgeExtend,
+    Transparent,
+}
+
+/// Parameters for the Content-Aware Crop tool.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ContentAwareCropConfig {
+    /// Rotation correction angle in degrees.
+    pub angle: f32,
+    /// Which algorithm fills the exposed areas.
+    pub fill_method: CaFillMethod,
+    /// Whether content-aware fill is active during crop.
+    pub enabled: bool,
+}
+
+impl Default for ContentAwareCropConfig {
+    fn default() -> Self {
+        Self { angle: 0.0, fill_method: CaFillMethod::ContentAware, enabled: true }
+    }
+}
+
 impl App {
     pub(super) fn apply_transforms(&mut self, action: Action) {
         match action {
@@ -31,5 +59,51 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ca_fill_method_default() {
+        let m = CaFillMethod::default();
+        assert!(matches!(m, CaFillMethod::ContentAware));
+    }
+
+    #[test]
+    fn test_content_aware_crop_config_default() {
+        let cfg = ContentAwareCropConfig::default();
+        assert_eq!(cfg.angle, 0.0);
+        assert!(cfg.enabled);
+        assert!(matches!(cfg.fill_method, CaFillMethod::ContentAware));
+    }
+
+    #[test]
+    fn test_set_ca_crop_angle_clamps() {
+        let mut app = App::new();
+        app.apply(Action::SetCaCropAngle(90.0));
+        assert_eq!(app.ca_crop_config.angle, 45.0);
+        app.apply(Action::SetCaCropAngle(-90.0));
+        assert_eq!(app.ca_crop_config.angle, -45.0);
+        app.apply(Action::SetCaCropAngle(10.0));
+        assert_eq!(app.ca_crop_config.angle, 10.0);
+    }
+
+    #[test]
+    fn test_set_ca_crop_enabled() {
+        let mut app = App::new();
+        app.apply(Action::SetCaCropEnabled(false));
+        assert!(!app.ca_crop_config.enabled);
+        app.apply(Action::SetCaCropEnabled(true));
+        assert!(app.ca_crop_config.enabled);
+    }
+
+    #[test]
+    fn test_cancel_crop_clears_rect() {
+        let mut app = App::new();
+        app.apply(Action::CancelCrop);
+        assert!(app.crop_rect.is_none());
     }
 }

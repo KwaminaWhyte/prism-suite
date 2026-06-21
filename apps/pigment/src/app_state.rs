@@ -1014,6 +1014,188 @@ pub enum Action {
     SetHdrBitDepth(u8),
     /// Execute HDR Merge (stub: sets hdr_merge_result).
     MergeToHdr,
+
+    // ---- New Feature: SmartObject (rich) ------------------------------------
+    /// Convert a layer into an embedded Smart Object (rich struct variant).
+    SmartObjectConvert { layer_id: usize },
+    /// Replace the source of a Smart Object and mark it dirty.
+    SmartObjectReplace { so_id: usize, new_path: String },
+    /// Rasterize (remove) a rich Smart Object by its id.
+    SmartObjectRasterize { so_id: usize },
+    /// Export (mark clean) a Smart Object's contents by its id.
+    SmartObjectExport { so_id: usize },
+
+    // ---- New Feature: AdvancedMasking (Select & Mask workspace) -------------
+    /// Open the Select & Mask workspace.
+    OpenSelectMask,
+    /// Close the Select & Mask workspace.
+    CloseSelectMask,
+    /// Set the Detect Edges radius (clamped 0..=250).
+    SetSelectMaskRadius(f32),
+    /// Set the boundary-smooth amount (clamped 0..=100).
+    SetSelectMaskSmooth(u8),
+    /// Set the feather radius (clamped 0..=250).
+    SetSelectMaskFeather(f32),
+    /// Set the contrast value (clamped 0..=100).
+    SetSelectMaskContrast(u8),
+    /// Set the shift-edge amount (clamped -100..=100).
+    SetSelectMaskShiftEdge(i8),
+    /// Commit the refined mask and close the workspace.
+    ApplySelectMask,
+
+    // ---- New Feature: GenerativeFill ----------------------------------------
+    /// Set the text prompt for the next generative fill run.
+    SetGenerativeFillPrompt(String),
+    /// Run generative fill on `layer_id` with the current prompt (4 variations).
+    RunGenerativeFill { layer_id: usize },
+    /// Advance the variation shown for a pending result by one step.
+    CycleGenerativeFillVariation { result_index: usize },
+    /// Accept and commit a generative fill result (removes it from pending list).
+    AcceptGenerativeFill { result_index: usize },
+    /// Discard a generative fill result (removes it from pending list).
+    DiscardGenerativeFill { result_index: usize },
+
+    // ---- New Feature: Basic3DLayer ------------------------------------------
+    /// Add a new 3-D layer with the given primitive shape.
+    Create3DLayer { layer_id: usize, shape: Shape3DKind },
+    /// Move a 3-D layer to a new position.
+    Set3DPosition { layer_id: usize, x: f32, y: f32, z: f32 },
+    /// Rotate a 3-D layer (Euler angles in degrees).
+    SetLayer3DRotation { layer_id: usize, x: f32, y: f32, z: f32 },
+    /// Scale a 3-D layer (per-axis, clamped 0.01..=10.0).
+    Set3DScale { layer_id: usize, x: f32, y: f32, z: f32 },
+    /// Set the extrude depth of a 3-D layer (clamped 0..=5000).
+    Set3DExtrudeDepth { layer_id: usize, depth: f32 },
+    /// Flatten a 3-D layer back to a raster layer (removes it from the 3-D list).
+    Flatten3DLayer { layer_id: usize },
+}
+
+// ---- New Feature: SmartObject (rich) -----------------------------------------
+
+/// Whether the Smart Object embeds its contents or links to an external file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmartObjectKind {
+    Embedded,
+    Linked,
+}
+
+/// A rich Smart Object entry — tracks id, name, kind, source path, and dirty flag.
+#[derive(Debug, Clone)]
+pub struct SmartObject {
+    pub id: usize,
+    pub name: String,
+    pub kind: SmartObjectKind,
+    pub source_path: Option<String>,
+    pub contents_dirty: bool,
+}
+
+// ---- New Feature: AdvancedMasking (Select & Mask workspace) ------------------
+
+/// Edge detection algorithm used in the Select & Mask workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EdgeDetectMode {
+    Object,
+    Hair,
+    Custom,
+}
+
+/// Full configuration for the Select & Mask / Refine Edge workspace.
+#[derive(Debug, Clone)]
+pub struct SelectMaskConfig {
+    /// Detect Edges radius (0..=250).
+    pub radius: f32,
+    /// Automatically adjust the radius around complex edges.
+    pub smart_radius: bool,
+    /// Smooth the selection boundary (0..=100).
+    pub smooth: u8,
+    /// Gaussian feather applied to the mask edge (0..=250).
+    pub feather: f32,
+    /// Increase edge definition (0..=100).
+    pub contrast: u8,
+    /// Shrink or grow the selection boundary (-100..=100).
+    pub shift_edge: i8,
+    /// Where to deliver the refined mask.
+    pub output_to: String,
+    /// Remove colour fringing around the mask edge.
+    pub decontaminate_colors: bool,
+    /// Algorithm for Detect Edges.
+    pub edge_detect: EdgeDetectMode,
+}
+
+impl SelectMaskConfig {
+    pub fn new() -> Self {
+        Self {
+            radius: 3.0,
+            smart_radius: true,
+            smooth: 3,
+            feather: 0.0,
+            contrast: 0,
+            shift_edge: 0,
+            output_to: "Mask".into(),
+            decontaminate_colors: false,
+            edge_detect: EdgeDetectMode::Object,
+        }
+    }
+}
+
+// ---- New Feature: GenerativeFill ---------------------------------------------
+
+/// One pending generative-fill result that the user can cycle through or accept.
+#[derive(Debug, Clone)]
+pub struct GenerativeFillResult {
+    pub layer_id: usize,
+    pub prompt: String,
+    pub variation_index: usize,
+    pub variation_count: usize,
+}
+
+// ---- New Feature: Basic3DLayer -----------------------------------------------
+
+/// The built-in primitive shape kinds for a 3-D layer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Shape3DKind {
+    Cube,
+    Sphere,
+    Cylinder,
+    Cone,
+    Plane,
+    Custom,
+}
+
+/// Transform and geometry for a single 3-D layer.
+#[derive(Debug, Clone)]
+pub struct Layer3DProps {
+    pub layer_id: usize,
+    pub shape: Shape3DKind,
+    pub pos_x: f32,
+    pub pos_y: f32,
+    pub pos_z: f32,
+    pub rot_x: f32,
+    pub rot_y: f32,
+    pub rot_z: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub scale_z: f32,
+    pub extrude_depth: f32,
+}
+
+impl Layer3DProps {
+    pub fn new(layer_id: usize) -> Self {
+        Self {
+            layer_id,
+            shape: Shape3DKind::Cube,
+            pos_x: 0.0,
+            pos_y: 0.0,
+            pos_z: 0.0,
+            rot_x: 0.0,
+            rot_y: 0.0,
+            rot_z: 0.0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            scale_z: 1.0,
+            extrude_depth: 0.0,
+        }
+    }
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in
@@ -2010,6 +2192,30 @@ pub struct App {
     pub hdr_merge_panel_open: bool,
     /// Stub result path set after MergeToHdr.
     pub hdr_merge_result: Option<String>,
+
+    // ---- New Feature: SmartObject (rich) ------------------------------------
+    /// Rich Smart Object entries (id-keyed, independent of the legacy HashMap).
+    pub smart_object_list: Vec<SmartObject>,
+    /// Auto-incrementing id counter for new Smart Objects.
+    pub smart_object_counter: usize,
+
+    // ---- New Feature: AdvancedMasking (Select & Mask workspace) -------------
+    /// Current Select & Mask configuration.
+    pub select_mask_config: SelectMaskConfig,
+    /// Whether the Select & Mask workspace is open.
+    pub select_mask_open: bool,
+
+    // ---- New Feature: GenerativeFill ----------------------------------------
+    /// Pending generative fill results awaiting user accept/discard.
+    pub generative_fill_results: Vec<GenerativeFillResult>,
+    /// Current text prompt for the next generative fill run.
+    pub generative_fill_prompt: String,
+
+    // ---- New Feature: Basic3DLayer ------------------------------------------
+    /// Per-layer 3-D transform and geometry properties.
+    pub layer_3d_props: Vec<Layer3DProps>,
+    /// The layer_id of the currently active 3-D layer (None = none).
+    pub active_3d_layer: Option<usize>,
 }
 
 /// Non-destructive filter applied on top of a layer without touching its pixels.
@@ -2845,6 +3051,18 @@ impl App {
             hdr_merge_config: HdrMergeConfig::default(),
             hdr_merge_panel_open: false,
             hdr_merge_result: None,
+            // New Feature: SmartObject (rich)
+            smart_object_list: Vec::new(),
+            smart_object_counter: 0,
+            // New Feature: AdvancedMasking
+            select_mask_config: SelectMaskConfig::new(),
+            select_mask_open: false,
+            // New Feature: GenerativeFill
+            generative_fill_results: Vec::new(),
+            generative_fill_prompt: String::new(),
+            // New Feature: Basic3DLayer
+            layer_3d_props: Vec::new(),
+            active_3d_layer: None,
         }
     }
 
@@ -4806,6 +5024,133 @@ impl App {
             }
             Action::MergeToHdr => {
                 self.hdr_merge_result = Some("merged_hdr.tif".to_string());
+            }
+
+            // ---- New Feature: SmartObject (rich) --------------------------------
+
+            Action::SmartObjectConvert { layer_id } => {
+                let id = self.smart_object_counter;
+                self.smart_object_counter += 1;
+                self.smart_object_list.push(SmartObject {
+                    id,
+                    name: format!("Smart Object {id}"),
+                    kind: SmartObjectKind::Embedded,
+                    source_path: None,
+                    contents_dirty: false,
+                });
+                let _ = layer_id; // associated layer; tracked by caller
+            }
+            Action::SmartObjectReplace { so_id, new_path } => {
+                if let Some(so) = self.smart_object_list.iter_mut().find(|s| s.id == so_id) {
+                    so.source_path = Some(new_path);
+                    so.contents_dirty = true;
+                }
+            }
+            Action::SmartObjectRasterize { so_id } => {
+                self.smart_object_list.retain(|s| s.id != so_id);
+            }
+            Action::SmartObjectExport { so_id } => {
+                if let Some(so) = self.smart_object_list.iter_mut().find(|s| s.id == so_id) {
+                    so.contents_dirty = false;
+                }
+            }
+
+            // ---- New Feature: AdvancedMasking -----------------------------------
+
+            Action::OpenSelectMask => {
+                self.select_mask_open = true;
+            }
+            Action::CloseSelectMask => {
+                self.select_mask_open = false;
+            }
+            Action::SetSelectMaskRadius(r) => {
+                self.select_mask_config.radius = r.clamp(0.0, 250.0);
+            }
+            Action::SetSelectMaskSmooth(s) => {
+                self.select_mask_config.smooth = s.min(100);
+            }
+            Action::SetSelectMaskFeather(f) => {
+                self.select_mask_config.feather = f.clamp(0.0, 250.0);
+            }
+            Action::SetSelectMaskContrast(c) => {
+                self.select_mask_config.contrast = c.min(100);
+            }
+            Action::SetSelectMaskShiftEdge(e) => {
+                self.select_mask_config.shift_edge = e.clamp(-100, 100);
+            }
+            Action::ApplySelectMask => {
+                self.select_mask_open = false;
+            }
+
+            // ---- New Feature: GenerativeFill ------------------------------------
+
+            Action::SetGenerativeFillPrompt(prompt) => {
+                self.generative_fill_prompt = prompt;
+            }
+            Action::RunGenerativeFill { layer_id } => {
+                let prompt = self.generative_fill_prompt.clone();
+                self.generative_fill_results.push(GenerativeFillResult {
+                    layer_id,
+                    prompt,
+                    variation_index: 0,
+                    variation_count: 4,
+                });
+            }
+            Action::CycleGenerativeFillVariation { result_index } => {
+                if let Some(r) = self.generative_fill_results.get_mut(result_index) {
+                    r.variation_index = (r.variation_index + 1) % r.variation_count;
+                }
+            }
+            Action::AcceptGenerativeFill { result_index } => {
+                if result_index < self.generative_fill_results.len() {
+                    self.generative_fill_results.remove(result_index);
+                }
+            }
+            Action::DiscardGenerativeFill { result_index } => {
+                if result_index < self.generative_fill_results.len() {
+                    self.generative_fill_results.remove(result_index);
+                }
+            }
+
+            // ---- New Feature: Basic3DLayer --------------------------------------
+
+            Action::Create3DLayer { layer_id, shape } => {
+                let mut props = Layer3DProps::new(layer_id);
+                props.shape = shape;
+                self.layer_3d_props.push(props);
+                self.active_3d_layer = Some(layer_id);
+            }
+            Action::Set3DPosition { layer_id, x, y, z } => {
+                if let Some(p) = self.layer_3d_props.iter_mut().find(|p| p.layer_id == layer_id) {
+                    p.pos_x = x;
+                    p.pos_y = y;
+                    p.pos_z = z;
+                }
+            }
+            Action::SetLayer3DRotation { layer_id, x, y, z } => {
+                if let Some(p) = self.layer_3d_props.iter_mut().find(|p| p.layer_id == layer_id) {
+                    p.rot_x = x;
+                    p.rot_y = y;
+                    p.rot_z = z;
+                }
+            }
+            Action::Set3DScale { layer_id, x, y, z } => {
+                if let Some(p) = self.layer_3d_props.iter_mut().find(|p| p.layer_id == layer_id) {
+                    p.scale_x = x.clamp(0.01, 10.0);
+                    p.scale_y = y.clamp(0.01, 10.0);
+                    p.scale_z = z.clamp(0.01, 10.0);
+                }
+            }
+            Action::Set3DExtrudeDepth { layer_id, depth } => {
+                if let Some(p) = self.layer_3d_props.iter_mut().find(|p| p.layer_id == layer_id) {
+                    p.extrude_depth = depth.clamp(0.0, 5000.0);
+                }
+            }
+            Action::Flatten3DLayer { layer_id } => {
+                self.layer_3d_props.retain(|p| p.layer_id != layer_id);
+                if self.active_3d_layer == Some(layer_id) {
+                    self.active_3d_layer = None;
+                }
             }
         }
     }
@@ -7455,6 +7800,7 @@ mod batch5_new_tests {
 mod batch6_tests {
     use super::{
         Action, App, DropShadowFx, HdrToneMappingMethod,
+        SmartObjectKind, Shape3DKind,
     };
 
     // ---- Layer Effects Suite ----
@@ -7627,5 +7973,234 @@ mod batch6_tests {
         let mut app = App::new();
         app.apply(Action::SetHdrToneMethod(HdrToneMappingMethod::Highlight));
         assert_eq!(app.hdr_merge_config.method, HdrToneMappingMethod::Highlight);
+    }
+
+    // ---- SmartObject (rich) ----
+
+    #[test]
+    fn test_smart_object_convert_pushes_entry() {
+        let mut app = App::new();
+        assert!(app.smart_object_list.is_empty());
+        app.apply(Action::SmartObjectConvert { layer_id: 1 });
+        assert_eq!(app.smart_object_list.len(), 1);
+        assert_eq!(app.smart_object_list[0].id, 0);
+        assert_eq!(app.smart_object_list[0].name, "Smart Object 0");
+        assert_eq!(app.smart_object_list[0].kind, SmartObjectKind::Embedded);
+        assert!(!app.smart_object_list[0].contents_dirty);
+    }
+
+    #[test]
+    fn test_smart_object_counter_increments() {
+        let mut app = App::new();
+        app.apply(Action::SmartObjectConvert { layer_id: 1 });
+        app.apply(Action::SmartObjectConvert { layer_id: 2 });
+        assert_eq!(app.smart_object_list[0].id, 0);
+        assert_eq!(app.smart_object_list[1].id, 1);
+        assert_eq!(app.smart_object_counter, 2);
+    }
+
+    #[test]
+    fn test_smart_object_replace_sets_path_and_dirty() {
+        let mut app = App::new();
+        app.apply(Action::SmartObjectConvert { layer_id: 1 });
+        let so_id = app.smart_object_list[0].id;
+        app.apply(Action::SmartObjectReplace { so_id, new_path: "/tmp/file.png".into() });
+        let so = &app.smart_object_list[0];
+        assert_eq!(so.source_path.as_deref(), Some("/tmp/file.png"));
+        assert!(so.contents_dirty);
+    }
+
+    #[test]
+    fn test_smart_object_export_clears_dirty() {
+        let mut app = App::new();
+        app.apply(Action::SmartObjectConvert { layer_id: 1 });
+        let so_id = app.smart_object_list[0].id;
+        app.apply(Action::SmartObjectReplace { so_id, new_path: "/tmp/x.png".into() });
+        assert!(app.smart_object_list[0].contents_dirty);
+        app.apply(Action::SmartObjectExport { so_id });
+        assert!(!app.smart_object_list[0].contents_dirty);
+    }
+
+    #[test]
+    fn test_smart_object_rasterize_removes_entry() {
+        let mut app = App::new();
+        app.apply(Action::SmartObjectConvert { layer_id: 1 });
+        let so_id = app.smart_object_list[0].id;
+        app.apply(Action::SmartObjectRasterize { so_id });
+        assert!(app.smart_object_list.is_empty());
+    }
+
+    // ---- AdvancedMasking ----
+
+    #[test]
+    fn test_select_mask_open_close() {
+        let mut app = App::new();
+        assert!(!app.select_mask_open);
+        app.apply(Action::OpenSelectMask);
+        assert!(app.select_mask_open);
+        app.apply(Action::CloseSelectMask);
+        assert!(!app.select_mask_open);
+    }
+
+    #[test]
+    fn test_select_mask_apply_closes() {
+        let mut app = App::new();
+        app.apply(Action::OpenSelectMask);
+        assert!(app.select_mask_open);
+        app.apply(Action::ApplySelectMask);
+        assert!(!app.select_mask_open);
+    }
+
+    #[test]
+    fn test_select_mask_radius_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSelectMaskRadius(-5.0));
+        assert!((app.select_mask_config.radius - 0.0).abs() < 1e-5);
+        app.apply(Action::SetSelectMaskRadius(999.0));
+        assert!((app.select_mask_config.radius - 250.0).abs() < 1e-5);
+        app.apply(Action::SetSelectMaskRadius(100.0));
+        assert!((app.select_mask_config.radius - 100.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_select_mask_smooth_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSelectMaskSmooth(200));
+        assert_eq!(app.select_mask_config.smooth, 100);
+        app.apply(Action::SetSelectMaskSmooth(50));
+        assert_eq!(app.select_mask_config.smooth, 50);
+    }
+
+    #[test]
+    fn test_select_mask_shift_edge_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSelectMaskShiftEdge(-120));
+        assert_eq!(app.select_mask_config.shift_edge, -100);
+        app.apply(Action::SetSelectMaskShiftEdge(120));
+        assert_eq!(app.select_mask_config.shift_edge, 100);
+        app.apply(Action::SetSelectMaskShiftEdge(30));
+        assert_eq!(app.select_mask_config.shift_edge, 30);
+    }
+
+    // ---- GenerativeFill ----
+
+    #[test]
+    fn test_generative_fill_set_prompt() {
+        let mut app = App::new();
+        app.apply(Action::SetGenerativeFillPrompt("sunny beach".into()));
+        assert_eq!(app.generative_fill_prompt, "sunny beach");
+    }
+
+    #[test]
+    fn test_generative_fill_run_pushes_result() {
+        let mut app = App::new();
+        app.apply(Action::SetGenerativeFillPrompt("mountain lake".into()));
+        app.apply(Action::RunGenerativeFill { layer_id: 42 });
+        assert_eq!(app.generative_fill_results.len(), 1);
+        let r = &app.generative_fill_results[0];
+        assert_eq!(r.layer_id, 42);
+        assert_eq!(r.prompt, "mountain lake");
+        assert_eq!(r.variation_index, 0);
+        assert_eq!(r.variation_count, 4);
+    }
+
+    #[test]
+    fn test_generative_fill_cycle_variation() {
+        let mut app = App::new();
+        app.apply(Action::RunGenerativeFill { layer_id: 1 });
+        app.apply(Action::CycleGenerativeFillVariation { result_index: 0 });
+        assert_eq!(app.generative_fill_results[0].variation_index, 1);
+        // Wraps around at variation_count (4).
+        for _ in 0..3 {
+            app.apply(Action::CycleGenerativeFillVariation { result_index: 0 });
+        }
+        assert_eq!(app.generative_fill_results[0].variation_index, 0);
+    }
+
+    #[test]
+    fn test_generative_fill_accept_removes() {
+        let mut app = App::new();
+        app.apply(Action::RunGenerativeFill { layer_id: 1 });
+        app.apply(Action::RunGenerativeFill { layer_id: 2 });
+        assert_eq!(app.generative_fill_results.len(), 2);
+        app.apply(Action::AcceptGenerativeFill { result_index: 0 });
+        assert_eq!(app.generative_fill_results.len(), 1);
+        assert_eq!(app.generative_fill_results[0].layer_id, 2);
+    }
+
+    #[test]
+    fn test_generative_fill_discard_removes() {
+        let mut app = App::new();
+        app.apply(Action::RunGenerativeFill { layer_id: 5 });
+        app.apply(Action::DiscardGenerativeFill { result_index: 0 });
+        assert!(app.generative_fill_results.is_empty());
+    }
+
+    // ---- Basic3DLayer ----
+
+    #[test]
+    fn test_create_3d_layer_sets_active() {
+        let mut app = App::new();
+        assert!(app.active_3d_layer.is_none());
+        app.apply(Action::Create3DLayer { layer_id: 7, shape: Shape3DKind::Sphere });
+        assert_eq!(app.active_3d_layer, Some(7));
+        assert_eq!(app.layer_3d_props.len(), 1);
+        assert_eq!(app.layer_3d_props[0].shape, Shape3DKind::Sphere);
+    }
+
+    #[test]
+    fn test_set_3d_position() {
+        let mut app = App::new();
+        app.apply(Action::Create3DLayer { layer_id: 3, shape: Shape3DKind::Cube });
+        app.apply(Action::Set3DPosition { layer_id: 3, x: 10.0, y: 20.0, z: 30.0 });
+        let p = &app.layer_3d_props[0];
+        assert!((p.pos_x - 10.0).abs() < 1e-5);
+        assert!((p.pos_y - 20.0).abs() < 1e-5);
+        assert!((p.pos_z - 30.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_layer_3d_rotation() {
+        let mut app = App::new();
+        app.apply(Action::Create3DLayer { layer_id: 4, shape: Shape3DKind::Cone });
+        app.apply(Action::SetLayer3DRotation { layer_id: 4, x: 45.0, y: 90.0, z: 180.0 });
+        let p = &app.layer_3d_props[0];
+        assert!((p.rot_x - 45.0).abs() < 1e-5);
+        assert!((p.rot_y - 90.0).abs() < 1e-5);
+        assert!((p.rot_z - 180.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_3d_scale_clamped() {
+        let mut app = App::new();
+        app.apply(Action::Create3DLayer { layer_id: 5, shape: Shape3DKind::Plane });
+        app.apply(Action::Set3DScale { layer_id: 5, x: 0.0, y: 50.0, z: 2.0 });
+        let p = &app.layer_3d_props[0];
+        // 0.0 clamped to 0.01, 50.0 clamped to 10.0, 2.0 unchanged
+        assert!((p.scale_x - 0.01).abs() < 1e-5);
+        assert!((p.scale_y - 10.0).abs() < 1e-5);
+        assert!((p.scale_z - 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_3d_extrude_depth_clamp() {
+        let mut app = App::new();
+        app.apply(Action::Create3DLayer { layer_id: 6, shape: Shape3DKind::Cylinder });
+        app.apply(Action::Set3DExtrudeDepth { layer_id: 6, depth: -10.0 });
+        assert!((app.layer_3d_props[0].extrude_depth - 0.0).abs() < 1e-5);
+        app.apply(Action::Set3DExtrudeDepth { layer_id: 6, depth: 9999.0 });
+        assert!((app.layer_3d_props[0].extrude_depth - 5000.0).abs() < 1e-5);
+        app.apply(Action::Set3DExtrudeDepth { layer_id: 6, depth: 200.0 });
+        assert!((app.layer_3d_props[0].extrude_depth - 200.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_flatten_3d_layer_removes_and_clears_active() {
+        let mut app = App::new();
+        app.apply(Action::Create3DLayer { layer_id: 8, shape: Shape3DKind::Custom });
+        assert_eq!(app.active_3d_layer, Some(8));
+        app.apply(Action::Flatten3DLayer { layer_id: 8 });
+        assert!(app.layer_3d_props.is_empty());
+        assert!(app.active_3d_layer.is_none());
     }
 }

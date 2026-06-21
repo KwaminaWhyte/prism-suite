@@ -1,6 +1,6 @@
-# Contributing to prism-suite-prism
+# Contributing to prism-suite
 
-Thank you for contributing to the Prism engine layer. This repo contains the shared crates used by all four Prism apps. Changes here affect every app, so the bar for quality is higher than for app-specific work.
+Thank you for contributing to the Prism suite. This repo contains six apps and the shared crates they all depend on. Changes to shared crates affect every app, so the bar for quality is higher than for app-specific work.
 
 ## Setting up the dev environment
 
@@ -14,7 +14,7 @@ Clone the repo and build:
 
 ```bash
 git clone https://github.com/KwaminaWhyte/prism-suite.git
-cd prism-suite-prism
+cd prism-suite
 cargo build
 ```
 

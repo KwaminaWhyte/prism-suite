@@ -1,20 +1,22 @@
 # Prism Suite — Research Findings (June 2026)
 
-Suite-level research backing [SUITE.md](./SUITE.md) (vision + interop) and the four app plans. This doc
+Suite-level research backing [SUITE.md](./SUITE.md) (vision + interop) and the six app plans. This doc
 covers the **shared engine, the interop mechanisms, and the cross-cutting policies** (color, AI) that all
-four apps inherit. App-specific findings live in each app's own `RESEARCH.md`:
+six apps inherit. App-specific findings live in each app's own `RESEARCH.md`:
 
-- [Pigment](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) — raster engine, compositor, blend math, brush, color IO, AI tools
-- [Contour](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) — vector path engine, booleans, SVG/PDF, image trace, gradients
-- [Pulse](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) — time-addressable compositing, keyframes/expressions, effects, media
-- [Reel](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) — NLE editing model, video/audio decode, transitions, color, export
+- [Pigment](apps/pigment/RESEARCH.md) — raster engine, compositor, blend math, brush, color IO, AI tools
+- [Contour](apps/contour/RESEARCH.md) — vector path engine, booleans, SVG/PDF, image trace, gradients
+- [Pulse](apps/pulse/RESEARCH.md) — time-addressable compositing, keyframes/expressions, effects, media
+- [Reel](apps/reel/RESEARCH.md) — NLE editing model, video/audio decode, transitions, color, export
+- [Drift](apps/drift/RESEARCH.md) — animation engine, puppet rig, tweening, AI motion gen + lip sync
+- [Tone](apps/tone/RESEARCH.md) — DAW architecture, MIDI, CPAL audio, AI music generation (MusicGen/Demucs/Magenta)
 
 > Verify every crate version against crates.io at build time — third-party version metadata is sometimes
 > stale. `wgpu` confirmed at **29.0.3** (2026-05-02); the `"29"` pin holds suite-wide.
 
 ---
 
-## 1. The architectural bet — one engine, four apps
+## 1. The architectural bet — one engine, six apps
 
 Adobe's moat isn't any single app; it's that the apps **interoperate** because they share a layer/
 compositor/color engine. Prism gets the same property *if and only if* that engine is one codebase. The
@@ -29,12 +31,16 @@ key realization that makes this tractable:
   gains a frame dimension.
 - **Reel** adds **clips on tracks with source in/out ranges**: the program frame is that same composite
   sampled at the playhead, plus an audio mix.
+- **Drift** adds an **animation-first timeline**: vector/bitmap layers keyed over time, puppet rigs,
+  tweening, and AI motion generation — the compositor serves as the wgpu canvas for frame preview.
+- **Tone** is orthogonal: instead of pixels it owns **audio buffers** mixed through a DAG of tracks/clips/
+  buses. The shared DAG/dirty-cache model still applies; the leaf nodes are PCM frames not tiles.
 
-So Pulse = Pigment's compositor + time; Reel = the compositor + a clip/edit model + media. Build the
-compositor **time-agnostic and clip-agnostic**; time and clips are each a thin layer on top. This is why
-the shared crates must never bend toward one app's UI.
+So Pulse = Pigment's compositor + time; Reel = compositor + clip model + media; Drift = compositor + animation
+timeline + puppet rig; Tone = audio DAG + MIDI + AI synthesis. Build the shared layer **time-agnostic,
+clip-agnostic, and pixel-agnostic** — app-specific semantics are each a thin layer on top.
 
-Sources: [SUITE.md](./SUITE.md) · [Pigment RESEARCH.md §2](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) (tile compositing) · [Pulse RESEARCH.md §1](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) · [Reel RESEARCH.md §1](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md)
+Sources: [SUITE.md](./SUITE.md) · [Pigment RESEARCH.md §2](apps/pigment/RESEARCH.md) · [Pulse RESEARCH.md §1](apps/pulse/RESEARCH.md) · [Drift RESEARCH.md](apps/drift/RESEARCH.md) · [Tone RESEARCH.md](apps/tone/RESEARCH.md)
 
 ## 2. Shared crate matrix (current + planned)
 
@@ -43,15 +49,15 @@ and **does not copy or modify** them.
 
 | Crate | Status | Owns | Consumers |
 |---|---|---|---|
-| `prism-core` | **exists** | doc model, `Size`/`Rect`, color boundary, blend modes (18), tile types, adjustments, curve/histogram | pigment, contour, pulse, reel |
-| `prism-color` | **exists** | sRGB/linear, ICC (`lcms2`/`qcms`) — grows OCIO, CMYK, spot, soft-proof | pigment (+ all on color tasks) |
-| `prism-io` | **exists** | image load/export, PSD/EXR, resize, `.pigment`, text raster | pigment, reel (`load_image`) |
-| `prism-canvas` | **exists** | GPU compositor (wgpu/WGSL passes: composite, display, dab, filter, selection) | pigment |
-| `prism-media` | **exists** | FFmpeg decode/encode (H.264 MP4, audio mux), frame-accurate seek, audio tracks | pulse + reel (co-owned) |
-| `prism-ui` | **exists** | GPUI design system: design tokens, SVG icon set, shared components | all four apps |
-| `prism-vector` | **planned** | paths/anchors/handles, booleans (`i_overlay`), stroking/offset (`kurbo`), tessellation (`lyon`) | contour (owner), pigment (shape layers), pulse (masks/shape layers) |
-| `prism-fx` | **planned** | OpenFX-style GPU effect/transition host — author once, run everywhere | pigment (filters), contour (live effects), pulse (effects), reel (transitions/effects) |
-| `prism-ai` | **planned** | `ort` (ONNX) runtime + provider abstraction + on-demand model cache | all (segmentation, matting, upscale, inpaint, transcription) |
+| `prism-core` | **exists** | doc model, `Size`/`Rect`, color boundary, blend modes (18), tile types, adjustments, curve/histogram | pigment, contour, pulse, reel, drift |
+| `prism-color` | **exists** | sRGB/linear, ICC (`lcms2`/`qcms`) — grows OCIO, CMYK, spot, soft-proof | all six apps |
+| `prism-io` | **exists** | image load/export, PSD/EXR, resize, `.pigment`, text raster | pigment, reel, drift |
+| `prism-canvas` | **exists** | GPU compositor (wgpu/WGSL passes: composite, display, dab, filter, selection) | pigment (owner); drift (animation frame preview) |
+| `prism-media` | **exists** | FFmpeg decode/encode (H.264 MP4, audio mux), frame-accurate seek, audio tracks | pulse + reel (co-owned); tone (audio clips) |
+| `prism-ui` | **exists** | GPUI design system: design tokens, SVG icon set, shared components | all six apps |
+| `prism-vector` | **planned** | paths/anchors/handles, booleans (`i_overlay`), stroking/offset (`kurbo`), tessellation (`lyon`) | contour (owner), pigment (shape layers), pulse (masks), drift (vector layers) |
+| `prism-fx` | **planned** | OpenFX-style GPU effect/transition host — author once, run everywhere | pigment, contour, pulse, reel |
+| `prism-ai` | **planned** | `ort` (ONNX) runtime + provider abstraction + on-demand model cache | drift + tone (first users); pigment + pulse + reel (segmentation, inpaint, upscale) |
 | `prism-doc` | **planned** | interchange container (layer tree + scene graph + media refs) + Dynamic-Link node | all (interop) |
 
 **Promotion discipline:** code is promoted to a `prism-*` crate only when it is genuinely generic. The
@@ -63,7 +69,7 @@ Sources: prism/Cargo.toml (workspace members) · each app's Cargo.toml (path dep
 
 ## 3. Interop mechanisms (the Adobe-parity features)
 
-All four reduce to **one render-graph-node abstraction** plus a shared container; build it suite-aware
+All six reduce to **one render-graph-node abstraction** plus a shared container; build it suite-aware
 from the start.
 
 1. **Dynamic Link** — a node that evaluates a *linked* document on demand (at the requested time/
@@ -109,19 +115,23 @@ One runtime, one policy across the suite:
   power select-subject (Pigment), trace-region (Contour), roto (Pulse), object-mask/auto-reframe (Reel);
   inpaint (**LaMa**) powers content-aware fill (Pigment) and video CAF (Reel); super-res (**Real-ESRGAN/
   SwinIR**) is shared; transcription (**Whisper-class**) powers captions/text-based editing (Reel).
+- **Drift-specific models:** motion generation (**MoCoGAN/AnimateDiff**), frame interpolation
+  (**FILM/RIFE**), lip sync from audio (**Wav2Lip**), facial landmark capture (webcam → rig drive).
+- **Tone-specific models:** text-to-audio (**MusicGen-small** ONNX), stem separation (**Demucs HTDemucs-4**),
+  MIDI generation (**Magenta Melody RNN / Music Transformer**), chord harmonization.
 - **Generative fill / expand / extend — explicit suite policy: OPTIONAL and PLUGGABLE.** It runs via a
   provider abstraction with **two interchangeable backends — a local diffusion model (`candle`/ONNX) and
   a user-configured cloud endpoint (bring-your-own API key)** — plus "none". It is **never required** for
   core editing; the apps are fully functional with no AI backend configured. This applies uniformly to
-  Pigment (Generative Fill), Contour (Generative Recolor/vectorize), Pulse (Generative Extend), and Reel
-  (Generative Extend).
+  Pigment (Generative Fill), Contour (Generative Recolor/vectorize), Pulse (Generative Extend), Reel
+  (Generative Extend), Drift (Motion Generate), and Tone (Generate Track / Harmonize).
 
 Sources: [Pigment RESEARCH.md §10](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) · [Contour RESEARCH.md §8](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) · [Pulse RESEARCH.md §7](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) · [Reel RESEARCH.md §9](https://github.com/KwaminaWhyte/prism-suite/blob/main/RESEARCH.md) · github.com/pykeio/ort
 
 ## 6. Shared app shell & tooling
 
 - **App shell:** **GPUI 0.2.2** (Zed's GPU UI framework, blade-graphics Metal backend on macOS) across all
-  four apps. All apps share the `prism-ui` design system crate (design tokens, SVG icon set, GPUI
+  six apps. All apps share the `prism-ui` design system crate (design tokens, SVG icon set, GPUI
   components). See [UI_SYSTEM.md](./UI_SYSTEM.md) for the full component reference.
 - **Common deps:** `serde` (doc IO), `glam` (math), `bytemuck` (GPU casts), `rayon` (parallel
   tile/frame/boolean work), `thiserror`/`anyhow`, `rfd` (dialogs), `kurbo` (Bézier — vector + easing).
@@ -133,16 +143,18 @@ Sources: each app's Cargo.toml · [UI_SYSTEM.md](./UI_SYSTEM.md) (GPUI component
 
 ## 7. Current state of the suite (June 2026)
 
-All four apps run on GPUI on `main`; the shared crates are promoted. Rough parity vs the Adobe analog:
+All six apps run on GPUI on `main`; the shared crates are promoted. Rough parity vs the Adobe analog:
 
 | App | Analog | Built today | Approx parity | Next big lever |
 |---|---|---|---|---|
-| **Pigment** | Photoshop | Full raster editor: brush/erase, all selection tools, move/transform, fill/gradient/shapes, text, clone, heal, pen, masks, adjustment layers, channels panel, curves editor, history panel | ~70% | Layer styles; clipping masks; color picker wheel; PSD I/O; dockable workspaces |
-| **Contour** | Illustrator | Pen/node, all shapes, boolean ops, SVG/PNG export, undo, multi-select + align/distribute, symbols, gradient-stop editor, image trace, recolor, artboard tool, text-on-path | ~45% | Gradient fill rendering; shape builder geometry; character/paragraph panels; PDF export |
-| **Pulse** | After Effects | Keyframe lanes, graph editor, gizmo, 9 effect types, 3D layer controls, expressions, MP4 export, render queue, comp settings | ~35% | RAM preview cache; parenting; 3D camera/lights; more AE effects; full expression language |
-| **Reel** | Premiere Pro | Multitrack timeline, clip move/trim/split, speed ramp, 4 transition types, audio waveform + fade + mixer, LUT/grade, title clips, multi-cam stub, MP4 export | ~40% | Audio playback output; Lumetri Scopes; snap to edges; ProRes export; source/program dual viewer |
+| **Pigment** | Photoshop | Full raster editor: brush/erase, all selection tools, move/transform, fill/gradient/shapes, text, clone, heal, pen, masks, adjustment layers, channels, curves, history, content-aware fill, lens correction, perspective warp, filter gallery, Camera Raw | ~87% | Layer styles; clipping masks; color picker wheel; PSD I/O |
+| **Contour** | Illustrator | Pen/node, all shapes, boolean ops, SVG/PDF/AI I/O, symbols, mesh gradient, shape builder, variable fonts, multi-artboard, graph tool, live paint, envelope distort, graphic styles, recolor, type on path | ~69% | Gradient fill rendering; shape builder geometry; character/paragraph panels |
+| **Pulse** | After Effects | Keyframe lanes, graph editor, gizmo, 20+ effects, 3D camera + lights, expressions (rhai), render queue, RAM preview, layer parenting, track mattes, puppet tool, time remapping, precompose | ~64% | RAM preview cache; full expression language; more AE effects |
+| **Reel** | Premiere Pro | Multitrack timeline, clip move/trim/split, bezier speed ramp, 5 transition types, linked A/V, nested sequences, snap, dual viewer, 3-way color wheels, RGB curves, audio waveform + EQ, LUT grade, multicam, ProRes/GIF export, captions | ~52% | Audio playback output; Lumetri Scopes; source/program dual viewer |
+| **Drift** | Animate + Char. Animator | Timeline + layers + keyframes + transforms + puppet rig + AI motion gen stubs + export + state machines | ~5% (scaffold) | GPUI panels; vector drawing; tweening; real ONNX motion gen |
+| **Tone** | Logic Pro / GarageBand | Project + tracks + clips + MIDI + piano roll + mixer + transport + AI generation stubs + bounce | ~5% (scaffold) | CPAL audio playback; GPUI piano roll; real ONNX music gen |
 
-Each app's PLAN.md defines its road to ≥85% parity and the phase where that line lands. Sequencing
+Each app's PLAN.md defines its road to ≥90% parity and the phase where that line lands. Sequencing
 principle suite-wide: **build the foundation that gates breadth first**, then fan out.
 
-Sources: [Pigment PLAN.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PLAN.md) · [Contour PLAN.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PLAN.md) · [Pulse PLAN.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PLAN.md) · [Reel PLAN.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PLAN.md)
+Sources: [Pigment PLAN.md](apps/pigment/PLAN.md) · [Contour PLAN.md](apps/contour/PLAN.md) · [Pulse PLAN.md](apps/pulse/PLAN.md) · [Reel PLAN.md](apps/reel/PLAN.md) · [Drift PLAN.md](apps/drift/PLAN.md) · [Tone PLAN.md](apps/tone/PLAN.md)

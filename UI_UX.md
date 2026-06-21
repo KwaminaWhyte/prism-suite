@@ -2,7 +2,7 @@
 
 Research-backed conventions every Prism app should converge on. Sourced from Affinity v2 / unified-Affinity (the closest free, pro, single-window reference) and the Adobe suite.
 
-> **All four apps run on GPUI.** All new UI work uses the shared `prism-ui` design system. See [UI_SYSTEM.md](./UI_SYSTEM.md) for the full implementation guide.
+> **All six apps run on GPUI.** All new UI work uses the shared `prism-ui` design system. See [UI_SYSTEM.md](./UI_SYSTEM.md) for the full implementation guide.
 
 ---
 
@@ -82,12 +82,14 @@ All state mutation routes through `App::apply(Action)`. Panels are pure render f
 
 ---
 
-## Per-app UI gaps (see each app's PARITY.md)
+## Per-app UI gaps (see each app's PLAN.md)
 
-- **Pigment** — Dodge/Burn/Smudge/Crop; layer styles; clipping masks; color picker wheel; PSD I/O; dockable workspaces. See [PARITY.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PARITY.md).
-- **Contour** — Gradient fill rendering; shape builder geometry; character/paragraph panels; PDF export; graphic styles. See [PARITY.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PARITY.md).
-- **Pulse** — RAM preview; parenting; 3D camera; more AE effects; full expression language. See [PARITY.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PARITY.md).
-- **Reel** — Source/program dual viewer; audio playback output; snap; Lumetri Scopes; ProRes export. See [PARITY.md](https://github.com/KwaminaWhyte/prism-suite/blob/main/PARITY.md).
+- **Pigment** — Dodge/Burn/Smudge/Crop; layer styles; clipping masks; color picker wheel; PSD I/O; dockable workspaces. See [PLAN.md](apps/pigment/PLAN.md).
+- **Contour** — Gradient fill rendering; shape builder geometry; character/paragraph panels; PDF export; graphic styles. See [PLAN.md](apps/contour/PLAN.md).
+- **Pulse** — RAM preview; parenting; 3D camera; more AE effects; full expression language. See [PLAN.md](apps/pulse/PLAN.md).
+- **Reel** — Source/program dual viewer; audio playback output; snap; Lumetri Scopes; ProRes export. See [PLAN.md](apps/reel/PLAN.md).
+- **Drift** — GPUI timeline panel; layers panel; canvas with checkerboard + rulers; vector drawing tools (pen/shapes); tweening UI; onion skinning. See [PLAN.md](apps/drift/PLAN.md).
+- **Tone** — GPUI piano roll canvas; mixer channel strips with faders/knobs/meters; waveform thumbnail clips on timeline; beat-grid ruler; quantize panel. See [PLAN.md](apps/tone/PLAN.md).
 
 ---
 

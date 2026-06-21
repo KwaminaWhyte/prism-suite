@@ -1,12 +1,12 @@
 # Prism UI System
 
-Design system and implementation guide for all four Prism GPUI apps. Every panel, component, and layout decision should reference this document. Inconsistencies across apps are bugs.
+Design system and implementation guide for all six Prism GPUI apps. Every panel, component, and layout decision should reference this document. Inconsistencies across apps are bugs.
 
 ---
 
 ## Framework
 
-**GPUI** (Zed's GPU UI framework). Renders via the Metal backend on macOS (blade-graphics, NOT wgpu). All four apps share the same framework version pinned in their workspace `Cargo.toml`.
+**GPUI** (Zed's GPU UI framework). Renders via the Metal backend on macOS (blade-graphics, NOT wgpu). All six apps share the same framework version pinned in their workspace `Cargo.toml`.
 
 **Current version:** `gpui = "0.2.2"` (crates.io). Hand-written components live in `prism-ui/src/components.rs`.
 
@@ -228,7 +228,7 @@ Solid color square with border. Use for fill/stroke color pickers and swatches.
 
 ## Layout rules
 
-All four apps share the same outer shell structure:
+All six apps share the same outer shell structure:
 
 ```
 ┌─────────────────────────────────────────────────┐

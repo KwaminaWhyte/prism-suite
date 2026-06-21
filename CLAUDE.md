@@ -93,6 +93,82 @@ Unit tests live inline (`#[cfg(test)]`) in the source files they cover. GPUI bin
 - Planned future shared crates (not yet promoted): `prism-vector` (paths/booleans), `prism-fx` (OpenFX effects), `prism-ai` (ort runtime — promote when ≥2 apps need ONNX inference). Coordinate before promoting.
 - **Drift and Tone are AI-first**: their AI features stub ONNX calls now; real models land when `prism-ai` is promoted or inline `ort` wrappers are added in Phase 3+.
 
+## File organization — MANDATORY
+
+**Never let any source file exceed ~1000 lines.** When a file grows beyond that, split it by domain immediately. This is a hard rule, not a suggestion. AI models and humans both suffer with 5000–9000 line files.
+
+### How to split `app_state.rs` (the pattern for all apps)
+
+Convert `apps/<app>/src/app_state.rs` → `apps/<app>/src/app_state/` directory:
+
+```
+app_state/
+  mod.rs          ← Action enum, App struct fields, new(), apply() dispatcher ONLY
+  <domain>.rs     ← domain types + pub impl App { domain-specific apply helpers } + #[cfg(test)]
+```
+
+Each domain file:
+- Defines the domain's types (structs, enums)
+- Has `pub fn`s on `impl App` for that domain's apply arms
+- Has its own `#[cfg(test)]` covering those actions
+- Uses `use super::{App, Action};` to access the core types from mod.rs
+- Is declared via `mod <domain>;` in mod.rs
+
+`mod.rs` then has: `match action { Action::SomeDomainThing(..) => self.apply_domain_thing(..) }` dispatching to helpers in domain files.
+
+Domain split per app (examples):
+- **pigment**: canvas, layers, selections, painting, filters, text, transforms, smart_objects, ai, layer_3d, export
+- **contour**: document, paths, text, colors, symbols, effects, perspective, export
+- **pulse**: composition, keyframes, effects, render, tracking, expressions, puppeting, text_anim, precomp
+- **reel**: timeline, effects, color, audio, captions, export, proxy, multicam, graphics, media
+- **drift**: document, layers, keyframes, transforms, rig, ai, export, state_machine
+- **tone**: project, tracks, clips, midi, mixer, transport, ai, export
+
+**Shared crates** (`shared/*/src/`) follow the same rule: split by domain, never monolithic files.
+
+**When adding a new batch of features:** add them to a new domain file, not to an existing oversized one. If mod.rs grows past 1000 lines, refactor.
+
+## Worktree hygiene — MANDATORY
+
+After merging a worktree branch into main, **immediately delete the worktree**:
+```bash
+git worktree remove --force .claude/worktrees/agent-<id>
+```
+
+At end of any batch wave (all 4 merges done), run:
+```bash
+for wt in .claude/worktrees/agent-*; do git worktree remove --force "$wt"; done
+```
+
+Never leave stale worktrees. Check with `git worktree list`.
+
+## Child windows / multi-window UI
+
+**GPUI supports multiple OS-level windows.** Use `cx.open_window(WindowOptions {...}, |win, cx| ...)` to open any number of independent windows. Each has its own render tree. Share state between windows via `Model<T>` / `Entity<T>`.
+
+**egui (Contour, Pulse)** uses floating panels via `egui::Window::new("name").show(ctx, |ui| ...)` — not OS-level windows, but floating panels within the same OS window.
+
+Use cases for child windows in each app:
+- **Welcome / Home screen**: shown on launch if no document open; close on "New" or "Open Recent"
+- **Export dialog**: separate focused window for export settings + progress
+- **Preferences**: settings window (keyboard shortcuts, color profiles, etc.)
+- **Color picker**: floating picker window (like Photoshop's detachable color picker)
+- **Script editor**: floating code/expression editor (Pulse expressions, Reel effects)
+- **Progress window**: async operations (AI generation, render queue, export)
+
+Pattern for a welcome window in GPUI:
+```rust
+cx.open_window(
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(
+            Bounds::centered(None, size(px(900.0), px(580.0)), cx)
+        )),
+        ..Default::default()
+    },
+    |win, cx| cx.new(|cx| WelcomeView::new(cx)),
+)
+```
+
 ## Conventions
 
 - Workspace pins: `gpui = "0.2.2"`, `egui`/`eframe = "0.34"`. Never add a duplicate direct dep that conflicts with a workspace pin.

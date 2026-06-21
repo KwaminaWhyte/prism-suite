@@ -2,7 +2,9 @@
   <img src="assets/branding/pigment-master.png" width="56" title="Pigment">&nbsp;&nbsp;
   <img src="assets/branding/contour-master.png" width="56" title="Contour">&nbsp;&nbsp;
   <img src="assets/branding/pulse-master.png" width="56" title="Pulse">&nbsp;&nbsp;
-  <img src="assets/branding/reel-master.png" width="56" title="Reel">
+  <img src="assets/branding/reel-master.png" width="56" title="Reel">&nbsp;&nbsp;
+  <img src="assets/branding/drift-master.png" width="56" title="Drift">&nbsp;&nbsp;
+  <img src="assets/branding/tone-master.png" width="56" title="Tone">
 </p>
 
 <h1 align="center">Prism Suite</h1>
@@ -35,6 +37,8 @@ prism-suite/
     
     pulse/              — Pulse (GPUI host + compositor + keyframe engine)
     reel/               — Reel (GPUI host + NLE logic)
+    drift/              — Drift (animation + puppet rigging + AI motion)
+    tone/               — Tone (DAW + MIDI + AI music generation)
   shared/
     prism-core/         — Document model, blend modes, adjustments, curves, shapes
     prism-canvas/       — wgpu GPU compositor (Pigment's raster engine)

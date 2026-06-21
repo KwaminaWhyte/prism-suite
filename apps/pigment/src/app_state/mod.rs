@@ -12,6 +12,29 @@
 //! Defaults mirror the egui app (`pigment-app/src/app/mod.rs` `PigmentApp::new`)
 //! so parity is reachable.
 
+mod canvas;
+mod layers;
+mod selections;
+mod painting;
+mod filters;
+mod text;
+mod transforms;
+mod smart_objects;
+mod ai;
+mod layer_3d;
+mod export;
+
+pub use canvas::*;
+pub use layers::*;
+pub use selections::*;
+pub use painting::*;
+pub use filters::*;
+pub use transforms::*;
+pub use smart_objects::*;
+pub use ai::*;
+pub use layer_3d::*;
+pub use export::*;
+
 use std::collections::{HashMap, HashSet};
 
 use prism_canvas::{Dab, ViewTransform};

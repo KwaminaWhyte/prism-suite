@@ -693,6 +693,12 @@ impl App {
             Action::SetTool(t) => {
                 self.active = t;
             }
+
+            // --- Welcome screen ---
+            Action::DismissWelcome | Action::NewComposition | Action::OpenProject => {
+                self.welcome_visible = false;
+            }
+
             Action::SetHoveredGizmoHandle(h) => {
                 self.hovered_gizmo_handle = h;
             }

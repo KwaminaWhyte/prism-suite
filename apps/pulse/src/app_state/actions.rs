@@ -38,6 +38,14 @@ pub enum Action {
     /// Select the active tool (tools strip / toolbar).
     SetTool(Tool),
 
+    // --- Welcome screen ---
+    /// Dismiss the welcome screen and proceed to the main app.
+    DismissWelcome,
+    /// Dismiss the welcome screen and start a new composition.
+    NewComposition,
+    /// Dismiss the welcome screen and open an existing project.
+    OpenProject,
+
     // --- Transport ---
     /// Set the playhead to an absolute time in seconds (re-renders the preview).
     SetTime(f32),

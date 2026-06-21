@@ -10,12 +10,14 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 
 | Phase | Description | Parity % | Test Target | Status |
 |-------|-------------|----------|-------------|--------|
-| 1 | Core timeline, layers, keyframes, transforms | 20% | 100+ | In Progress |
-| 2 | Vector drawing, symbols, tweening | 40% | 250+ | Planned |
-| 3 | Puppet rigging, IK, deformation | 55% | 400+ | Planned |
+| 1 | Core timeline, layers, keyframes, transforms | 20% | 100+ | Complete |
+| 2 | Vector drawing, symbols, tweening | 40% | 250+ | In Progress (~30%) |
+| 3 | Puppet rigging, IK, deformation | 55% | 400+ | Partially started |
 | 4 | AI motion generation, lip sync, interpolation | 68% | 500+ | Planned |
 | 5 | Export pipeline, Lottie, state machines, interactive | 80% | 650+ | Planned |
 | 6 | Polish: audio mixing, scripting, plugin API | 90% | 800+ | Planned |
+
+**Current overall parity: ~30%** — 221 tests passing.
 
 ---
 
@@ -67,12 +69,12 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 - [ ] Shape Tween — morph between two shapes on the same layer
 - [ ] Motion editor — editable velocity curve per tween property
 - [ ] Onion skinning — show N previous and next frames as ghost layers
-- [ ] Frame labels and frame comments
-- [ ] Blank keyframe vs. keyframe distinction (hold last vs. blank)
-- [ ] Multiple scenes
-- [ ] Library panel — search, folder organisation
-- [ ] Rulers and smart guides
-- [ ] Grid snapping
+- [x] Frame labels and frame comments
+- [x] Blank keyframe vs. keyframe distinction (hold last vs. blank)
+- [x] Multiple scenes
+- [x] Library panel — search, folder organisation
+- [x] Rulers and smart guides
+- [x] Grid snapping
 
 **Test target:** 250 tests
 
@@ -91,15 +93,15 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 - [ ] Bone influence weights on bitmap layer pixels
 - [ ] Mesh warp — freeform mesh on Bitmap layers with vertex control
 - [ ] Pin tool — anchor mesh regions
-- [ ] Spring dynamics on bones — secondary motion from parent movement
+- [x] Spring dynamics on bones — secondary motion from parent movement
 - [ ] Webcam input → facial landmark capture → drive rig (Character Animator parity)
 - [ ] Lip sync from audio — phoneme-driven mouth shape blend
 - [ ] Eye/brow tracking from webcam
 - [ ] Deformation layer — bend, skew, warp, puppet pin
-- [ ] Swap sets — alternate artwork sets per body part (open/closed mouth, blink)
+- [x] Swap sets — alternate artwork sets per body part (open/closed mouth, blink)
 - [ ] Character pack export format (.dft bundle)
 - [ ] Rig preview in canvas with bone overlay
-- [ ] IK solver — FABRIK algorithm for chain solving
+- [x] IK solver — FABRIK algorithm for chain solving
 - [ ] Stretch/squash bone modifier
 
 **Test target:** 400 tests

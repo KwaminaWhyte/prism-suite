@@ -2,7 +2,8 @@
 //!
 //! `App` owns everything panels read or mutate: the document, layers, keyframes,
 //! transforms, puppet rigs, AI feature state, export config, state machines,
-//! vector paths, symbols, symbol instances, tweens, and onion skin config.
+//! vector paths, symbols, symbol instances, tweens, onion skin config, scenes,
+//! frame labels, library, grid/ruler config, IK chains, and spring dynamics.
 //! Panels NEVER mutate `App` fields directly — they emit an [`Action`], and the
 //! root view routes it through [`App::apply`], the single mutation choke point.
 
@@ -21,18 +22,26 @@ pub mod state_machine;
 pub mod vector;
 pub mod symbols;
 pub mod tweening;
+pub mod scenes;
+pub mod frame_labels;
+pub mod library;
+pub mod swap_sets;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
-pub use document::DriftDocument;
+pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
 pub use layers::{DriftLayer, LayerKind};
 pub use keyframes::{EasingKind, Keyframe};
 pub use transforms::LayerTransform;
-pub use rig::{RigBone, LayerRig};
+pub use rig::{RigBone, LayerRig, IkChain, BoneSpring};
 pub use export::{ExportFormat, ExportConfig};
 pub use state_machine::{StateTransitionTrigger, AnimationState, StateTransition, StateMachine};
 pub use vector::{VectorPath, BezierPoint, Fill, GradientStop, Stroke, StrokeCap, StrokeJoin};
 pub use symbols::{SymbolKind, Symbol, SymbolInstance};
 pub use tweening::{TweenKind, Tween, RotateDirection, OnionSkinConfig};
+pub use scenes::Scene;
+pub use frame_labels::FrameLabel;
+pub use library::LibraryFolder;
+pub use swap_sets::{SwapSet, SwapSetItem};
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +55,18 @@ pub enum Action {
     SetDocumentDuration(usize),
     SetDocumentBg(String),
     SetDocumentName(String),
+
+    // Grid
+    SetGridEnabled(bool),
+    SetGridSnap(bool),
+    SetGridSize(f32),
+    SetGridColor(String),
+    SetGridSubdivisions(u32),
+
+    // Rulers
+    ToggleRulers,
+    SetRulerOrigin { x: f32, y: f32 },
+    SetRulerUnit(RulerUnit),
 
     // Layers
     AddLayer { name: String, kind: LayerKind },
@@ -116,6 +137,18 @@ pub enum Action {
     SetIKTarget { layer_id: usize, bone_id: usize, x: f32, y: f32 },
     AutoRigLayer(usize),
 
+    // IK Chains (FABRIK)
+    AddIkChain { layer_id: usize, bone_ids: Vec<usize>, target_x: f32, target_y: f32 },
+    RemoveIkChain { chain_id: usize },
+    SetIkTarget { chain_id: usize, target_x: f32, target_y: f32 },
+    SolveIk { chain_id: usize },
+
+    // Spring dynamics
+    AddBoneSpring { bone_id: usize, stiffness: f32, damping: f32, mass: f32 },
+    RemoveBoneSpring { bone_id: usize },
+    SetSpringParams { bone_id: usize, stiffness: f32, damping: f32, mass: f32 },
+    TickSprings { delta_t: f32 },
+
     // AI Features
     SetAiMotionPrompt(String),
     GenerateAiMotion { layer_id: usize },
@@ -183,6 +216,38 @@ pub enum Action {
 
     // Onion skinning (Phase 2)
     SetOnionSkin { enabled: bool, frames_before: usize, frames_after: usize },
+
+    // Scenes (Phase 2)
+    AddScene { name: String, duration_frames: usize },
+    RemoveScene { scene_id: usize },
+    RenameScene { scene_id: usize, name: String },
+    SetActiveScene { scene_id: usize },
+    SetSceneDuration { scene_id: usize, frames: usize },
+    DuplicateScene { scene_id: usize },
+    MoveScene { scene_id: usize, new_index: usize },
+    AddLayerToScene { scene_id: usize, layer_id: usize },
+    RemoveLayerFromScene { scene_id: usize, layer_id: usize },
+
+    // Frame labels (Phase 2)
+    AddFrameLabel { layer_id: usize, frame: usize, label: String },
+    SetFrameBlank { layer_id: usize, frame: usize, blank: bool },
+    SetFrameComment { label_id: usize, comment: String },
+    RemoveFrameLabel { label_id: usize },
+    GoToLabel { label: String },
+
+    // Library panel (Phase 2)
+    CreateLibraryFolder { name: String, parent_id: Option<usize> },
+    RenameLibraryFolder { folder_id: usize, name: String },
+    DeleteLibraryFolder { folder_id: usize },
+    MoveSymbolToFolder { symbol_id: usize, folder_id: Option<usize> },
+    SetLibrarySearch { query: String },
+
+    // Swap sets (Phase 3)
+    CreateSwapSet { layer_id: usize, name: String },
+    AddSwapItem { swap_set_id: usize, name: String, symbol_id: Option<usize> },
+    RemoveSwapItem { swap_set_id: usize, item_id: usize },
+    ActivateSwapItem { swap_set_id: usize, item_id: usize },
+    DeleteSwapSet { swap_set_id: usize },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -191,6 +256,10 @@ pub enum Action {
 pub struct App {
     // Document
     pub document: DriftDocument,
+
+    // Grid and ruler overlays
+    pub grid: GridConfig,
+    pub rulers: RulerConfig,
 
     // Layers
     pub layers: Vec<DriftLayer>,
@@ -214,6 +283,13 @@ pub struct App {
     // Puppet rigs
     pub layer_rigs: Vec<LayerRig>,
     pub rig_bone_counter: usize,
+
+    // IK chains
+    pub ik_chains: Vec<IkChain>,
+    pub next_chain_id: usize,
+
+    // Spring dynamics
+    pub bone_springs: Vec<BoneSpring>,
 
     // AI
     pub ai_motion_prompt: String,
@@ -246,6 +322,27 @@ pub struct App {
 
     // Phase 2: Onion skinning
     pub onion_skin: OnionSkinConfig,
+
+    // Phase 2: Scenes
+    pub scenes: Vec<Scene>,
+    pub active_scene_id: usize,
+    pub next_scene_id: usize,
+
+    // Phase 2: Frame labels
+    pub frame_labels: Vec<FrameLabel>,
+    pub next_label_id: usize,
+
+    // Phase 2: Library panel
+    pub library_folders: Vec<LibraryFolder>,
+    pub library_search: String,
+    pub next_folder_id: usize,
+    /// (symbol_id, folder_id) — None folder_id means root.
+    pub symbol_folder_map: Vec<(usize, Option<usize>)>,
+
+    // Phase 3: Swap sets
+    pub swap_sets: Vec<SwapSet>,
+    pub next_swap_set_id: usize,
+    pub next_swap_item_id: usize,
 }
 
 impl App {
@@ -254,6 +351,8 @@ impl App {
         let out = doc.duration_frames;
         Self {
             document: doc,
+            grid: GridConfig::new(),
+            rulers: RulerConfig::new(),
             layers: Vec::new(),
             layer_counter: 0,
             active_layer: None,
@@ -267,6 +366,9 @@ impl App {
             out_point: out,
             layer_rigs: Vec::new(),
             rig_bone_counter: 0,
+            ik_chains: Vec::new(),
+            next_chain_id: 0,
+            bone_springs: Vec::new(),
             ai_motion_prompt: String::new(),
             ai_motion_results: Vec::new(),
             ai_lipsync_jobs: Vec::new(),
@@ -286,6 +388,27 @@ impl App {
             tweens: Vec::new(),
             next_tween_id: 0,
             onion_skin: OnionSkinConfig::new(),
+            // Phase 2: Scenes — always start with one default scene.
+            scenes: vec![Scene {
+                id: 0,
+                name: "Scene 1".to_string(),
+                duration_frames: 240,
+                layer_ids: Vec::new(),
+            }],
+            active_scene_id: 0,
+            next_scene_id: 1,
+            // Phase 2: Frame labels
+            frame_labels: Vec::new(),
+            next_label_id: 0,
+            // Phase 2: Library
+            library_folders: Vec::new(),
+            library_search: String::new(),
+            next_folder_id: 0,
+            symbol_folder_map: Vec::new(),
+            // Phase 3: Swap sets
+            swap_sets: Vec::new(),
+            next_swap_set_id: 0,
+            next_swap_item_id: 0,
         }
     }
 
@@ -293,13 +416,21 @@ impl App {
     /// through here so state changes are predictable and testable.
     pub fn apply(&mut self, action: Action) {
         match &action {
-            // Document
+            // Document + grid + rulers
             Action::SetDocumentWidth(_)
             | Action::SetDocumentHeight(_)
             | Action::SetDocumentFps(_)
             | Action::SetDocumentDuration(_)
             | Action::SetDocumentBg(_)
-            | Action::SetDocumentName(_) => self.apply_document(action),
+            | Action::SetDocumentName(_)
+            | Action::SetGridEnabled(_)
+            | Action::SetGridSnap(_)
+            | Action::SetGridSize(_)
+            | Action::SetGridColor(_)
+            | Action::SetGridSubdivisions(_)
+            | Action::ToggleRulers
+            | Action::SetRulerOrigin { .. }
+            | Action::SetRulerUnit(_) => self.apply_document(action),
 
             // Layers
             Action::AddLayer { .. }
@@ -345,13 +476,21 @@ impl App {
             | Action::GoToFirstFrame
             | Action::GoToLastFrame => self.apply_playback(action),
 
-            // Rig
+            // Rig (bones + IK chains + springs)
             Action::AddBone { .. }
             | Action::DeleteBone { .. }
             | Action::MoveBone { .. }
             | Action::RotateBone { .. }
             | Action::SetIKTarget { .. }
-            | Action::AutoRigLayer(_) => self.apply_rig(action),
+            | Action::AutoRigLayer(_)
+            | Action::AddIkChain { .. }
+            | Action::RemoveIkChain { .. }
+            | Action::SetIkTarget { .. }
+            | Action::SolveIk { .. }
+            | Action::AddBoneSpring { .. }
+            | Action::RemoveBoneSpring { .. }
+            | Action::SetSpringParams { .. }
+            | Action::TickSprings { .. } => self.apply_rig(action),
 
             // AI
             Action::SetAiMotionPrompt(_)
@@ -407,6 +546,38 @@ impl App {
             | Action::SetTweenEasing { .. }
             | Action::SetTweenRotation { .. }
             | Action::SetOnionSkin { .. } => self.apply_tweening(action),
+
+            // Scenes (Phase 2)
+            Action::AddScene { .. }
+            | Action::RemoveScene { .. }
+            | Action::RenameScene { .. }
+            | Action::SetActiveScene { .. }
+            | Action::SetSceneDuration { .. }
+            | Action::DuplicateScene { .. }
+            | Action::MoveScene { .. }
+            | Action::AddLayerToScene { .. }
+            | Action::RemoveLayerFromScene { .. } => self.apply_scenes(action),
+
+            // Frame labels (Phase 2)
+            Action::AddFrameLabel { .. }
+            | Action::SetFrameBlank { .. }
+            | Action::SetFrameComment { .. }
+            | Action::RemoveFrameLabel { .. }
+            | Action::GoToLabel { .. } => self.apply_frame_labels(action),
+
+            // Library (Phase 2)
+            Action::CreateLibraryFolder { .. }
+            | Action::RenameLibraryFolder { .. }
+            | Action::DeleteLibraryFolder { .. }
+            | Action::MoveSymbolToFolder { .. }
+            | Action::SetLibrarySearch { .. } => self.apply_library(action),
+
+            // Swap sets (Phase 3)
+            Action::CreateSwapSet { .. }
+            | Action::AddSwapItem { .. }
+            | Action::RemoveSwapItem { .. }
+            | Action::ActivateSwapItem { .. }
+            | Action::DeleteSwapSet { .. } => self.apply_swap_sets(action),
         }
     }
 }

@@ -1,0 +1,38 @@
+[package]
+name = "drift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "drift"
+
+[[bin]]
+name = "drift"
+path = "src/main.rs"
+
+[dependencies]
+prism-canvas.workspace = true
+prism-core.workspace = true
+prism-color.workspace = true
+prism-io.workspace = true
+prism-ui.workspace = true
+gpui.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+pollster.workspace = true
+rfd.workspace = true
+
+[package.metadata.bundle]
+name = "Drift"
+identifier = "com.prism-suite.drift"
+short_description = "AI-first desktop animation app — Adobe Animate + Character Animator analog"
+long_description = "Drift is an AI-powered animation studio, part of the open-source Prism creative suite. It targets feature parity with Adobe Animate and Character Animator, with first-class AI motion generation, lip sync, and puppet rigging."
+category = "Graphics"
+osx_minimum_system_version = "13.0"
+osx_url_schemes = ["drift"]
+
+[lints]
+workspace = true

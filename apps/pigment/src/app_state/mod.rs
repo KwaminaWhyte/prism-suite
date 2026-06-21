@@ -27,6 +27,7 @@ mod export;
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
 pub use self::ai::{GenerativeFillResult, SkyPreset, SkyReplaceConfig, SelectSubjectMode, SelectSubjectResult};
+pub use self::layer_3d::{Shape3DKind, Layer3DProps};
 
 use self::text::TextEdit;
 
@@ -1086,55 +1087,6 @@ pub enum Action {
     Set3DExtrudeDepth { layer_id: usize, depth: f32 },
     /// Flatten a 3-D layer back to a raster layer (removes it from the 3-D list).
     Flatten3DLayer { layer_id: usize },
-}
-
-// ---- New Feature: Basic3DLayer -----------------------------------------------
-
-/// The built-in primitive shape kinds for a 3-D layer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Shape3DKind {
-    Cube,
-    Sphere,
-    Cylinder,
-    Cone,
-    Plane,
-    Custom,
-}
-
-/// Transform and geometry for a single 3-D layer.
-#[derive(Debug, Clone)]
-pub struct Layer3DProps {
-    pub layer_id: usize,
-    pub shape: Shape3DKind,
-    pub pos_x: f32,
-    pub pos_y: f32,
-    pub pos_z: f32,
-    pub rot_x: f32,
-    pub rot_y: f32,
-    pub rot_z: f32,
-    pub scale_x: f32,
-    pub scale_y: f32,
-    pub scale_z: f32,
-    pub extrude_depth: f32,
-}
-
-impl Layer3DProps {
-    pub fn new(layer_id: usize) -> Self {
-        Self {
-            layer_id,
-            shape: Shape3DKind::Cube,
-            pos_x: 0.0,
-            pos_y: 0.0,
-            pos_z: 0.0,
-            rot_x: 0.0,
-            rot_y: 0.0,
-            rot_z: 0.0,
-            scale_x: 1.0,
-            scale_y: 1.0,
-            scale_z: 1.0,
-            extrude_depth: 0.0,
-        }
-    }
 }
 
 /// The adjustment-layer kinds the host can add from the Adjustments browser, in

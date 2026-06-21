@@ -6672,6 +6672,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
+name = "tone"
+version = "0.8.0"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "gpui",
+ "log",
+ "prism-color",
+ "prism-core",
+ "prism-media",
+ "prism-ui",
+ "rfd",
+]
+
+[[package]]
 name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

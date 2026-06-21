@@ -24,6 +24,8 @@ mod ai;
 mod layer_3d;
 mod export;
 
+pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
+
 use self::text::TextEdit;
 
 use std::collections::{HashMap, HashSet};
@@ -2559,34 +2561,6 @@ impl Default for SpotHealMode {
 // ---- Batch 6: Select Subject ------------------------------------------------
 
 // (no new structs needed — uses existing selection mask infrastructure)
-
-// ---- Batch 5 (new): Content-Aware Crop --------------------------------------
-
-/// Fill method used when Content-Aware Crop extends canvas edges.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
-pub enum CaFillMethod {
-    #[default]
-    ContentAware,
-    EdgeExtend,
-    Transparent,
-}
-
-/// Parameters for the Content-Aware Crop tool.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ContentAwareCropConfig {
-    /// Rotation correction angle in degrees.
-    pub angle: f32,
-    /// Which algorithm fills the exposed areas.
-    pub fill_method: CaFillMethod,
-    /// Whether content-aware fill is active during crop.
-    pub enabled: bool,
-}
-
-impl Default for ContentAwareCropConfig {
-    fn default() -> Self {
-        Self { angle: 0.0, fill_method: CaFillMethod::ContentAware, enabled: true }
-    }
-}
 
 // ---- Batch 5 (new): Sky Replacement -----------------------------------------
 

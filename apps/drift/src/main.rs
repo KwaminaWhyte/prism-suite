@@ -3,12 +3,15 @@
 //! Architecture:
 //! - [`app_state::App`] owns all document, layer, keyframe, rig, and AI state.
 //!   Every mutation routes through [`app_state::Action`] and [`app_state::App::apply`].
-//! - Panels (to be added) live as `render(app: &App, cx: &mut Context<Drift>)` functions
-//!   and emit Actions back through `cx.listener`.
+//! - Panels in `panels/` are render functions `(app: &App, cx: &mut Context<Drift>)`.
+//!   They emit Actions back through `cx.listener`.
 //! - The root view (`Drift`) holds the `App` and lays out the chrome: toolbar,
 //!   timeline, canvas, layers panel, AI panel.
+//! - A welcome window (`welcome::WelcomeView`) is opened at startup.
 
 mod app_state;
+mod panels;
+mod welcome;
 
 use prism_ui::PrismAssets;
 
@@ -22,8 +25,8 @@ use prism_ui::{colors, font_size};
 
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route their
 /// mutations back through `app.apply` inside `cx.listener` callbacks.
-struct Drift {
-    app: App,
+pub struct Drift {
+    pub app: App,
     focus: FocusHandle,
 }
 
@@ -89,7 +92,6 @@ impl Render for Drift {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let frame = self.app.current_frame;
         let total = self.app.document.duration_frames;
-        let doc_name = self.app.document.name.clone();
 
         div()
             .track_focus(&self.focus)
@@ -100,25 +102,8 @@ impl Render for Drift {
             .bg(colors::surface_bg())
             .text_color(colors::text_primary())
             .font_family(".SystemUIFont")
-            // Top toolbar
-            .child(
-                div()
-                    .w_full()
-                    .h(px(40.0))
-                    .bg(colors::surface_raised())
-                    .border_b_1()
-                    .border_color(colors::surface_border())
-                    .flex()
-                    .items_center()
-                    .px_4()
-                    .gap_4()
-                    .text_size(px(font_size::SM))
-                    .child(
-                        div()
-                            .text_color(colors::text_primary())
-                            .child(format!("Drift — {doc_name}"))
-                    )
-            )
+            // Top toolbar — tool buttons + playback controls
+            .child(panels::render_toolbar(&self.app, cx))
             // Main workspace: left layers | center canvas | right AI panel
             .child(
                 div()
@@ -127,42 +112,7 @@ impl Render for Drift {
                     .flex_row()
                     .min_h(px(0.0))
                     // Left: Layers panel
-                    .child(
-                        div()
-                            .id("layers-panel")
-                            .w(px(240.0))
-                            .h_full()
-                            .bg(colors::surface_raised())
-                            .border_r_1()
-                            .border_color(colors::surface_border())
-                            .flex()
-                            .flex_col()
-                            .overflow_y_scroll()
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_2()
-                                    .text_size(px(font_size::XS))
-                                    .text_color(colors::text_secondary())
-                                    .child("LAYERS")
-                            )
-                            .children(
-                                self.app.layers.iter().map(|l| {
-                                    let is_active = self.app.active_layer == Some(l.id);
-                                    let bg = if is_active {
-                                        colors::surface_overlay()
-                                    } else {
-                                        colors::surface_raised()
-                                    };
-                                    div()
-                                        .px_3()
-                                        .py_1()
-                                        .text_size(px(font_size::SM))
-                                        .bg(bg)
-                                        .child(l.name.clone())
-                                })
-                            )
-                    )
+                    .child(panels::render_layers(&self.app, cx))
                     // Center: Canvas area
                     .child(
                         div()
@@ -190,68 +140,14 @@ impl Render for Drift {
                                         self.app.document.width,
                                         self.app.document.height,
                                         self.app.document.fps
-                                    ))
-                            )
+                                    )),
+                            ),
                     )
                     // Right: AI panel
-                    .child(
-                        div()
-                            .w(px(260.0))
-                            .h_full()
-                            .bg(colors::surface_raised())
-                            .border_l_1()
-                            .border_color(colors::surface_border())
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_2()
-                                    .text_size(px(font_size::XS))
-                                    .text_color(colors::text_secondary())
-                                    .child("AI TOOLS")
-                            )
-                            .child(
-                                div()
-                                    .px_3()
-                                    .py_1()
-                                    .text_size(px(font_size::SM))
-                                    .text_color(colors::text_primary())
-                                    .child(format!(
-                                        "Motion prompt: {}",
-                                        if self.app.ai_motion_prompt.is_empty() {
-                                            "(none)".to_string()
-                                        } else {
-                                            self.app.ai_motion_prompt.clone()
-                                        }
-                                    ))
-                            )
-                    )
+                    .child(panels::render_ai_panel(&self.app, cx)),
             )
             // Bottom: Timeline
-            .child(
-                div()
-                    .w_full()
-                    .h(px(160.0))
-                    .bg(colors::surface_raised())
-                    .border_t_1()
-                    .border_color(colors::surface_border())
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .px_3()
-                            .py_1()
-                            .text_size(px(font_size::XS))
-                            .text_color(colors::text_secondary())
-                            .child(format!(
-                                "TIMELINE  |  Frame: {frame}  |  In: {}  Out: {}  |  Loop: {}",
-                                self.app.in_point,
-                                self.app.out_point,
-                                if self.app.loop_playback { "ON" } else { "OFF" }
-                            ))
-                    )
-            )
+            .child(panels::render_timeline(&self.app, cx))
     }
 }
 
@@ -262,6 +158,25 @@ fn main() {
 
     gpui::Application::new().with_assets(PrismAssets).run(|cx: &mut gpui::App| {
         prism_ui::init(cx);
+
+        // Open the welcome window first (900 × 560 px, centered).
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(
+                    Bounds::centered(None, size(px(900.0), px(560.0)), cx),
+                )),
+                ..Default::default()
+            },
+            |_win, cx| {
+                cx.new(|cx| {
+                    let focus = cx.focus_handle();
+                    welcome::WelcomeView::new(focus)
+                })
+            },
+        )
+        .expect("failed to open Drift welcome window");
+
+        // Open the main editor window (full display or sensible default).
         let bounds = cx
             .primary_display()
             .map(|d| d.bounds())
@@ -281,6 +196,7 @@ fn main() {
             },
         )
         .expect("failed to open Drift window");
+
         cx.activate(true);
     });
 }

@@ -7,3 +7,4 @@ dist/
 *.iconset
 .DS_Store
 /clone_debug.log
+/.claude/worktrees

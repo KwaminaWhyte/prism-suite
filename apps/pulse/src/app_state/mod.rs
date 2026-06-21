@@ -2481,7 +2481,12 @@ impl App {
             | Action::ToggleMotionSketchRecord
             | Action::ApplyMotionSketchStroke(_)
             | Action::ClearMotionSketchStrokes
-            | Action::ApplyMotionSketchToLayer { .. }) => self.apply_tracking(a),
+            | Action::ApplyMotionSketchToLayer { .. }
+            | Action::StartCameraTrackSolve { .. }
+            | Action::SolveCameraTrackExt { .. }
+            | Action::SelectTrackPoints { .. }
+            | Action::CreateSolvedCamera { .. }
+            | Action::DeleteCameraTrackSolve { .. }) => self.apply_tracking(a),
 
             // --- Expressions ---
             a @ (Action::AddExpressionControl(_)
@@ -2534,7 +2539,14 @@ impl App {
             | Action::SetCorrespondenceMode(_)
             | Action::SetMorphPreviewTime(_)
             | Action::PreviewMorphAtTime(_)
-            | Action::ClearMorphKeyframes) => self.apply_puppeting(a),
+            | Action::ClearMorphKeyframes
+            | Action::ActivatePuppetTool(_)
+            | Action::AddPuppetPinExt { .. }
+            | Action::MovePuppetPinExt { .. }
+            | Action::SetPuppetPinStiffnessExt { .. }
+            | Action::DeletePuppetPin(_)
+            | Action::SetPuppetMeshDensityExt { .. }
+            | Action::SetPuppetMeshExpansion { .. }) => self.apply_puppeting(a),
 
             // --- Text animation / MoGrt / audio spectrum ---
             a @ (Action::ToggleMoGrtPanel
@@ -2559,7 +2571,20 @@ impl App {
             | Action::SetAudioFrequencyBands(_)
             | Action::SetAudioThickness(_)
             | Action::SetAudioDigital(_)
-            | Action::ApplyAudioSpectrumEffect { .. }) => self.apply_text_anim(a),
+            | Action::ApplyAudioSpectrumEffect { .. }
+            | Action::AddTextAnimatorExt { .. }
+            | Action::RemoveTextAnimatorExt(_)
+            | Action::ApplyTextAnimPreset { .. }
+            | Action::SetTextAnimRange { .. }
+            | Action::SetTextAnimRangeUnits { .. }
+            | Action::SetTextAnimBasedOn { .. }
+            | Action::OpenEssentialGraphics
+            | Action::CloseEssentialGraphics
+            | Action::CreateMogrTemplate { .. }
+            | Action::AddMogrParam { .. }
+            | Action::SetMogrParamValue { .. }
+            | Action::ExportMogrt { .. }
+            | Action::DeleteMogrTemplate(_)) => self.apply_text_anim(a),
 
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),

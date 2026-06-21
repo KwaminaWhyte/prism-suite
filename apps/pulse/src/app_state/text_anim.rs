@@ -131,6 +131,84 @@ impl App {
                 self.audio_spectrum_layer = Some(layer_id);
             }
 
+            // --- Batch 7: TextAnimator (app-level) ---
+            Action::AddTextAnimatorExt { layer_id } => {
+                self.text_anim_counter += 1;
+                let id = self.text_anim_counter;
+                self.text_animators.push(TextAnimator {
+                    id,
+                    layer_id,
+                    name: format!("Animator {}", id),
+                    preset: None,
+                    properties: TextAnimProperty::default(),
+                    range: TextAnimRange::default(),
+                });
+            }
+            Action::RemoveTextAnimatorExt(id) => {
+                self.text_animators.retain(|a| a.id != id);
+            }
+            Action::ApplyTextAnimPreset { animator_id, preset } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.preset = Some(preset);
+                }
+            }
+            Action::SetTextAnimRange { animator_id, start, end } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.range.start = start.clamp(0.0, 100.0);
+                    anim.range.end = end.clamp(0.0, 100.0);
+                }
+            }
+            Action::SetTextAnimRangeUnits { animator_id, units } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.range.units = units;
+                }
+            }
+            Action::SetTextAnimBasedOn { animator_id, based_on } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.range.based_on = based_on;
+                }
+            }
+
+            // --- Batch 7: EssentialGraphics / MoGRT v2 ---
+            Action::OpenEssentialGraphics => {
+                self.essential_graphics_open = true;
+            }
+            Action::CloseEssentialGraphics => {
+                self.essential_graphics_open = false;
+            }
+            Action::CreateMogrTemplate { name, composition_id } => {
+                self.mogrt_counter += 1;
+                let id = self.mogrt_counter;
+                self.mogrt_templates_v2.push(MogrTemplate {
+                    id,
+                    name,
+                    description: String::new(),
+                    params: Vec::new(),
+                    composition_id: Some(composition_id),
+                    is_responsive: false,
+                });
+            }
+            Action::AddMogrParam { template_id, param } => {
+                if let Some(t) = self.mogrt_templates_v2.iter_mut().find(|t| t.id == template_id) {
+                    t.params.push(param);
+                }
+            }
+            Action::SetMogrParamValue { template_id, param_id, value } => {
+                if let Some(t) = self.mogrt_templates_v2.iter_mut().find(|t| t.id == template_id) {
+                    if let Some(p) = t.params.iter_mut().find(|p| p.id == param_id) {
+                        p.value = value;
+                    }
+                }
+            }
+            Action::ExportMogrt { template_id } => {
+                if let Some(t) = self.mogrt_templates_v2.iter_mut().find(|t| t.id == template_id) {
+                    t.is_responsive = true;
+                }
+            }
+            Action::DeleteMogrTemplate(tid) => {
+                self.mogrt_templates_v2.retain(|t| t.id != tid);
+            }
+
             _ => unreachable!("apply_text_anim called with wrong action"),
         }
     }

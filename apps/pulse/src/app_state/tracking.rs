@@ -191,6 +191,49 @@ impl App {
                 self.motion_sketch_recording = false;
             }
 
+            // --- Batch 7: CameraTracker (3D solve) ---
+            Action::StartCameraTrackSolve { layer_id } => {
+                let track_points: Vec<CameraTrackPoint> = (0..40usize).map(|index| CameraTrackPoint {
+                    id: index,
+                    x: (index * 7 % 1920) as f32,
+                    y: (index * 11 % 1080) as f32,
+                    z: 0.0,
+                    confidence: 0.8,
+                    selected: false,
+                }).collect();
+                self.camera_track_solves.push(CameraTrackSolve {
+                    layer_id,
+                    status: CameraTrackStatus::Analyzing,
+                    solve_error: 0.0,
+                    method: "Typical".to_string(),
+                    track_points,
+                    attached_layer_ids: Vec::new(),
+                });
+            }
+            Action::SolveCameraTrackExt { layer_id } => {
+                if let Some(solve) = self.camera_track_solves.iter_mut().find(|s| s.layer_id == layer_id) {
+                    solve.status = CameraTrackStatus::Done;
+                    solve.solve_error = 0.73;
+                }
+            }
+            Action::SelectTrackPoints { layer_id, point_ids } => {
+                if let Some(solve) = self.camera_track_solves.iter_mut().find(|s| s.layer_id == layer_id) {
+                    for pt in &mut solve.track_points {
+                        pt.selected = point_ids.contains(&pt.id);
+                    }
+                }
+            }
+            Action::CreateSolvedCamera { layer_id } => {
+                if let Some(solve) = self.camera_track_solves.iter_mut().find(|s| s.layer_id == layer_id) {
+                    if solve.status == CameraTrackStatus::Done {
+                        solve.attached_layer_ids.push(layer_id);
+                    }
+                }
+            }
+            Action::DeleteCameraTrackSolve { layer_id } => {
+                self.camera_track_solves.retain(|s| s.layer_id != layer_id);
+            }
+
             _ => unreachable!("apply_tracking called with wrong action"),
         }
     }

@@ -86,6 +86,65 @@ impl App {
                 self.shape_morph_config.keyframes.clear();
             }
 
+            // --- Batch 7: PuppetPin (app-level) ---
+            Action::ActivatePuppetTool(b) => {
+                self.puppet_tool_active = b;
+            }
+            Action::AddPuppetPinExt { layer_id, x, y, mode } => {
+                self.puppet_pin_counter += 1;
+                let id = self.puppet_pin_counter;
+                self.puppet_pins.push(PuppetPin {
+                    id,
+                    layer_id,
+                    name: format!("Pin {}", id),
+                    mode,
+                    x,
+                    y,
+                    stiffness: 0.0,
+                    extent: 0.0,
+                });
+            }
+            Action::MovePuppetPinExt { pin_id, x, y } => {
+                if let Some(pin) = self.puppet_pins.iter_mut().find(|p| p.id == pin_id) {
+                    pin.x = x;
+                    pin.y = y;
+                }
+            }
+            Action::SetPuppetPinStiffnessExt { pin_id, stiffness } => {
+                if let Some(pin) = self.puppet_pins.iter_mut().find(|p| p.id == pin_id) {
+                    pin.stiffness = stiffness.clamp(0.0, 100.0);
+                }
+            }
+            Action::DeletePuppetPin(pin_id) => {
+                self.puppet_pins.retain(|p| p.id != pin_id);
+            }
+            Action::SetPuppetMeshDensityExt { layer_id, density } => {
+                let density = density.clamp(1, 30);
+                if let Some(mesh) = self.puppet_meshes.iter_mut().find(|m| m.layer_id == layer_id) {
+                    mesh.density = density;
+                } else {
+                    self.puppet_meshes.push(PuppetMesh {
+                        layer_id,
+                        triangle_count: 0,
+                        expansion: 10.0,
+                        density,
+                    });
+                }
+            }
+            Action::SetPuppetMeshExpansion { layer_id, expansion } => {
+                let expansion = expansion.clamp(3.0, 100.0);
+                if let Some(mesh) = self.puppet_meshes.iter_mut().find(|m| m.layer_id == layer_id) {
+                    mesh.expansion = expansion;
+                } else {
+                    self.puppet_meshes.push(PuppetMesh {
+                        layer_id,
+                        triangle_count: 0,
+                        expansion,
+                        density: 5,
+                    });
+                }
+            }
+
             _ => unreachable!("apply_puppeting called with wrong action"),
         }
     }

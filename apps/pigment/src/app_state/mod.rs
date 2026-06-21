@@ -28,6 +28,7 @@ pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
 pub use self::ai::{GenerativeFillResult, SkyPreset, SkyReplaceConfig, SelectSubjectMode, SelectSubjectResult};
 pub use self::layer_3d::{Shape3DKind, Layer3DProps};
+pub use self::canvas::{Tool, Slice, ColorProfile, SoftProofMode, HistogramChannel, ColorMode};
 
 use self::text::TextEdit;
 
@@ -140,106 +141,6 @@ pub struct PenNode {
     pub pos: (f32, f32),
     pub ctrl_in: (f32, f32),
     pub ctrl_out: (f32, f32),
-}
-
-/// The editing tools, mirroring the egui app's `Tool` enum (see
-/// `pigment-app/src/app/mod.rs`). The full retouch family (Clone/Heal/etc.) is
-/// included so panel parity is reachable; the GPUI host wires behavior per wave.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tool {
-    Move,      // pan the view (hand)
-    MoveLayer, // translate the active layer
-    Brush,
-    Eraser,
-    Clone, // clone stamp
-    Heal,  // healing brush
-    Dodge, // dodge (lighten)
-    Burn,  // burn (darken)
-    Smudge, // smudge (blend)
-    Fill,
-    Eyedropper,
-    SelectRect,
-    SelectEllipse,
-    Lasso,
-    MagicWand,
-    Transform,
-    Crop,
-    Text,
-    Pen,
-    ShapeRect,
-    ShapeEllipse,
-    Gradient,
-    Slice, // mark rectangular export regions
-    Liquify, // warp mesh push/pull
-}
-
-/// A named rectangular region of the canvas for per-slice export.
-#[derive(Clone, Debug)]
-pub struct Slice {
-    pub id: u32,
-    /// `[x, y, w, h]` in document pixels.
-    pub rect: [f32; 4],
-    pub name: String,
-}
-
-impl Tool {
-    /// Short label for the tools strip / toolbar.
-    pub fn label(self) -> &'static str {
-        match self {
-            Tool::Move => "Move",
-            Tool::MoveLayer => "MoveL",
-            Tool::Brush => "Brush",
-            Tool::Eraser => "Eraser",
-            Tool::Clone => "Clone",
-            Tool::Heal => "Heal",
-            Tool::Dodge => "Dodge",
-            Tool::Burn => "Burn",
-            Tool::Smudge => "Smudge",
-            Tool::Fill => "Fill",
-            Tool::Eyedropper => "Eyedr",
-            Tool::SelectRect => "Rect",
-            Tool::SelectEllipse => "Ellip",
-            Tool::Lasso => "Lasso",
-            Tool::MagicWand => "Wand",
-            Tool::Transform => "Xform",
-            Tool::Crop => "Crop",
-            Tool::Text => "Text",
-            Tool::Pen => "Pen",
-            Tool::ShapeRect => "RectS",
-            Tool::ShapeEllipse => "EllpS",
-            Tool::Gradient => "Grad",
-            Tool::Slice => "Slice",
-            Tool::Liquify => "Liqfy",
-        }
-    }
-
-    /// Stable ordering for the tools strip (matches the egui palette grouping).
-    pub const ALL: [Tool; 24] = [
-        Tool::Move,
-        Tool::MoveLayer,
-        Tool::Brush,
-        Tool::Eraser,
-        Tool::Clone,
-        Tool::Heal,
-        Tool::Dodge,
-        Tool::Burn,
-        Tool::Smudge,
-        Tool::Fill,
-        Tool::Eyedropper,
-        Tool::SelectRect,
-        Tool::SelectEllipse,
-        Tool::Lasso,
-        Tool::MagicWand,
-        Tool::Transform,
-        Tool::Crop,
-        Tool::Text,
-        Tool::Pen,
-        Tool::ShapeRect,
-        Tool::ShapeEllipse,
-        Tool::Gradient,
-        Tool::Slice,
-        Tool::Liquify,
-    ];
 }
 
 /// Brush state, mirroring the egui app's defaults. `color` is straight sRGB
@@ -2129,53 +2030,6 @@ impl SmartFilter {
     }
 }
 
-/// Color profile for display simulation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum ColorProfile {
-    #[default]
-    Srgb,
-    AdobeRgb,
-    P3,
-    ProPhoto,
-}
-
-impl ColorProfile {
-    pub fn label(self) -> &'static str {
-        match self {
-            ColorProfile::Srgb => "sRGB",
-            ColorProfile::AdobeRgb => "Adobe RGB",
-            ColorProfile::P3 => "Display P3",
-            ColorProfile::ProPhoto => "ProPhoto RGB",
-        }
-    }
-}
-
-/// Soft-proof mode: simulates output gamut by converting to CMYK and back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum SoftProofMode {
-    #[default]
-    Off,
-    Cmyk,
-    PrinterProfile,
-}
-
-impl SoftProofMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            SoftProofMode::Off => "Off",
-            SoftProofMode::Cmyk => "CMYK",
-            SoftProofMode::PrinterProfile => "Printer Profile",
-        }
-    }
-    pub fn next(self) -> Self {
-        match self {
-            SoftProofMode::Off => SoftProofMode::Cmyk,
-            SoftProofMode::Cmyk => SoftProofMode::PrinterProfile,
-            SoftProofMode::PrinterProfile => SoftProofMode::Off,
-        }
-    }
-}
-
 /// Format for export presets.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ExportFormat {
@@ -2236,47 +2090,6 @@ impl ExportPreset {
             dpi: 72,
         }
     }
-}
-
-/// Histogram display channel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum HistogramChannel {
-    #[default]
-    Luminosity,
-    Rgb,
-    Red,
-    Green,
-    Blue,
-}
-
-impl HistogramChannel {
-    pub fn label(self) -> &'static str {
-        match self {
-            HistogramChannel::Luminosity => "Luma",
-            HistogramChannel::Rgb => "RGB",
-            HistogramChannel::Red => "R",
-            HistogramChannel::Green => "G",
-            HistogramChannel::Blue => "B",
-        }
-    }
-    pub fn next(self) -> Self {
-        match self {
-            HistogramChannel::Luminosity => HistogramChannel::Rgb,
-            HistogramChannel::Rgb => HistogramChannel::Red,
-            HistogramChannel::Red => HistogramChannel::Green,
-            HistogramChannel::Green => HistogramChannel::Blue,
-            HistogramChannel::Blue => HistogramChannel::Luminosity,
-        }
-    }
-}
-
-/// Color mode for the document.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ColorMode {
-    Rgb,
-    Cmyk,
-    Hsl,
-    Lab,
 }
 
 /// Liquify warp mode — only Warp is currently rasterised; others are stub.

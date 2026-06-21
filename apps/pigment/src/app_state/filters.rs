@@ -1,5 +1,116 @@
 use super::*;
 
+/// A destructive filter/adjustment the host can apply to the active layer through
+/// the engine's existing passes. Each variant carries its (default) params and
+/// maps to one `CanvasHost::apply_*` call — which forwards to the matching
+/// `prism_canvas::CanvasGpu::apply_*`. Reuses the engine pipeline verbatim; the
+/// host adds no filter math. Params mirror the egui app's defaults
+/// (`pigment-app/src/app/retouch.rs`).
+#[derive(Clone, Copy, Debug)]
+pub enum Filter {
+    /// Separable Gaussian blur (engine kind 1).
+    GaussianBlur { radius: f32 },
+    /// Separable box blur (engine kind 5).
+    BoxBlur { radius: f32 },
+    /// Unsharp-style sharpen (engine kind 2).
+    Sharpen { amount: f32 },
+    /// Posterize: quantize to N levels (engine `apply_posterize`).
+    Posterize { levels: u32 },
+    /// Threshold to black/white at a luma cutoff (engine `apply_threshold`).
+    Threshold { level: f32 },
+    /// Find Edges (engine stylize kind 13).
+    FindEdges { width: f32 },
+    /// Emboss (engine stylize kind 14).
+    Emboss { amount: f32, width: f32 },
+    /// Add monochrome gaussian noise (engine `apply_noise`).
+    AddNoise { amount: f32 },
+    /// Unsharp mask: blur then sharpen (amount × (original − blurred)).
+    UnsharpMask { radius: f32, amount: f32, threshold: f32 },
+    /// Radial spin blur around canvas center (proxy via gaussian blur).
+    RadialBlur { amount: f32 },
+    /// Lens correction: barrel/pincushion distortion + vignette.
+    LensCorrection { barrel: f32, pincushion: f32, vignette: f32 },
+    // --- Batch 5: additional CPU raster filters ---
+    /// Directional motion blur: `angle` degrees, `distance` px smear.
+    MotionBlur { angle: f32, distance: f32 },
+    /// Twirl distort: swirl `angle` degrees about the centre, falling off to
+    /// zero at `radius` (fraction 0..1 of the half-diagonal).
+    Twirl { angle: f32, radius: f32 },
+    /// Pinch / Bulge distort: signed `amount` (-1 bulge .. +1 pinch) within
+    /// `radius` (fraction 0..1 of the half-diagonal).
+    Pinch { amount: f32, radius: f32 },
+    /// Solarize: invert tones above `threshold` (0..1) per channel.
+    Solarize { threshold: f32 },
+    /// Glowing Edges: Sobel edge glow; `width` step, `intensity` brightness.
+    GlowingEdges { width: f32, intensity: f32 },
+    /// High Pass: subtract a Gaussian blur from the original, shift to 0.5 grey.
+    /// `radius` is the blur radius in px; output is a detail-isolation layer.
+    HighPass { radius: f32 },
+    /// Smart Sharpen: unsharp mask with configurable noise reduction pre-pass.
+    SmartSharpen { amount: f32, radius: f32, reduce_noise: f32, mode: SmartSharpenMode },
+    /// Reduce Noise: strength-controlled smoothing with detail/colour preservation.
+    ReduceNoise { strength: f32, preserve_details: f32, reduce_color_noise: f32, sharpen_details: f32 },
+}
+
+/// Blur model used by Smart Sharpen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SmartSharpenMode {
+    GaussianBlur,
+    LensBlur,
+    MotionBlur,
+}
+
+// ---- Batch 4 extended: HDR Tone Mapping -----------------------------------------
+
+/// Tone-mapping operator used when converting HDR/EXR content to display range.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ToneMapMethod {
+    /// Simple Reinhard (per-channel normalization). Default.
+    #[default]
+    Reinhard,
+    /// Filmic S-curve (approximates film response).
+    Filmic,
+    /// ACES Cg reference transform.
+    AcesCg,
+    /// Pure exposure adjustment (no curve shaping).
+    Exposure,
+}
+
+// ---- Batch 4 extended: Neural Filters -------------------------------------------
+
+/// A single entry in the neural-filter stack.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NeuralFilter {
+    pub kind: NeuralFilterKind,
+    /// Blend/effect strength in 0..=1.
+    pub strength: f32,
+    pub enabled: bool,
+}
+
+impl Default for NeuralFilter {
+    fn default() -> Self {
+        Self {
+            kind: NeuralFilterKind::SkinSmoothing,
+            strength: 0.5,
+            enabled: true,
+        }
+    }
+}
+
+/// The AI-powered filter kind (stubs — no actual inference; GPU pass planned).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum NeuralFilterKind {
+    #[default]
+    SkinSmoothing,
+    SmartPortrait,
+    StyleTransfer,
+    Colorize,
+    SuperZoom,
+    JpegArtifactRemoval,
+    NoiseReduction,
+    DepthBlur,
+}
+
 impl App {
     pub(super) fn apply_filters(&mut self, action: Action) {
         match action {
@@ -200,5 +311,67 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_filter_gaussian_blur() {
+        let f = Filter::GaussianBlur { radius: 5.0 };
+        match f {
+            Filter::GaussianBlur { radius } => assert_eq!(radius, 5.0),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_smart_sharpen_mode_variants() {
+        let _ = SmartSharpenMode::GaussianBlur;
+        let _ = SmartSharpenMode::LensBlur;
+        let _ = SmartSharpenMode::MotionBlur;
+    }
+
+    #[test]
+    fn test_tone_map_method_variants() {
+        let _ = ToneMapMethod::Reinhard;
+        let _ = ToneMapMethod::Filmic;
+    }
+
+    #[test]
+    fn test_neural_filter_default() {
+        let nf = NeuralFilter { kind: NeuralFilterKind::SkinSmoothing, ..Default::default() };
+        assert!(nf.enabled);
+        assert_eq!(nf.strength, 0.5);
+    }
+
+    #[test]
+    fn test_neural_filter_kind_variants() {
+        let _ = NeuralFilterKind::SuperZoom;
+        let _ = NeuralFilterKind::NoiseReduction;
+        let _ = NeuralFilterKind::DepthBlur;
+    }
+
+    #[test]
+    fn test_apply_filter_gaussian_blur() {
+        let mut app = App::new();
+        app.apply(Action::ApplyFilter(Filter::GaussianBlur { radius: 3.0 }));
+    }
+
+    #[test]
+    fn test_add_neural_filter() {
+        let mut app = App::new();
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::SkinSmoothing));
+        assert_eq!(app.neural_filters.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_neural_filter() {
+        let mut app = App::new();
+        app.apply(Action::AddNeuralFilter(NeuralFilterKind::SkinSmoothing));
+        app.apply(Action::RemoveNeuralFilter(0));
+        assert_eq!(app.neural_filters.len(), 0);
     }
 }

@@ -26,6 +26,7 @@ mod export;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
+pub use self::ai::{GenerativeFillResult, SkyPreset, SkyReplaceConfig, SelectSubjectMode, SelectSubjectResult};
 
 use self::text::TextEdit;
 
@@ -1085,17 +1086,6 @@ pub enum Action {
     Set3DExtrudeDepth { layer_id: usize, depth: f32 },
     /// Flatten a 3-D layer back to a raster layer (removes it from the 3-D list).
     Flatten3DLayer { layer_id: usize },
-}
-
-// ---- New Feature: GenerativeFill ---------------------------------------------
-
-/// One pending generative-fill result that the user can cycle through or accept.
-#[derive(Debug, Clone)]
-pub struct GenerativeFillResult {
-    pub layer_id: usize,
-    pub prompt: String,
-    pub variation_index: usize,
-    pub variation_count: usize,
 }
 
 // ---- New Feature: Basic3DLayer -----------------------------------------------
@@ -2495,53 +2485,6 @@ impl Default for SpotHealMode {
 
 // (no new structs needed — uses existing selection mask infrastructure)
 
-// ---- Batch 5 (new): Sky Replacement -----------------------------------------
-
-/// Built-in sky presets for Sky Replacement.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum SkyPreset {
-    #[default]
-    BlueSky,
-    SunsetOrange,
-    StormyClouds,
-    StarryNight,
-    CustomImage,
-}
-
-/// All tuning parameters for the Sky Replacement feature.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SkyReplaceConfig {
-    pub preset: SkyPreset,
-    /// Sky brightness 0..=200, default 100.
-    pub brightness: f32,
-    /// Colour temperature shift −100..=100, default 0.
-    pub temperature: f32,
-    /// Scale multiplier 0.5..=2.0, default 1.0.
-    pub scale: f32,
-    pub flip: bool,
-    /// Edge fade amount 0..=100, default 20.
-    pub fade_edge: f32,
-    /// Foreground lighting blend 0..=100, default 50.
-    pub foreground_lighting: f32,
-    /// When true, output sky + lighting as new layers.
-    pub output_new_layers: bool,
-}
-
-impl Default for SkyReplaceConfig {
-    fn default() -> Self {
-        Self {
-            preset: SkyPreset::BlueSky,
-            brightness: 100.0,
-            temperature: 0.0,
-            scale: 1.0,
-            flip: false,
-            fade_edge: 20.0,
-            foreground_lighting: 50.0,
-            output_new_layers: true,
-        }
-    }
-}
-
 // ---- Batch 5 (new): Liquify Depth -------------------------------------------
 
 /// Available tools inside the Liquify filter.
@@ -2577,27 +2520,6 @@ pub struct LiquifyMesh {
     pub height: u32,
     /// Number of mesh subdivisions (default 4).
     pub subdivisions: u8,
-}
-
-// ---- Batch 5 (new): Select Subject (AI stub) --------------------------------
-
-/// Whether Select Subject inference runs on-device or in Photoshop's cloud.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum SelectSubjectMode {
-    #[default]
-    Device,
-    Cloud,
-}
-
-/// Stub result returned after a Select Subject inference pass.
-#[derive(Debug, Clone)]
-pub struct SelectSubjectResult {
-    /// Fraction of canvas covered by the estimated subject mask (0..=1).
-    pub coverage: f32,
-    /// Model confidence (0..=1).
-    pub confidence: f32,
-    /// True when the Cloud inference path was used.
-    pub cloud_used: bool,
 }
 
 // ---- Batch 6: Artboards -----------------------------------------------------

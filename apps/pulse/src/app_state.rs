@@ -739,6 +739,181 @@ impl Default for Layer3DConfig {
     }
 }
 
+// ── New Feature: PuppetPin (app-level, independent of comp-model puppet pins) ─
+
+/// Puppet pin operating mode.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PuppetPinMode {
+    Deform,
+    Starch,
+    Overlap,
+}
+
+/// A single puppet deformation pin (app-level state).
+#[derive(Clone, Debug)]
+pub struct PuppetPin {
+    pub id: usize,
+    pub layer_id: usize,
+    pub name: String,
+    pub mode: PuppetPinMode,
+    pub x: f32,
+    pub y: f32,
+    /// Stiffness: 0.0..=100.0 (relevant for Starch mode).
+    pub stiffness: f32,
+    /// Extent: 0.0..=100.0 (relevant for Overlap mode).
+    pub extent: f32,
+}
+
+/// Puppet mesh parameters for a layer.
+#[derive(Clone, Debug)]
+pub struct PuppetMesh {
+    pub layer_id: usize,
+    pub triangle_count: usize,
+    /// Expansion: 3.0..=100.0
+    pub expansion: f32,
+    /// Density: 1..=30
+    pub density: u8,
+}
+
+// ── New Feature: CameraTracker (3D camera solve) ──────────────────────────────
+
+/// Status of a 3D camera track solve.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CameraTrackStatus {
+    Idle,
+    Analyzing,
+    Solving,
+    Done,
+    Failed,
+}
+
+/// A single 3D track point from a camera solve.
+#[derive(Clone, Debug)]
+pub struct CameraTrackPoint {
+    pub id: usize,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    /// Confidence: 0.0..=1.0
+    pub confidence: f32,
+    pub selected: bool,
+}
+
+/// State for a 3D camera track solve on a specific layer.
+#[derive(Clone, Debug)]
+pub struct CameraTrackSolve {
+    pub layer_id: usize,
+    pub status: CameraTrackStatus,
+    pub solve_error: f32,
+    /// Method: "Typical", "Mostly Flat", "Tripod"
+    pub method: String,
+    pub track_points: Vec<CameraTrackPoint>,
+    pub attached_layer_ids: Vec<usize>,
+}
+
+// ── New Feature: TextAnimator ─────────────────────────────────────────────────
+
+/// Built-in text animation presets.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TextAnimPreset {
+    FlyInFromLeft,
+    FlyInFromRight,
+    FadeIn,
+    FadeOut,
+    Typewriter,
+    Wiggle,
+    ScaleUp,
+    Bounce,
+    SpiralIn,
+    Blur,
+}
+
+/// Which properties a text animator affects.
+#[derive(Clone, Debug, Default)]
+pub struct TextAnimProperty {
+    pub anchor_point: bool,
+    pub position: bool,
+    pub scale: bool,
+    pub rotation: bool,
+    pub opacity: bool,
+    pub fill_color: bool,
+    pub stroke_color: bool,
+    pub blur: bool,
+}
+
+/// Range selector for a text animator.
+#[derive(Clone, Debug)]
+pub struct TextAnimRange {
+    /// 0..=100
+    pub start: f32,
+    pub end: f32,
+    pub offset: f32,
+    /// "Percentage" or "Index"
+    pub units: String,
+    /// "Characters", "Words", or "Lines"
+    pub based_on: String,
+}
+
+impl Default for TextAnimRange {
+    fn default() -> Self {
+        Self {
+            start: 0.0,
+            end: 100.0,
+            offset: 0.0,
+            units: "Percentage".to_string(),
+            based_on: "Characters".to_string(),
+        }
+    }
+}
+
+/// An app-level text animator (separate from comp-model TextAnimator).
+#[derive(Clone, Debug)]
+pub struct TextAnimator {
+    pub id: usize,
+    pub layer_id: usize,
+    pub name: String,
+    pub preset: Option<TextAnimPreset>,
+    pub properties: TextAnimProperty,
+    pub range: TextAnimRange,
+}
+
+// ── New Feature: EssentialGraphicsPanel (MOGRT templates) ────────────────────
+
+/// Parameter kind in a MOGRT template.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MogrParamKind {
+    Text,
+    Color,
+    Number,
+    Bool,
+    Dropdown,
+    Slider,
+}
+
+/// A single editable parameter in a MOGRT template.
+#[derive(Clone, Debug)]
+pub struct MogrParam {
+    pub id: String,
+    pub label: String,
+    pub kind: MogrParamKind,
+    /// Value serialized as string for simplicity.
+    pub value: String,
+    pub min: Option<f32>,
+    pub max: Option<f32>,
+    pub options: Vec<String>,
+}
+
+/// A Motion Graphics Template (MOGRT) for the Essential Graphics panel.
+#[derive(Clone, Debug)]
+pub struct MogrTemplate {
+    pub id: usize,
+    pub name: String,
+    pub description: String,
+    pub params: Vec<MogrParam>,
+    pub composition_id: Option<usize>,
+    pub is_responsive: bool,
+}
+
 /// Every panel->state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
 /// here and a matching arm in `apply` — that is the entire contract a parallel
@@ -1426,6 +1601,64 @@ pub enum Action {
     Set3DShadows { layer_id: usize, casts: bool, accepts: bool },
     Set3DMaterial { layer_id: usize, shininess: f32, metal: f32 },
     Reset3DLayer { layer_id: usize },
+
+    // --- New: PuppetPin (app-level) ---
+    /// Activate or deactivate the puppet tool.
+    ActivatePuppetTool(bool),
+    /// Add a puppet pin to a layer at (x, y) with the given mode.
+    AddPuppetPinExt { layer_id: usize, x: f32, y: f32, mode: PuppetPinMode },
+    /// Move a puppet pin to a new position.
+    MovePuppetPinExt { pin_id: usize, x: f32, y: f32 },
+    /// Set the stiffness of a puppet pin (clamped 0..=100).
+    SetPuppetPinStiffnessExt { pin_id: usize, stiffness: f32 },
+    /// Remove a puppet pin by id.
+    DeletePuppetPin(usize),
+    /// Set puppet mesh density for a layer (clamped 1..=30, upsert).
+    SetPuppetMeshDensityExt { layer_id: usize, density: u8 },
+    /// Set puppet mesh expansion for a layer (clamped 3..=100, upsert).
+    SetPuppetMeshExpansion { layer_id: usize, expansion: f32 },
+
+    // --- New: CameraTracker (3D solve) ---
+    /// Start a 3D camera track on a layer; generates stub track points.
+    StartCameraTrackSolve { layer_id: usize },
+    /// Solve the 3D camera for a layer; sets status=Done and solve_error.
+    SolveCameraTrackExt { layer_id: usize },
+    /// Select specific track points on a layer's solve (others deselected).
+    SelectTrackPoints { layer_id: usize, point_ids: Vec<usize> },
+    /// Create a solved camera layer from a completed solve.
+    CreateSolvedCamera { layer_id: usize },
+    /// Delete the 3D camera track solve for a layer.
+    DeleteCameraTrackSolve { layer_id: usize },
+
+    // --- New: TextAnimator (app-level) ---
+    /// Add a new app-level text animator for a layer.
+    AddTextAnimatorExt { layer_id: usize },
+    /// Apply a built-in preset to a text animator.
+    ApplyTextAnimPreset { animator_id: usize, preset: TextAnimPreset },
+    /// Set the range start/end of a text animator (both clamped 0..=100).
+    SetTextAnimRange { animator_id: usize, start: f32, end: f32 },
+    /// Set the range units of a text animator.
+    SetTextAnimRangeUnits { animator_id: usize, units: String },
+    /// Set the "based on" of a text animator.
+    SetTextAnimBasedOn { animator_id: usize, based_on: String },
+    /// Remove a text animator by id.
+    RemoveTextAnimatorExt(usize),
+
+    // --- New: EssentialGraphicsPanel (MOGRT) ---
+    /// Open the Essential Graphics panel.
+    OpenEssentialGraphics,
+    /// Close the Essential Graphics panel.
+    CloseEssentialGraphics,
+    /// Create a new MOGRT template.
+    CreateMogrTemplate { name: String, composition_id: usize },
+    /// Add a parameter to a MOGRT template.
+    AddMogrParam { template_id: usize, param: MogrParam },
+    /// Set the value of a MOGRT parameter.
+    SetMogrParamValue { template_id: usize, param_id: String, value: String },
+    /// Export a MOGRT template (stub: sets is_responsive=true).
+    ExportMogrt { template_id: usize },
+    /// Delete a MOGRT template by id.
+    DeleteMogrTemplate(usize),
 }
 
 impl Action {
@@ -1795,6 +2028,25 @@ pub struct App {
 
     // --- Batch 6 depth: 3D Layer ---
     pub layer_3d_configs: std::collections::HashMap<usize, Layer3DConfig>,
+
+    // --- New: PuppetPin (app-level) ---
+    pub puppet_pins: Vec<PuppetPin>,
+    pub puppet_meshes: Vec<PuppetMesh>,
+    pub puppet_pin_counter: usize,
+    pub puppet_tool_active: bool,
+
+    // --- New: CameraTracker (3D solve) ---
+    pub camera_track_solves: Vec<CameraTrackSolve>,
+    pub camera_track_counter: usize,
+
+    // --- New: TextAnimator (app-level) ---
+    pub text_animators: Vec<TextAnimator>,
+    pub text_anim_counter: usize,
+
+    // --- New: EssentialGraphicsPanel (MOGRT) ---
+    pub mogrt_templates_v2: Vec<MogrTemplate>,
+    pub mogrt_counter: usize,
+    pub essential_graphics_open: bool,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -1965,6 +2217,17 @@ impl App {
             render_in_progress: false,
             render_active_idx: None,
             layer_3d_configs: std::collections::HashMap::new(),
+            puppet_pins: Vec::new(),
+            puppet_meshes: Vec::new(),
+            puppet_pin_counter: 0,
+            puppet_tool_active: false,
+            camera_track_solves: Vec::new(),
+            camera_track_counter: 0,
+            text_animators: Vec::new(),
+            text_anim_counter: 0,
+            mogrt_templates_v2: Vec::new(),
+            mogrt_counter: 0,
+            essential_graphics_open: false,
         }
     }
 
@@ -4610,6 +4873,198 @@ impl App {
             Action::Reset3DLayer { layer_id } => {
                 self.layer_3d_configs.remove(&layer_id);
             }
+
+            // --- New: PuppetPin (app-level) ---
+            Action::ActivatePuppetTool(active) => {
+                self.puppet_tool_active = active;
+            }
+            Action::AddPuppetPinExt { layer_id, x, y, mode } => {
+                let id = self.puppet_pin_counter;
+                self.puppet_pin_counter += 1;
+                let name = format!("Pin {}", id + 1);
+                self.puppet_pins.push(PuppetPin {
+                    id,
+                    layer_id,
+                    name,
+                    mode,
+                    x,
+                    y,
+                    stiffness: 0.0,
+                    extent: 0.0,
+                });
+            }
+            Action::MovePuppetPinExt { pin_id, x, y } => {
+                if let Some(pin) = self.puppet_pins.iter_mut().find(|p| p.id == pin_id) {
+                    pin.x = x;
+                    pin.y = y;
+                }
+            }
+            Action::SetPuppetPinStiffnessExt { pin_id, stiffness } => {
+                if let Some(pin) = self.puppet_pins.iter_mut().find(|p| p.id == pin_id) {
+                    pin.stiffness = stiffness.clamp(0.0, 100.0);
+                }
+            }
+            Action::DeletePuppetPin(pin_id) => {
+                self.puppet_pins.retain(|p| p.id != pin_id);
+            }
+            Action::SetPuppetMeshDensityExt { layer_id, density } => {
+                let density = density.clamp(1, 30);
+                if let Some(mesh) = self.puppet_meshes.iter_mut().find(|m| m.layer_id == layer_id) {
+                    mesh.density = density;
+                } else {
+                    self.puppet_meshes.push(PuppetMesh {
+                        layer_id,
+                        triangle_count: 0,
+                        expansion: 3.0,
+                        density,
+                    });
+                }
+            }
+            Action::SetPuppetMeshExpansion { layer_id, expansion } => {
+                let expansion = expansion.clamp(3.0, 100.0);
+                if let Some(mesh) = self.puppet_meshes.iter_mut().find(|m| m.layer_id == layer_id) {
+                    mesh.expansion = expansion;
+                } else {
+                    self.puppet_meshes.push(PuppetMesh {
+                        layer_id,
+                        triangle_count: 0,
+                        expansion,
+                        density: 10,
+                    });
+                }
+            }
+
+            // --- New: CameraTracker (3D solve) ---
+            Action::StartCameraTrackSolve { layer_id } => {
+                // Generate 40 stub track points
+                let track_points: Vec<CameraTrackPoint> = (0..40)
+                    .map(|i| {
+                        let id = self.camera_track_counter;
+                        self.camera_track_counter += 1;
+                        CameraTrackPoint {
+                            id,
+                            x: (i * 7 % 1920) as f32,
+                            y: (i * 11 % 1080) as f32,
+                            z: 0.0,
+                            confidence: 0.8,
+                            selected: false,
+                        }
+                    })
+                    .collect();
+                // Upsert: remove existing solve for this layer and push new one
+                self.camera_track_solves.retain(|s| s.layer_id != layer_id);
+                self.camera_track_solves.push(CameraTrackSolve {
+                    layer_id,
+                    status: CameraTrackStatus::Analyzing,
+                    solve_error: 0.0,
+                    method: "Typical".to_string(),
+                    track_points,
+                    attached_layer_ids: Vec::new(),
+                });
+            }
+            Action::SolveCameraTrackExt { layer_id } => {
+                if let Some(solve) = self.camera_track_solves.iter_mut().find(|s| s.layer_id == layer_id) {
+                    solve.status = CameraTrackStatus::Done;
+                    solve.solve_error = 0.73;
+                }
+            }
+            Action::SelectTrackPoints { layer_id, point_ids } => {
+                if let Some(solve) = self.camera_track_solves.iter_mut().find(|s| s.layer_id == layer_id) {
+                    for pt in solve.track_points.iter_mut() {
+                        pt.selected = point_ids.contains(&pt.id);
+                    }
+                }
+            }
+            Action::CreateSolvedCamera { layer_id } => {
+                if let Some(solve) = self.camera_track_solves.iter_mut().find(|s| s.layer_id == layer_id) {
+                    if solve.status == CameraTrackStatus::Done {
+                        solve.attached_layer_ids.push(layer_id);
+                    }
+                }
+            }
+            Action::DeleteCameraTrackSolve { layer_id } => {
+                self.camera_track_solves.retain(|s| s.layer_id != layer_id);
+            }
+
+            // --- New: TextAnimator (app-level) ---
+            Action::AddTextAnimatorExt { layer_id } => {
+                let id = self.text_anim_counter;
+                self.text_anim_counter += 1;
+                let name = format!("Animator {}", id + 1);
+                self.text_animators.push(TextAnimator {
+                    id,
+                    layer_id,
+                    name,
+                    preset: None,
+                    properties: TextAnimProperty::default(),
+                    range: TextAnimRange::default(),
+                });
+            }
+            Action::ApplyTextAnimPreset { animator_id, preset } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.preset = Some(preset);
+                }
+            }
+            Action::SetTextAnimRange { animator_id, start, end } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.range.start = start.clamp(0.0, 100.0);
+                    anim.range.end = end.clamp(0.0, 100.0);
+                }
+            }
+            Action::SetTextAnimRangeUnits { animator_id, units } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.range.units = units;
+                }
+            }
+            Action::SetTextAnimBasedOn { animator_id, based_on } => {
+                if let Some(anim) = self.text_animators.iter_mut().find(|a| a.id == animator_id) {
+                    anim.range.based_on = based_on;
+                }
+            }
+            Action::RemoveTextAnimatorExt(animator_id) => {
+                self.text_animators.retain(|a| a.id != animator_id);
+            }
+
+            // --- New: EssentialGraphicsPanel (MOGRT) ---
+            Action::OpenEssentialGraphics => {
+                self.essential_graphics_open = true;
+            }
+            Action::CloseEssentialGraphics => {
+                self.essential_graphics_open = false;
+            }
+            Action::CreateMogrTemplate { name, composition_id } => {
+                let id = self.mogrt_counter;
+                self.mogrt_counter += 1;
+                self.mogrt_templates_v2.push(MogrTemplate {
+                    id,
+                    name,
+                    description: String::new(),
+                    params: Vec::new(),
+                    composition_id: Some(composition_id),
+                    is_responsive: false,
+                });
+            }
+            Action::AddMogrParam { template_id, param } => {
+                if let Some(tmpl) = self.mogrt_templates_v2.iter_mut().find(|t| t.id == template_id) {
+                    tmpl.params.push(param);
+                }
+            }
+            Action::SetMogrParamValue { template_id, param_id, value } => {
+                if let Some(tmpl) = self.mogrt_templates_v2.iter_mut().find(|t| t.id == template_id) {
+                    if let Some(param) = tmpl.params.iter_mut().find(|p| p.id == param_id) {
+                        param.value = value;
+                    }
+                }
+            }
+            Action::ExportMogrt { template_id } => {
+                // Stub: mark is_responsive=true
+                if let Some(tmpl) = self.mogrt_templates_v2.iter_mut().find(|t| t.id == template_id) {
+                    tmpl.is_responsive = true;
+                }
+            }
+            Action::DeleteMogrTemplate(template_id) => {
+                self.mogrt_templates_v2.retain(|t| t.id != template_id);
+            }
         }
     }
 
@@ -6503,5 +6958,341 @@ mod tests {
         assert!((pos[0] - 10.0).abs() < 1e-5);
         assert!((pos[1] - 20.0).abs() < 1e-5);
         assert!((pos[2] - 30.0).abs() < 1e-5);
+    }
+
+    // ── New: PuppetPin (app-level) ────────────────────────────────────────────
+
+    #[test]
+    fn test_puppet_tool_activate() {
+        let mut app = App::new();
+        assert!(!app.puppet_tool_active);
+        app.apply(Action::ActivatePuppetTool(true));
+        assert!(app.puppet_tool_active);
+        app.apply(Action::ActivatePuppetTool(false));
+        assert!(!app.puppet_tool_active);
+    }
+
+    #[test]
+    fn test_add_puppet_pin_ext() {
+        let mut app = App::new();
+        assert!(app.puppet_pins.is_empty());
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 100.0, y: 200.0, mode: PuppetPinMode::Deform });
+        assert_eq!(app.puppet_pins.len(), 1);
+        assert_eq!(app.puppet_pins[0].layer_id, 0);
+        assert_eq!(app.puppet_pins[0].name, "Pin 1");
+        assert_eq!(app.puppet_pins[0].mode, PuppetPinMode::Deform);
+        assert!((app.puppet_pins[0].x - 100.0).abs() < 1e-5);
+        assert!((app.puppet_pins[0].y - 200.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_add_puppet_pin_auto_name() {
+        let mut app = App::new();
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Deform });
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 10.0, y: 10.0, mode: PuppetPinMode::Starch });
+        assert_eq!(app.puppet_pins[0].name, "Pin 1");
+        assert_eq!(app.puppet_pins[1].name, "Pin 2");
+    }
+
+    #[test]
+    fn test_move_puppet_pin_ext() {
+        let mut app = App::new();
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Deform });
+        let pin_id = app.puppet_pins[0].id;
+        app.apply(Action::MovePuppetPinExt { pin_id, x: 50.0, y: 75.0 });
+        assert!((app.puppet_pins[0].x - 50.0).abs() < 1e-5);
+        assert!((app.puppet_pins[0].y - 75.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_puppet_pin_stiffness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Starch });
+        let pin_id = app.puppet_pins[0].id;
+        // Within range
+        app.apply(Action::SetPuppetPinStiffnessExt { pin_id, stiffness: 75.0 });
+        assert!((app.puppet_pins[0].stiffness - 75.0).abs() < 1e-5);
+        // Above max → 100.0
+        app.apply(Action::SetPuppetPinStiffnessExt { pin_id, stiffness: 200.0 });
+        assert!((app.puppet_pins[0].stiffness - 100.0).abs() < 1e-5);
+        // Below min → 0.0
+        app.apply(Action::SetPuppetPinStiffnessExt { pin_id, stiffness: -5.0 });
+        assert!((app.puppet_pins[0].stiffness - 0.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_delete_puppet_pin() {
+        let mut app = App::new();
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Deform });
+        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 10.0, y: 10.0, mode: PuppetPinMode::Starch });
+        let pin_id = app.puppet_pins[0].id;
+        app.apply(Action::DeletePuppetPin(pin_id));
+        assert_eq!(app.puppet_pins.len(), 1);
+    }
+
+    #[test]
+    fn test_puppet_mesh_density_upsert() {
+        let mut app = App::new();
+        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 10 });
+        assert_eq!(app.puppet_meshes.len(), 1);
+        assert_eq!(app.puppet_meshes[0].density, 10);
+        // Update existing
+        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 20 });
+        assert_eq!(app.puppet_meshes.len(), 1);
+        assert_eq!(app.puppet_meshes[0].density, 20);
+        // Clamp: 0 → 1
+        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 0 });
+        assert_eq!(app.puppet_meshes[0].density, 1);
+        // Clamp: 99 → 30
+        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 99 });
+        assert_eq!(app.puppet_meshes[0].density, 30);
+    }
+
+    #[test]
+    fn test_puppet_mesh_expansion_upsert() {
+        let mut app = App::new();
+        app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 50.0 });
+        assert_eq!(app.puppet_meshes.len(), 1);
+        assert!((app.puppet_meshes[0].expansion - 50.0).abs() < 1e-5);
+        // Clamp: 1.0 → 3.0
+        app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 1.0 });
+        assert!((app.puppet_meshes[0].expansion - 3.0).abs() < 1e-5);
+        // Clamp: 200.0 → 100.0
+        app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 200.0 });
+        assert!((app.puppet_meshes[0].expansion - 100.0).abs() < 1e-5);
+    }
+
+    // ── New: CameraTracker (3D solve) ─────────────────────────────────────────
+
+    #[test]
+    fn test_start_camera_track_solve_creates_solve() {
+        let mut app = App::new();
+        assert!(app.camera_track_solves.is_empty());
+        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
+        assert_eq!(app.camera_track_solves.len(), 1);
+        assert_eq!(app.camera_track_solves[0].layer_id, 0);
+        assert_eq!(app.camera_track_solves[0].status, CameraTrackStatus::Analyzing);
+        assert_eq!(app.camera_track_solves[0].track_points.len(), 40);
+    }
+
+    #[test]
+    fn test_start_camera_track_stub_points_positions() {
+        let mut app = App::new();
+        app.apply(Action::StartCameraTrackSolve { layer_id: 2 });
+        let pts = &app.camera_track_solves[0].track_points;
+        // Check index 0: 0*7%1920=0, 0*11%1080=0
+        assert!((pts[0].x - 0.0).abs() < 1e-5);
+        assert!((pts[0].y - 0.0).abs() < 1e-5);
+        // Check index 1: 1*7%1920=7, 1*11%1080=11
+        assert!((pts[1].x - 7.0).abs() < 1e-5);
+        assert!((pts[1].y - 11.0).abs() < 1e-5);
+        // All confidence 0.8
+        for pt in pts {
+            assert!((pt.confidence - 0.8).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn test_solve_camera_track_ext() {
+        let mut app = App::new();
+        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
+        app.apply(Action::SolveCameraTrackExt { layer_id: 0 });
+        assert_eq!(app.camera_track_solves[0].status, CameraTrackStatus::Done);
+        assert!((app.camera_track_solves[0].solve_error - 0.73).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_select_track_points() {
+        let mut app = App::new();
+        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
+        let id0 = app.camera_track_solves[0].track_points[0].id;
+        let id1 = app.camera_track_solves[0].track_points[1].id;
+        app.apply(Action::SelectTrackPoints { layer_id: 0, point_ids: vec![id0] });
+        assert!(app.camera_track_solves[0].track_points[0].selected);
+        assert!(!app.camera_track_solves[0].track_points[1].selected);
+        // Select id1 now, id0 deselected
+        app.apply(Action::SelectTrackPoints { layer_id: 0, point_ids: vec![id1] });
+        assert!(!app.camera_track_solves[0].track_points[0].selected);
+        assert!(app.camera_track_solves[0].track_points[1].selected);
+    }
+
+    #[test]
+    fn test_create_solved_camera_requires_done() {
+        let mut app = App::new();
+        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
+        // Status is Analyzing; CreateSolvedCamera should not add attached_layer
+        app.apply(Action::CreateSolvedCamera { layer_id: 0 });
+        assert!(app.camera_track_solves[0].attached_layer_ids.is_empty());
+        // Now solve and try again
+        app.apply(Action::SolveCameraTrackExt { layer_id: 0 });
+        app.apply(Action::CreateSolvedCamera { layer_id: 0 });
+        assert_eq!(app.camera_track_solves[0].attached_layer_ids.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_camera_track_solve() {
+        let mut app = App::new();
+        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
+        app.apply(Action::StartCameraTrackSolve { layer_id: 1 });
+        assert_eq!(app.camera_track_solves.len(), 2);
+        app.apply(Action::DeleteCameraTrackSolve { layer_id: 0 });
+        assert_eq!(app.camera_track_solves.len(), 1);
+        assert_eq!(app.camera_track_solves[0].layer_id, 1);
+    }
+
+    // ── New: TextAnimator (app-level) ─────────────────────────────────────────
+
+    #[test]
+    fn test_add_text_animator_ext() {
+        let mut app = App::new();
+        assert!(app.text_animators.is_empty());
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        assert_eq!(app.text_animators.len(), 1);
+        assert_eq!(app.text_animators[0].layer_id, 0);
+        assert_eq!(app.text_animators[0].name, "Animator 1");
+        assert!(app.text_animators[0].preset.is_none());
+    }
+
+    #[test]
+    fn test_apply_text_anim_preset() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::ApplyTextAnimPreset { animator_id: id, preset: TextAnimPreset::FadeIn });
+        assert_eq!(app.text_animators[0].preset, Some(TextAnimPreset::FadeIn));
+        app.apply(Action::ApplyTextAnimPreset { animator_id: id, preset: TextAnimPreset::Typewriter });
+        assert_eq!(app.text_animators[0].preset, Some(TextAnimPreset::Typewriter));
+    }
+
+    #[test]
+    fn test_set_text_anim_range() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimRange { animator_id: id, start: 25.0, end: 75.0 });
+        assert!((app.text_animators[0].range.start - 25.0).abs() < 1e-5);
+        assert!((app.text_animators[0].range.end - 75.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_text_anim_range_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimRange { animator_id: id, start: -10.0, end: 200.0 });
+        assert!((app.text_animators[0].range.start - 0.0).abs() < 1e-5);
+        assert!((app.text_animators[0].range.end - 100.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_set_text_anim_units() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimRangeUnits { animator_id: id, units: "Index".to_string() });
+        assert_eq!(app.text_animators[0].range.units, "Index");
+    }
+
+    #[test]
+    fn test_set_text_anim_based_on() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        let id = app.text_animators[0].id;
+        app.apply(Action::SetTextAnimBasedOn { animator_id: id, based_on: "Words".to_string() });
+        assert_eq!(app.text_animators[0].range.based_on, "Words");
+    }
+
+    #[test]
+    fn test_remove_text_animator_ext() {
+        let mut app = App::new();
+        app.apply(Action::AddTextAnimatorExt { layer_id: 0 });
+        app.apply(Action::AddTextAnimatorExt { layer_id: 1 });
+        assert_eq!(app.text_animators.len(), 2);
+        let id = app.text_animators[0].id;
+        app.apply(Action::RemoveTextAnimatorExt(id));
+        assert_eq!(app.text_animators.len(), 1);
+        assert_eq!(app.text_animators[0].layer_id, 1);
+    }
+
+    // ── New: EssentialGraphicsPanel (MOGRT) ───────────────────────────────────
+
+    #[test]
+    fn test_essential_graphics_open_close() {
+        let mut app = App::new();
+        assert!(!app.essential_graphics_open);
+        app.apply(Action::OpenEssentialGraphics);
+        assert!(app.essential_graphics_open);
+        app.apply(Action::CloseEssentialGraphics);
+        assert!(!app.essential_graphics_open);
+    }
+
+    #[test]
+    fn test_create_mogr_template() {
+        let mut app = App::new();
+        assert!(app.mogrt_templates_v2.is_empty());
+        app.apply(Action::CreateMogrTemplate { name: "Lower Third".to_string(), composition_id: 0 });
+        assert_eq!(app.mogrt_templates_v2.len(), 1);
+        assert_eq!(app.mogrt_templates_v2[0].name, "Lower Third");
+        assert_eq!(app.mogrt_templates_v2[0].composition_id, Some(0));
+        assert!(!app.mogrt_templates_v2[0].is_responsive);
+    }
+
+    #[test]
+    fn test_add_mogr_param() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "T".to_string(), composition_id: 0 });
+        let tid = app.mogrt_templates_v2[0].id;
+        let param = MogrParam {
+            id: "title".to_string(),
+            label: "Title".to_string(),
+            kind: MogrParamKind::Text,
+            value: "Hello".to_string(),
+            min: None,
+            max: None,
+            options: vec![],
+        };
+        app.apply(Action::AddMogrParam { template_id: tid, param });
+        assert_eq!(app.mogrt_templates_v2[0].params.len(), 1);
+        assert_eq!(app.mogrt_templates_v2[0].params[0].label, "Title");
+    }
+
+    #[test]
+    fn test_set_mogr_param_value() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "T".to_string(), composition_id: 0 });
+        let tid = app.mogrt_templates_v2[0].id;
+        let param = MogrParam {
+            id: "speed".to_string(),
+            label: "Speed".to_string(),
+            kind: MogrParamKind::Slider,
+            value: "50".to_string(),
+            min: Some(0.0),
+            max: Some(100.0),
+            options: vec![],
+        };
+        app.apply(Action::AddMogrParam { template_id: tid, param });
+        app.apply(Action::SetMogrParamValue { template_id: tid, param_id: "speed".to_string(), value: "80".to_string() });
+        assert_eq!(app.mogrt_templates_v2[0].params[0].value, "80");
+    }
+
+    #[test]
+    fn test_export_mogrt_sets_responsive() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "T".to_string(), composition_id: 0 });
+        let tid = app.mogrt_templates_v2[0].id;
+        assert!(!app.mogrt_templates_v2[0].is_responsive);
+        app.apply(Action::ExportMogrt { template_id: tid });
+        assert!(app.mogrt_templates_v2[0].is_responsive);
+    }
+
+    #[test]
+    fn test_delete_mogr_template() {
+        let mut app = App::new();
+        app.apply(Action::CreateMogrTemplate { name: "A".to_string(), composition_id: 0 });
+        app.apply(Action::CreateMogrTemplate { name: "B".to_string(), composition_id: 0 });
+        let tid_a = app.mogrt_templates_v2[0].id;
+        app.apply(Action::DeleteMogrTemplate(tid_a));
+        assert_eq!(app.mogrt_templates_v2.len(), 1);
+        assert_eq!(app.mogrt_templates_v2[0].name, "B");
     }
 }

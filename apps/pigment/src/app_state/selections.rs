@@ -1,5 +1,186 @@
 use super::*;
 
+// ---- Batch 5: Vanishing Point -------------------------------------------
+
+/// Editing mode for the Vanishing Point overlay.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum VanishingToolMode {
+    /// Clicking defines or moves the four plane corners.
+    #[default]
+    DefiningPlane,
+    /// Clone/stamp within the perspective plane.
+    Stamping,
+    /// Paste content and drag it to fit the plane.
+    Pasting,
+}
+
+/// A perspective plane defined by four canvas-space corners (TL/TR/BR/BL).
+/// Used by the Vanishing Point feature for perspective-aware cloning.
+#[derive(Clone, Debug)]
+pub struct VanishingPlane {
+    /// Corners in canvas doc-px order: [TL, TR, BR, BL].
+    pub corners: [[f32; 2]; 4],
+    /// Grid cell size in doc px for the overlay grid (default 50).
+    pub grid_size: f32,
+    pub active: bool,
+}
+
+// ---- Batch 7: Alpha Channels ------------------------------------------------
+
+/// A named alpha channel saved from a selection mask.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AlphaChannel {
+    pub name: String,
+    /// Flat row-major width×height coverage values 0..=1.
+    pub mask: Vec<f32>,
+    pub width: u32,
+    pub height: u32,
+}
+
+// ---- Batch 7: Blend If ------------------------------------------------------
+
+/// Per-layer "Blend If" luminance range controls (Photoshop Layer Style parity).
+/// Values are in the Photoshop 0..255 scale stored as f32.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BlendIf {
+    /// Shadow range start for THIS layer.
+    pub this_black: f32,
+    /// Highlight range end for THIS layer.
+    pub this_white: f32,
+    /// Shadow range start for the UNDERLYING layer.
+    pub under_black: f32,
+    /// Highlight range end for the UNDERLYING layer.
+    pub under_white: f32,
+}
+
+impl Default for BlendIf {
+    fn default() -> Self {
+        Self {
+            this_black: 0.0,
+            this_white: 255.0,
+            under_black: 0.0,
+            under_white: 255.0,
+        }
+    }
+}
+
+// ---- Batch 6: Artboards -----------------------------------------------------
+
+/// A named canvas region for multi-artboard documents (PS 2015+ parity).
+#[derive(Clone, Debug)]
+pub struct Artboard {
+    pub id: u64,
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// Background fill (straight sRGB RGBA 0..1, default white).
+    pub background_color: [f32; 4],
+}
+
+// ---- Batch 6: Apply Image ---------------------------------------------------
+
+/// Which channel of a source layer to blend in Apply Image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyImageChannel {
+    Rgb,
+    Red,
+    Green,
+    Blue,
+    Alpha,
+    Luminosity,
+}
+
+impl Default for ApplyImageChannel {
+    fn default() -> Self { ApplyImageChannel::Rgb }
+}
+
+/// Parameters for the Apply Image command (stored for the dialog UI).
+#[derive(Clone, Debug)]
+pub struct ApplyImageParams {
+    pub source_layer: LayerId,
+    pub source_channel: ApplyImageChannel,
+    pub target_layer: LayerId,
+    pub blend_mode: BlendMode,
+    /// Blend opacity 0..1.
+    pub opacity: f32,
+    pub invert_source: bool,
+    pub mask_layer: Option<LayerId>,
+}
+// ---- Batch 6: Soft Proof (expanded) -----------------------------------------
+
+/// Color profile to simulate during soft proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ProofProfile {
+    #[default]
+    WorkingCmyk,
+    Srgb,
+    AdobeRgb,
+    PrinterProfile,
+    MonitorRgb,
+}
+
+impl ProofProfile {
+    pub fn label(self) -> &'static str {
+        match self {
+            ProofProfile::WorkingCmyk   => "Working CMYK",
+            ProofProfile::Srgb          => "sRGB",
+            ProofProfile::AdobeRgb      => "Adobe RGB",
+            ProofProfile::PrinterProfile => "Printer Profile",
+            ProofProfile::MonitorRgb    => "Monitor RGB",
+        }
+    }
+}
+
+/// Perceptual rendering intent for soft proof gamut mapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RenderingIntent {
+    #[default]
+    Perceptual,
+    RelativeColorimetric,
+    Saturation,
+    AbsoluteColorimetric,
+}
+
+impl RenderingIntent {
+    pub fn label(self) -> &'static str {
+        match self {
+            RenderingIntent::Perceptual              => "Perceptual",
+            RenderingIntent::RelativeColorimetric    => "Relative Colorimetric",
+            RenderingIntent::Saturation              => "Saturation",
+            RenderingIntent::AbsoluteColorimetric    => "Absolute Colorimetric",
+        }
+    }
+}
+
+/// Full soft-proof settings (Photoshop View > Proof Setup parity).
+#[derive(Clone, Debug)]
+pub struct SoftProofSettings {
+    pub profile: ProofProfile,
+    pub intent: RenderingIntent,
+    pub black_point_compensation: bool,
+    pub simulate_paper_white: bool,
+    pub simulate_black_ink: bool,
+    pub gamut_warning: bool,
+    /// Highlight colour for out-of-gamut pixels (straight sRGB RGBA, default green).
+    pub gamut_warning_color: [f32; 4],
+}
+
+impl Default for SoftProofSettings {
+    fn default() -> Self {
+        Self {
+            profile: ProofProfile::WorkingCmyk,
+            intent: RenderingIntent::Perceptual,
+            black_point_compensation: true,
+            simulate_paper_white: false,
+            simulate_black_ink: false,
+            gamut_warning: false,
+            gamut_warning_color: [0.0, 1.0, 0.0, 1.0],
+        }
+    }
+}
+
 impl App {
     pub(super) fn apply_selections(&mut self, action: Action) {
         match action {
@@ -292,5 +473,80 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vanishing_tool_mode_default() {
+        assert_eq!(VanishingToolMode::default(), VanishingToolMode::DefiningPlane);
+    }
+
+    #[test]
+    fn test_vanishing_plane_fields() {
+        let vp = VanishingPlane {
+            corners: [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]],
+            grid_size: 50.0,
+            active: true,
+        };
+        assert_eq!(vp.grid_size, 50.0);
+        assert!(vp.active);
+    }
+
+    #[test]
+    fn test_artboard_fields() {
+        let ab = Artboard {
+            id: 1,
+            name: "Board 1".into(),
+            x: 0,
+            y: 0,
+            width: 800,
+            height: 600,
+            background_color: [1.0, 1.0, 1.0, 1.0],
+        };
+        assert_eq!(ab.width, 800);
+        assert_eq!(ab.name, "Board 1");
+    }
+
+    #[test]
+    fn test_proof_profile_default() {
+        assert_eq!(ProofProfile::default(), ProofProfile::WorkingCmyk);
+    }
+
+    #[test]
+    fn test_rendering_intent_default() {
+        assert_eq!(RenderingIntent::default(), RenderingIntent::Perceptual);
+    }
+
+    #[test]
+    fn test_soft_proof_settings_default() {
+        let s = SoftProofSettings::default();
+        assert_eq!(s.gamut_warning_color, [0.0, 1.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_set_vanishing_tool_mode() {
+        let mut app = App::new();
+        app.apply(Action::SetVanishingToolMode(VanishingToolMode::Stamping));
+        assert_eq!(app.vanishing_tool_mode, VanishingToolMode::Stamping);
+    }
+
+    #[test]
+    fn test_add_artboard() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboard { name: "A1".into(), x: 0, y: 0, width: 400, height: 300 });
+        assert_eq!(app.artboards.len(), 1);
+        assert_eq!(app.artboards[0].name, "A1");
+    }
+
+    #[test]
+    fn test_toggle_soft_proof() {
+        let mut app = App::new();
+        let before = app.soft_proof_enabled;
+        app.apply(Action::ToggleSoftProof);
+        assert_eq!(app.soft_proof_enabled, !before);
     }
 }

@@ -4,14 +4,16 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-Open-source creative suite: four desktop apps in Rust, each targeting ≥85% parity with an Adobe app.
+Open-source creative suite: six desktop apps in Rust, each targeting ≥85–90% parity with industry-standard tools.
 
-| App | Adobe analog | Domain | Status |
-|-----|--------------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~85% |
-| **Contour** | Illustrator | CPU vector editor | ~66% |
-| **Pulse** | After Effects | CPU compositor / motion | ~61% |
-| **Reel** | Premiere Pro | NLE / video editor | ~49% |
+| App | Analog | Domain | Status |
+|-----|--------|--------|--------|
+| **Pigment** | Photoshop | GPU raster editor | ~87% |
+| **Contour** | Illustrator | CPU vector editor | ~69% |
+| **Pulse** | After Effects | CPU compositor / motion | ~64% |
+| **Reel** | Premiere Pro | NLE / video editor | ~52% |
+| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~5% (scaffold) |
+| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~5% (scaffold) |
 
 Architectural bet: raster, vector, video frames, comp layers all reduce to compositing tiles through a DAG in linear light, cached by what's dirty. See `SUITE.md` for vision, `RESEARCH.md` for suite-level research.
 
@@ -21,10 +23,12 @@ Architectural bet: raster, vector, video frames, comp layers all reduce to compo
 prism-suite/
   Cargo.toml              # workspace root — pins ALL versions
   apps/
-    pigment/               # [[bin]] — Pigment (GPUI host + inline GPU compositor)
-    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 645+ tests)
-    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 767+ tests)
-    reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 135+ tests)
+    pigment/               # [[bin]] — Pigment (GPUI host + inline GPU compositor, 155+ tests)
+    contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 667+ tests)
+    pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 794+ tests)
+    reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 155+ tests)
+    drift/                 # [[bin]] — Drift (GPUI host + animation engine + AI stubs, 101+ tests)
+    tone/                  # [[bin]] — Tone (GPUI host + DAW engine + AI stubs, 115+ tests)
   shared/
     prism-core/           # doc model, blend modes, adjustments, curves, shapes, histogram
     prism-canvas/         # wgpu GPU compositor: composite/display/dab/filter/selection passes
@@ -49,6 +53,8 @@ cargo run -p pigment
 cargo run -p contour
 cargo run -p pulse
 cargo run -p reel
+cargo run -p drift
+cargo run -p tone
 
 # Check all
 cargo check --workspace
@@ -57,10 +63,12 @@ cargo check --workspace
 cargo test --workspace
 
 # Per-crate tests (most tests here)
-cargo test -p pigment          # 134: filters, lens, perspective, channels, heal, tonemap, neural, liquify, layer-effects, camera-raw
-cargo test -p contour          # 645: document, path, boolean ops, graph, trace, symbolsprayer, mesh, flare, pathfinder, extrude, envelope
-cargo test -p pulse            # 767: compositor, keyframes, render, rotobrush, echo, dof, expr, motionsketch, trackmatte, precomp, renderqueue
-cargo test -p reel             # 135: timeline, effects, motion, multicam, edl, audiосuite, lumetri, captions, export-presets, proxy
+cargo test -p pigment          # 155: filters, lens, perspective, smart-object, masking, generative-fill, 3d
+cargo test -p contour          # 667: document, path, boolean ops, graph, trace, image-trace, perspective-grid, artboards
+cargo test -p pulse            # 794: compositor, keyframes, render, rotobrush, puppet-pin, camera-tracker, text-animator, mogrt
+cargo test -p reel             # 155: timeline, effects, lumetri, captions, audio-mixer, titles, project-manager, media-browser
+cargo test -p drift            # 101: layers, keyframes, rig, state-machine, AI stubs
+cargo test -p tone             # 115: tracks, clips, piano-roll, mixer, AI generation stubs
 
 # Subset by name
 cargo test flood_fill
@@ -71,7 +79,10 @@ Unit tests live inline (`#[cfg(test)]`) in the source files they cover. GPUI bin
 ## GPU model — Pigment is the exception
 
 - **Pigment** uses **GPUI + wgpu**. WGSL shaders in `apps/pigment/src/shaders/` (`composite`, `display`, `dab`, `filter`, `selection`). GPU compositor lives entirely inside `pigment` — it has NOT been promoted to `prism-canvas`. Compositor passes run in GPUI's `prepare_frame` hook.
-- **Contour / Pulse / Reel** use eframe/egui (Contour, Pulse) or GPUI without custom GPU passes (Reel). Do not add wgpu pipelines to these without a strong reason.
+- **Contour / Pulse** use eframe/egui. Do not add wgpu pipelines without a strong reason.
+- **Reel / Drift / Tone** use GPUI without custom GPU passes.
+- **Drift**: GPUI host + planned wgpu animation canvas (frame compositing via `prism-canvas`). AI inference via `ort` crate (ONNX Runtime).
+- **Tone**: GPUI host + custom piano roll canvas. Audio I/O via `prism-media` (FFmpeg) + CPAL for real-time playback. AI inference via `ort` crate.
 - Compositing: linear-light, premultiplied, `Rgba16Float` working textures. sRGB↔linear boundary owned by `prism-color`; encode at display blit only.
 
 ## Engine boundaries
@@ -79,7 +90,8 @@ Unit tests live inline (`#[cfg(test)]`) in the source files they cover. GPUI bin
 - `prism-core` knows nothing about wgpu — owns state only. Keep it that way.
 - Shared crates stay app-agnostic. Pulse's time axis, Reel's clip model are layers ON TOP of shared code, not changes TO it.
 - Code landing in `shared/` must be needed by ≥2 apps. Everything else belongs in `apps/`.
-- Planned future shared crates (not yet promoted): `prism-vector` (paths/booleans), `prism-fx` (OpenFX effects), `prism-ai` (ort runtime). Coordinate before promoting.
+- Planned future shared crates (not yet promoted): `prism-vector` (paths/booleans), `prism-fx` (OpenFX effects), `prism-ai` (ort runtime — promote when ≥2 apps need ONNX inference). Coordinate before promoting.
+- **Drift and Tone are AI-first**: their AI features stub ONNX calls now; real models land when `prism-ai` is promoted or inline `ort` wrappers are added in Phase 3+.
 
 ## Conventions
 
@@ -95,5 +107,6 @@ Unit tests live inline (`#[cfg(test)]`) in the source files they cover. GPUI bin
 - `UI_SYSTEM.md` — GPUI design system implementation guide
 - `UI_UX.md` — UX patterns and interaction design
 - `VERSIONING.md` — SemVer policy, release process
-- `apps/<app>/PLAN.md` — per-app phased roadmap to ≥85% Adobe parity
-- `apps/pigment/ARCHITECTURE.md` — Pigment module/data-flow detail
+- `apps/<app>/PLAN.md` — per-app phased roadmap to ≥85–90% parity
+- `apps/<app>/ARCHITECTURE.md` — per-app module/data-flow detail (all 6 apps have this)
+- `apps/<app>/RESEARCH.md` — per-app competitor analysis, AI model choices, UX principles

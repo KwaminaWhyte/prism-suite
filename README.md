@@ -15,12 +15,14 @@
 
 ## Apps
 
-| App | Adobe analog | Domain | Status |
-|-----|--------------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~85% |
-| **Contour** | Illustrator | CPU vector editor | ~66% |
-| **Pulse** | After Effects | CPU compositor / motion | ~61% |
-| **Reel** | Premiere Pro | NLE / video editor | ~49% |
+| App | Analog | Domain | Status |
+|-----|--------|--------|--------|
+| **Pigment** | Photoshop | GPU raster editor | ~87% |
+| **Contour** | Illustrator | CPU vector editor | ~69% |
+| **Pulse** | After Effects | CPU compositor / motion | ~64% |
+| **Reel** | Premiere Pro | NLE / video editor | ~52% |
+| **Drift** | Adobe Animate + Char. Animator | AI-first animation | scaffold |
+| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | scaffold |
 
 ## Repository layout
 
@@ -56,6 +58,8 @@ cargo run -p pigment
 cargo run -p contour
 cargo run -p pulse
 cargo run -p reel
+cargo run -p drift
+cargo run -p tone
 
 # Build all
 cargo build --workspace
@@ -71,10 +75,12 @@ cargo check --workspace
 cargo test --workspace
 
 # Per-app (the logic crates have the most tests)
-cargo test -p pigment          # 134 tests: filters, lens, perspective, layer-effects, camera-raw, liquify
-cargo test -p contour          # 645 tests: document, path, boolean ops, pathfinder, extrude, envelope, mesh
-cargo test -p pulse            # 767 tests: compositor, keyframes, render, rotobrush, trackmatte, precomp, 3d
-cargo test -p reel             # 135 tests: timeline, effects, lumetri, captions, multicam, export, proxy
+cargo test -p pigment          # 155 tests: filters, smart-object, masking, generative-fill, 3d
+cargo test -p contour          # 667 tests: document, path, boolean ops, image-trace, perspective-grid, artboards
+cargo test -p pulse            # 794 tests: compositor, keyframes, puppet-pin, camera-tracker, text-animator, mogrt
+cargo test -p reel             # 155 tests: timeline, effects, lumetri, audio-mixer, titles, project-manager
+cargo test -p drift            # 101 tests: layers, keyframes, rig, state-machine, AI stubs
+cargo test -p tone             # 115 tests: tracks, clips, piano-roll, mixer, AI generation stubs
 ```
 
 ## Packaging

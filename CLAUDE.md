@@ -26,7 +26,7 @@ prism-suite/
     pigment/               # [[bin]] — Pigment (GPUI host + inline GPU compositor, 155+ tests)
     contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 667+ tests)
     pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 794+ tests)
-    reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 155+ tests)
+    reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 164+ tests)
     drift/                 # [[bin]] — Drift (GPUI host + animation engine + AI stubs, 101+ tests)
     tone/                  # [[bin]] — Tone (GPUI host + DAW engine + AI stubs, 115+ tests)
   shared/
@@ -66,7 +66,7 @@ cargo test --workspace
 cargo test -p pigment          # 155: filters, lens, perspective, smart-object, masking, generative-fill, 3d
 cargo test -p contour          # 667: document, path, boolean ops, graph, trace, image-trace, perspective-grid, artboards
 cargo test -p pulse            # 794: compositor, keyframes, render, rotobrush, puppet-pin, camera-tracker, text-animator, mogrt
-cargo test -p reel             # 155: timeline, effects, lumetri, captions, audio-mixer, titles, project-manager, media-browser
+cargo test -p reel             # 164: timeline, effects, lumetri, captions, audio-mixer, titles, project-manager, media-browser
 cargo test -p drift            # 101: layers, keyframes, rig, state-machine, AI stubs
 cargo test -p tone             # 115: tracks, clips, piano-roll, mixer, AI generation stubs
 

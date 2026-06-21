@@ -54,10 +54,14 @@ mod apply_waves_wn;
 mod apply_extended4;
 mod apply_waves2_b24;
 mod tests_wave_n;
+mod tests_batch7;
+mod tests_core2;
 mod apply_waves;
 mod apply_waves2;
 pub(super) mod helpers;
-use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d, rand_group_id, default_image_trace_threshold, default_image_trace_colors, default_omask_id_counter, default_graph_style_fill, colors_approx_equal, offset_polygon, sample_polyline, warp_shape_perspective, bounds_intersect, sample_document};
+use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d};
+pub(super) mod helpers_geo;
+use helpers_geo::{rand_group_id, default_image_trace_threshold, default_image_trace_colors, default_omask_id_counter, default_graph_style_fill, colors_approx_equal, offset_polygon, sample_polyline, warp_shape_perspective, bounds_intersect, sample_document};
 
 /// Document-unit pick tolerances for the node (Direct-Select) tool — the radius
 /// within which a click grabs an anchor or a tangent-handle knob. Handles are

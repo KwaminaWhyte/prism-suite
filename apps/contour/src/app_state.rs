@@ -1138,6 +1138,68 @@ pub enum Action {
     ReleaseEnvelopeAll,
     /// Expand the envelope distort (stub: clears applied list).
     ExpandEnvelope,
+
+    // --- Wave N: Image Trace (extended panel) ---
+    /// Set the image trace mode.
+    SetImageTraceMode(ImageTraceMode),
+    /// Set the B&W binarisation threshold (0..=255).
+    SetImageTraceThreshold(u8),
+    /// Set the target colour count (clamped 2..=30).
+    SetImageTraceColors(u8),
+    /// Set path fidelity (clamped 1..=100).
+    SetImageTracePaths(u8),
+    /// Set corner fidelity (clamped 0..=100).
+    SetImageTraceCorners(u8),
+    /// Run the image trace on `image_id`, pushing a new ImageTraceResult.
+    RunImageTrace { image_id: usize },
+    /// Mark the trace result at `result_index` as expanded.
+    ExpandImageTraceResult { result_index: usize },
+
+    // --- Wave N: Perspective Grid (extended config) ---
+    /// Set the grid type (One/Two/Three point).
+    SetPerspectiveGridType(PerspectiveGridType),
+    /// Toggle the grid visible flag.
+    TogglePerspectiveGridConfig,
+    /// Set pixel-snap on/off.
+    SetPerspectiveGridSnap(bool),
+    /// Set cell size (clamped 1.0..=500.0).
+    SetPerspectiveGridCellSize(f32),
+    /// Set grid opacity (clamped 0..=100).
+    SetPerspectiveGridOpacity(u8),
+    /// Activate one plane by name ("left"/"right"/"floor"); deactivates others.
+    SetPerspectiveActivePlaneByName(String),
+    /// Move a vanishing point ("left"/"right") to the given coordinates.
+    MoveVanishingPoint { which: String, x: f32, y: f32 },
+
+    // --- Wave N: Global Swatches ---
+    /// Add a new global swatch.
+    AddGlobalSwatch { name: String, color: String, is_spot: bool },
+    /// Edit a swatch's color by id.
+    EditGlobalSwatch { id: usize, color: String },
+    /// Delete a swatch by id.
+    DeleteGlobalSwatch(usize),
+    /// Create a new swatch group.
+    CreateSwatchGroup { name: String },
+    /// Add a swatch to a group (no-op if already present).
+    AddSwatchToGroup { group_id: usize, swatch_id: usize },
+    /// Reorder global_swatches to match the order of ids in the vec.
+    ReorderSwatches(Vec<usize>),
+
+    // --- Wave N: Artboards (extended) ---
+    /// Add a new Artboard at the given position/size.
+    AddArtboardEx { x: f32, y: f32, width: f32, height: f32 },
+    /// Delete an Artboard by id.
+    DeleteArtboardEx(usize),
+    /// Rename an Artboard.
+    RenameArtboardEx { id: usize, name: String },
+    /// Resize an Artboard (dimensions clamped 1.0..=32000.0).
+    ResizeArtboard { id: usize, width: f32, height: f32 },
+    /// Set the active Artboard by id.
+    SetActiveArtboard(usize),
+    /// Reorder artboards_ex to match the given id order.
+    ReorderArtboards(Vec<usize>),
+    /// Duplicate an Artboard (offset x += width + 20, new id, name "Copy of …").
+    DuplicateArtboardEx(usize),
 }
 
 /// Stroke alignment relative to the path.
@@ -1400,6 +1462,166 @@ pub enum ImageTraceMode {
     Grayscale,
     BlackWhite,
     Outlined,
+    // Extended modes (Wave N)
+    BlackAndWhite,
+    Color3,
+    Color6,
+    Color16,
+    Photo,
+    Logo,
+    Sketch,
+    Silhouette,
+    Technical,
+}
+
+/// Extended configuration for the Image Trace panel (Wave N).
+#[derive(Debug, Clone)]
+pub struct ImageTraceConfig {
+    pub mode: ImageTraceMode,
+    pub threshold: u8,
+    pub colors: u8,
+    pub paths: u8,
+    pub corners: u8,
+    pub noise: u8,
+    pub method: String,
+    pub fills: bool,
+    pub strokes: bool,
+    pub snap_curves: bool,
+    pub ignore_white: bool,
+}
+
+impl ImageTraceConfig {
+    pub fn new() -> Self {
+        Self {
+            mode: ImageTraceMode::Color6,
+            threshold: 128,
+            colors: 6,
+            paths: 50,
+            corners: 75,
+            noise: 25,
+            method: "Abutting".into(),
+            fills: true,
+            strokes: false,
+            snap_curves: false,
+            ignore_white: false,
+        }
+    }
+}
+
+impl Default for ImageTraceConfig {
+    fn default() -> Self { Self::new() }
+}
+
+/// A single image-trace result (live or expanded).
+#[derive(Debug, Clone)]
+pub struct ImageTraceResult {
+    pub source_image_id: usize,
+    pub config: ImageTraceConfig,
+    pub path_count: usize,
+    pub expanded: bool,
+}
+
+// --- Wave N: Perspective Grid (extended) ---
+
+/// The type of perspective grid overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PerspectiveGridType {
+    OnePoint,
+    #[default]
+    TwoPoint,
+    ThreePoint,
+}
+
+/// One drawing plane of the perspective grid.
+#[derive(Debug, Clone)]
+pub struct PerspectivePlane {
+    pub active: bool,
+    pub color: String,
+}
+
+/// Full configuration for the extended Perspective Grid overlay.
+#[derive(Debug, Clone)]
+pub struct PerspectiveGridConfig {
+    pub grid_type: PerspectiveGridType,
+    pub visible: bool,
+    pub snap: bool,
+    pub left_plane: PerspectivePlane,
+    pub right_plane: PerspectivePlane,
+    pub floor_plane: PerspectivePlane,
+    pub cell_size: f32,
+    pub opacity: u8,
+    pub vanishing_point_left: (f32, f32),
+    pub vanishing_point_right: (f32, f32),
+}
+
+impl PerspectiveGridConfig {
+    pub fn new() -> Self {
+        Self {
+            grid_type: PerspectiveGridType::TwoPoint,
+            visible: false,
+            snap: true,
+            left_plane: PerspectivePlane { active: true, color: "#2196F3".into() },
+            right_plane: PerspectivePlane { active: true, color: "#4CAF50".into() },
+            floor_plane: PerspectivePlane { active: false, color: "#FF9800".into() },
+            cell_size: 50.0,
+            opacity: 50,
+            vanishing_point_left: (-500.0, 0.0),
+            vanishing_point_right: (500.0, 0.0),
+        }
+    }
+}
+
+impl Default for PerspectiveGridConfig {
+    fn default() -> Self { Self::new() }
+}
+
+// --- Wave N: Global Swatches ---
+
+/// A global or spot color swatch.
+#[derive(Debug, Clone)]
+pub struct GlobalSwatch {
+    pub id: usize,
+    pub name: String,
+    pub color: String,
+    pub is_global: bool,
+    pub is_spot: bool,
+    pub usage_count: usize,
+}
+
+/// A named group of swatches.
+#[derive(Debug, Clone)]
+pub struct SwatchGroup {
+    pub id: usize,
+    pub name: String,
+    pub swatch_ids: Vec<usize>,
+}
+
+// --- Wave N: Artboards (extended) ---
+
+/// A named artboard with position, size, and preset.
+#[derive(Debug, Clone)]
+pub struct Artboard {
+    pub id: usize,
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub preset: String,
+}
+
+impl Artboard {
+    pub fn new(id: usize, x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self {
+            id,
+            name: format!("Artboard {}", id + 1),
+            x,
+            y,
+            width: w,
+            height: h,
+            preset: "Custom".into(),
+        }
+    }
 }
 
 // --- Batch 8: Graph Tool types ---
@@ -2175,6 +2397,36 @@ pub struct App {
     pub envelope_applied_shapes: Vec<usize>,
     /// Whether the envelope distort panel is open.
     pub envelope_panel_open: bool,
+
+    // --- Wave N: Image Trace (extended panel) ---
+    /// Extended image trace configuration (panel-facing).
+    pub image_trace_config: ImageTraceConfig,
+    /// Accumulated trace results (live until expanded).
+    pub image_trace_results: Vec<ImageTraceResult>,
+    /// Whether the extended image trace panel is open.
+    pub image_trace_panel_open: bool,
+
+    // --- Wave N: Perspective Grid (extended config) ---
+    /// Extended perspective grid configuration.
+    pub perspective_grid_config: PerspectiveGridConfig,
+
+    // --- Wave N: Global Swatches ---
+    /// Global and spot swatches.
+    pub global_swatches: Vec<GlobalSwatch>,
+    /// Named swatch groups.
+    pub swatch_groups: Vec<SwatchGroup>,
+    /// Counter for assigning stable swatch ids.
+    pub swatch_counter: usize,
+    /// Counter for assigning stable swatch group ids.
+    pub swatch_group_counter: usize,
+
+    // --- Wave N: Artboards (extended) ---
+    /// Extended artboard list.
+    pub artboards_ex: Vec<Artboard>,
+    /// The id of the currently active artboard (None = no active artboard).
+    pub active_artboard_ex: Option<usize>,
+    /// Counter for assigning stable artboard ids.
+    pub artboard_counter: usize,
 }
 
 impl App {
@@ -2337,6 +2589,18 @@ impl App {
             envelope_config: EnvelopeConfig::default(),
             envelope_applied_shapes: Vec::new(),
             envelope_panel_open: false,
+            // Wave N
+            image_trace_config: ImageTraceConfig::new(),
+            image_trace_results: Vec::new(),
+            image_trace_panel_open: false,
+            perspective_grid_config: PerspectiveGridConfig::new(),
+            global_swatches: Vec::new(),
+            swatch_groups: Vec::new(),
+            swatch_counter: 0,
+            swatch_group_counter: 0,
+            artboards_ex: Vec::new(),
+            active_artboard_ex: None,
+            artboard_counter: 0,
         }
     }
 
@@ -4718,11 +4982,12 @@ impl App {
                     let t = i as f32 / n.max(1) as f32;
                     let fill = match self.image_trace_mode {
                         ImageTraceMode::Grayscale => [t, t, t, 1.0],
-                        ImageTraceMode::BlackWhite => {
+                        ImageTraceMode::BlackWhite | ImageTraceMode::BlackAndWhite => {
                             if t < 0.5 { [0.0, 0.0, 0.0, 1.0] } else { [1.0, 1.0, 1.0, 1.0] }
                         }
-                        ImageTraceMode::Outlined => [0.0, 0.0, 0.0, 0.0],
-                        ImageTraceMode::Color => {
+                        ImageTraceMode::Outlined | ImageTraceMode::Silhouette => [0.0, 0.0, 0.0, 0.0],
+                        ImageTraceMode::Sketch | ImageTraceMode::Technical => [0.1, 0.1, 0.1, 1.0],
+                        _ => {
                             [t, 1.0 - t * 0.5, 0.3 + t * 0.4, 1.0]
                         }
                     };
@@ -5403,6 +5668,162 @@ impl App {
             }
             Action::ExpandEnvelope => {
                 self.envelope_applied_shapes.clear();
+            }
+
+            // --- Wave N: Image Trace (extended panel) ---
+            Action::SetImageTraceMode(mode) => {
+                self.image_trace_config.mode = mode;
+            }
+            Action::SetImageTraceThreshold(v) => {
+                self.image_trace_config.threshold = v;
+            }
+            Action::SetImageTraceColors(v) => {
+                self.image_trace_config.colors = v.clamp(2, 30);
+            }
+            Action::SetImageTracePaths(v) => {
+                self.image_trace_config.paths = v.clamp(1, 100);
+            }
+            Action::SetImageTraceCorners(v) => {
+                self.image_trace_config.corners = v.clamp(0, 100);
+            }
+            Action::RunImageTrace { image_id } => {
+                let path_count = self.image_trace_config.colors as usize * 12
+                    + self.image_trace_config.noise as usize;
+                self.image_trace_results.push(ImageTraceResult {
+                    source_image_id: image_id,
+                    config: self.image_trace_config.clone(),
+                    path_count,
+                    expanded: false,
+                });
+            }
+            Action::ExpandImageTraceResult { result_index } => {
+                if let Some(r) = self.image_trace_results.get_mut(result_index) {
+                    r.expanded = true;
+                }
+            }
+
+            // --- Wave N: Perspective Grid (extended config) ---
+            Action::SetPerspectiveGridType(t) => {
+                self.perspective_grid_config.grid_type = t;
+            }
+            Action::TogglePerspectiveGridConfig => {
+                self.perspective_grid_config.visible = !self.perspective_grid_config.visible;
+            }
+            Action::SetPerspectiveGridSnap(v) => {
+                self.perspective_grid_config.snap = v;
+            }
+            Action::SetPerspectiveGridCellSize(v) => {
+                self.perspective_grid_config.cell_size = v.clamp(1.0, 500.0);
+            }
+            Action::SetPerspectiveGridOpacity(v) => {
+                self.perspective_grid_config.opacity = v.clamp(0, 100);
+            }
+            Action::SetPerspectiveActivePlaneByName(name) => {
+                let n = name.as_str();
+                self.perspective_grid_config.left_plane.active = n == "left";
+                self.perspective_grid_config.right_plane.active = n == "right";
+                self.perspective_grid_config.floor_plane.active = n == "floor";
+            }
+            Action::MoveVanishingPoint { which, x, y } => {
+                match which.as_str() {
+                    "left" => self.perspective_grid_config.vanishing_point_left = (x, y),
+                    "right" => self.perspective_grid_config.vanishing_point_right = (x, y),
+                    _ => {}
+                }
+            }
+
+            // --- Wave N: Global Swatches ---
+            Action::AddGlobalSwatch { name, color, is_spot } => {
+                let id = self.swatch_counter;
+                self.swatch_counter += 1;
+                self.global_swatches.push(GlobalSwatch {
+                    id,
+                    name,
+                    color,
+                    is_global: true,
+                    is_spot,
+                    usage_count: 0,
+                });
+            }
+            Action::EditGlobalSwatch { id, color } => {
+                if let Some(sw) = self.global_swatches.iter_mut().find(|s| s.id == id) {
+                    sw.color = color;
+                }
+            }
+            Action::DeleteGlobalSwatch(id) => {
+                self.global_swatches.retain(|s| s.id != id);
+            }
+            Action::CreateSwatchGroup { name } => {
+                let id = self.swatch_group_counter;
+                self.swatch_group_counter += 1;
+                self.swatch_groups.push(SwatchGroup { id, name, swatch_ids: Vec::new() });
+            }
+            Action::AddSwatchToGroup { group_id, swatch_id } => {
+                if let Some(g) = self.swatch_groups.iter_mut().find(|g| g.id == group_id) {
+                    if !g.swatch_ids.contains(&swatch_id) {
+                        g.swatch_ids.push(swatch_id);
+                    }
+                }
+            }
+            Action::ReorderSwatches(order) => {
+                let mut reordered: Vec<GlobalSwatch> = Vec::with_capacity(order.len());
+                for &id in &order {
+                    if let Some(pos) = self.global_swatches.iter().position(|s| s.id == id) {
+                        reordered.push(self.global_swatches.remove(pos));
+                    }
+                }
+                // Append any swatches not mentioned in the order vec.
+                reordered.append(&mut self.global_swatches);
+                self.global_swatches = reordered;
+            }
+
+            // --- Wave N: Artboards (extended) ---
+            Action::AddArtboardEx { x, y, width, height } => {
+                let id = self.artboard_counter;
+                self.artboard_counter += 1;
+                self.artboards_ex.push(Artboard::new(id, x, y, width, height));
+                self.active_artboard_ex = Some(id);
+            }
+            Action::DeleteArtboardEx(id) => {
+                self.artboards_ex.retain(|a| a.id != id);
+                if self.active_artboard_ex == Some(id) {
+                    self.active_artboard_ex = None;
+                }
+            }
+            Action::RenameArtboardEx { id, name } => {
+                if let Some(a) = self.artboards_ex.iter_mut().find(|a| a.id == id) {
+                    a.name = name;
+                }
+            }
+            Action::ResizeArtboard { id, width, height } => {
+                if let Some(a) = self.artboards_ex.iter_mut().find(|a| a.id == id) {
+                    a.width = width.clamp(1.0, 32000.0);
+                    a.height = height.clamp(1.0, 32000.0);
+                }
+            }
+            Action::SetActiveArtboard(id) => {
+                self.active_artboard_ex = Some(id);
+            }
+            Action::ReorderArtboards(order) => {
+                let mut reordered: Vec<Artboard> = Vec::with_capacity(order.len());
+                for &id in &order {
+                    if let Some(pos) = self.artboards_ex.iter().position(|a| a.id == id) {
+                        reordered.push(self.artboards_ex.remove(pos));
+                    }
+                }
+                reordered.append(&mut self.artboards_ex);
+                self.artboards_ex = reordered;
+            }
+            Action::DuplicateArtboardEx(id) => {
+                if let Some(src) = self.artboards_ex.iter().find(|a| a.id == id).cloned() {
+                    let new_id = self.artboard_counter;
+                    self.artboard_counter += 1;
+                    let mut copy = Artboard::new(new_id, src.x + src.width + 20.0, src.y, src.width, src.height);
+                    copy.name = format!("Copy of {}", src.name);
+                    copy.preset = src.preset.clone();
+                    self.artboards_ex.push(copy);
+                    self.active_artboard_ex = Some(new_id);
+                }
             }
         }
     }
@@ -8671,5 +9092,230 @@ mod tests {
         assert!(!app.envelope_applied_shapes.is_empty());
         app.apply(Action::ReleaseEnvelopeAll);
         assert!(app.envelope_applied_shapes.is_empty());
+    }
+
+    // --- Wave N: Image Trace (extended) ---
+
+    #[test]
+    fn test_image_trace_mode_set() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTraceMode(ImageTraceMode::Logo));
+        assert_eq!(app.image_trace_config.mode, ImageTraceMode::Logo);
+    }
+
+    #[test]
+    fn test_image_trace_threshold_stored() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTraceThreshold(200));
+        assert_eq!(app.image_trace_config.threshold, 200);
+    }
+
+    #[test]
+    fn test_image_trace_colors_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTraceColors(1));
+        assert_eq!(app.image_trace_config.colors, 2, "colors clamped to min 2");
+        app.apply(Action::SetImageTraceColors(50));
+        assert_eq!(app.image_trace_config.colors, 30, "colors clamped to max 30");
+    }
+
+    #[test]
+    fn test_image_trace_paths_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTracePaths(0));
+        assert_eq!(app.image_trace_config.paths, 1, "paths clamped to min 1");
+        app.apply(Action::SetImageTracePaths(200));
+        assert_eq!(app.image_trace_config.paths, 100, "paths clamped to max 100");
+    }
+
+    #[test]
+    fn test_run_image_trace_pushes_result() {
+        let mut app = App::new();
+        app.apply(Action::SetImageTraceColors(6));
+        app.apply(Action::RunImageTrace { image_id: 42 });
+        assert_eq!(app.image_trace_results.len(), 1);
+        let r = &app.image_trace_results[0];
+        assert_eq!(r.source_image_id, 42);
+        assert!(!r.expanded);
+        // path_count = colors * 12 + noise = 6 * 12 + 25 = 97
+        assert_eq!(r.path_count, 6 * 12 + 25);
+    }
+
+    #[test]
+    fn test_expand_image_trace_result() {
+        let mut app = App::new();
+        app.apply(Action::RunImageTrace { image_id: 0 });
+        assert!(!app.image_trace_results[0].expanded);
+        app.apply(Action::ExpandImageTraceResult { result_index: 0 });
+        assert!(app.image_trace_results[0].expanded);
+    }
+
+    // --- Wave N: Perspective Grid (extended config) ---
+
+    #[test]
+    fn test_perspective_grid_type_set() {
+        let mut app = App::new();
+        assert_eq!(app.perspective_grid_config.grid_type, PerspectiveGridType::TwoPoint);
+        app.apply(Action::SetPerspectiveGridType(PerspectiveGridType::OnePoint));
+        assert_eq!(app.perspective_grid_config.grid_type, PerspectiveGridType::OnePoint);
+    }
+
+    #[test]
+    fn test_perspective_grid_config_toggle_visible() {
+        let mut app = App::new();
+        assert!(!app.perspective_grid_config.visible);
+        app.apply(Action::TogglePerspectiveGridConfig);
+        assert!(app.perspective_grid_config.visible);
+        app.apply(Action::TogglePerspectiveGridConfig);
+        assert!(!app.perspective_grid_config.visible);
+    }
+
+    #[test]
+    fn test_perspective_grid_cell_size_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetPerspectiveGridCellSize(0.0));
+        assert!((app.perspective_grid_config.cell_size - 1.0).abs() < 1e-6, "cell_size clamped to 1");
+        app.apply(Action::SetPerspectiveGridCellSize(9999.0));
+        assert!((app.perspective_grid_config.cell_size - 500.0).abs() < 1e-6, "cell_size clamped to 500");
+    }
+
+    #[test]
+    fn test_perspective_grid_active_plane() {
+        let mut app = App::new();
+        app.apply(Action::SetPerspectiveActivePlaneByName("floor".to_string()));
+        assert!(!app.perspective_grid_config.left_plane.active);
+        assert!(!app.perspective_grid_config.right_plane.active);
+        assert!(app.perspective_grid_config.floor_plane.active);
+    }
+
+    #[test]
+    fn test_move_vanishing_point() {
+        let mut app = App::new();
+        app.apply(Action::MoveVanishingPoint { which: "left".to_string(), x: -300.0, y: 50.0 });
+        assert_eq!(app.perspective_grid_config.vanishing_point_left, (-300.0, 50.0));
+        app.apply(Action::MoveVanishingPoint { which: "right".to_string(), x: 300.0, y: 50.0 });
+        assert_eq!(app.perspective_grid_config.vanishing_point_right, (300.0, 50.0));
+    }
+
+    // --- Wave N: Global Swatches ---
+
+    #[test]
+    fn test_add_global_swatch() {
+        let mut app = App::new();
+        app.apply(Action::AddGlobalSwatch { name: "Crimson".to_string(), color: "#DC143C".to_string(), is_spot: false });
+        assert_eq!(app.global_swatches.len(), 1);
+        assert_eq!(app.global_swatches[0].name, "Crimson");
+        assert_eq!(app.global_swatches[0].color, "#DC143C");
+        assert!(app.global_swatches[0].is_global);
+        assert_eq!(app.global_swatches[0].usage_count, 0);
+    }
+
+    #[test]
+    fn test_edit_global_swatch() {
+        let mut app = App::new();
+        app.apply(Action::AddGlobalSwatch { name: "Blue".to_string(), color: "#0000FF".to_string(), is_spot: false });
+        let id = app.global_swatches[0].id;
+        app.apply(Action::EditGlobalSwatch { id, color: "#0033CC".to_string() });
+        assert_eq!(app.global_swatches[0].color, "#0033CC");
+    }
+
+    #[test]
+    fn test_delete_global_swatch() {
+        let mut app = App::new();
+        app.apply(Action::AddGlobalSwatch { name: "Red".to_string(), color: "#FF0000".to_string(), is_spot: false });
+        let id = app.global_swatches[0].id;
+        app.apply(Action::DeleteGlobalSwatch(id));
+        assert!(app.global_swatches.is_empty());
+    }
+
+    #[test]
+    fn test_create_swatch_group_and_add() {
+        let mut app = App::new();
+        app.apply(Action::AddGlobalSwatch { name: "A".to_string(), color: "#AAA".to_string(), is_spot: false });
+        let sw_id = app.global_swatches[0].id;
+        app.apply(Action::CreateSwatchGroup { name: "Warm".to_string() });
+        let g_id = app.swatch_groups[0].id;
+        app.apply(Action::AddSwatchToGroup { group_id: g_id, swatch_id: sw_id });
+        // Adding again should be idempotent
+        app.apply(Action::AddSwatchToGroup { group_id: g_id, swatch_id: sw_id });
+        assert_eq!(app.swatch_groups[0].swatch_ids.len(), 1);
+    }
+
+    #[test]
+    fn test_reorder_swatches() {
+        let mut app = App::new();
+        app.apply(Action::AddGlobalSwatch { name: "A".to_string(), color: "#111".to_string(), is_spot: false });
+        app.apply(Action::AddGlobalSwatch { name: "B".to_string(), color: "#222".to_string(), is_spot: false });
+        app.apply(Action::AddGlobalSwatch { name: "C".to_string(), color: "#333".to_string(), is_spot: false });
+        let ids: Vec<usize> = app.global_swatches.iter().map(|s| s.id).collect();
+        // Reverse the order
+        let rev: Vec<usize> = ids.iter().rev().cloned().collect();
+        app.apply(Action::ReorderSwatches(rev));
+        assert_eq!(app.global_swatches[0].name, "C");
+        assert_eq!(app.global_swatches[2].name, "A");
+    }
+
+    // --- Wave N: Artboards (extended) ---
+
+    #[test]
+    fn test_add_artboard_ex() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboardEx { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 });
+        assert_eq!(app.artboards_ex.len(), 1);
+        assert_eq!(app.artboards_ex[0].width, 1920.0);
+        assert_eq!(app.active_artboard_ex, Some(app.artboards_ex[0].id));
+    }
+
+    #[test]
+    fn test_delete_artboard_ex() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboardEx { x: 0.0, y: 0.0, width: 100.0, height: 100.0 });
+        let id = app.artboards_ex[0].id;
+        app.apply(Action::DeleteArtboardEx(id));
+        assert!(app.artboards_ex.is_empty());
+        assert_eq!(app.active_artboard_ex, None);
+    }
+
+    #[test]
+    fn test_rename_artboard_ex() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboardEx { x: 0.0, y: 0.0, width: 100.0, height: 100.0 });
+        let id = app.artboards_ex[0].id;
+        app.apply(Action::RenameArtboardEx { id, name: "Logo".to_string() });
+        assert_eq!(app.artboards_ex[0].name, "Logo");
+    }
+
+    #[test]
+    fn test_resize_artboard_clamp() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboardEx { x: 0.0, y: 0.0, width: 100.0, height: 100.0 });
+        let id = app.artboards_ex[0].id;
+        app.apply(Action::ResizeArtboard { id, width: 0.0, height: 50000.0 });
+        assert!((app.artboards_ex[0].width - 1.0).abs() < 1e-6, "width clamped to 1");
+        assert!((app.artboards_ex[0].height - 32000.0).abs() < 1e-6, "height clamped to 32000");
+    }
+
+    #[test]
+    fn test_duplicate_artboard_ex() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboardEx { x: 100.0, y: 50.0, width: 200.0, height: 150.0 });
+        let id = app.artboards_ex[0].id;
+        app.apply(Action::DuplicateArtboardEx(id));
+        assert_eq!(app.artboards_ex.len(), 2);
+        let dup = &app.artboards_ex[1];
+        assert_eq!(dup.x, 100.0 + 200.0 + 20.0, "x offset by width + 20");
+        assert!(dup.name.starts_with("Copy of"));
+        assert_eq!(app.active_artboard_ex, Some(dup.id));
+    }
+
+    #[test]
+    fn test_reorder_artboards() {
+        let mut app = App::new();
+        app.apply(Action::AddArtboardEx { x: 0.0, y: 0.0, width: 100.0, height: 100.0 });
+        app.apply(Action::AddArtboardEx { x: 200.0, y: 0.0, width: 100.0, height: 100.0 });
+        let ids: Vec<usize> = app.artboards_ex.iter().map(|a| a.id).collect();
+        let rev: Vec<usize> = ids.iter().rev().cloned().collect();
+        app.apply(Action::ReorderArtboards(rev));
+        assert_eq!(app.artboards_ex[0].x, 200.0, "second artboard now first");
     }
 }

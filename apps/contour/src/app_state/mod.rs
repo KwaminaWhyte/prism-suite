@@ -48,6 +48,7 @@ mod apply_extended2;
 mod apply_extended3;
 mod tests_core;
 mod apply_core;
+mod apply_waves_w11;
 mod apply_waves;
 mod apply_waves2;
 pub(super) mod helpers;

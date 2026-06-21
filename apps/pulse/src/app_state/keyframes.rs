@@ -1,5 +1,62 @@
 use super::*;
 
+pub type PreviewRect = Rc<Cell<Option<Bounds<Pixels>>>>;
+
+/// Which graph element a drag is reshaping (see [`App::graph_grab`]). Mirrors the
+/// egui graph editor's private `Grab`, but kept here so the GPUI panel can arm it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GraphGrab {
+    /// A keyframe body: the drag retimes (x) and revalues (y) it.
+    Key { prop: Prop, key_index: usize },
+    /// A Bézier ease handle on the segment leaving key `key_index` of `prop`.
+    Handle {
+        prop: Prop,
+        key_index: usize,
+        which: GizmoHandle2,
+    },
+}
+
+/// Which ease handle of a graph segment a drag targets. (A thin alias over the
+/// engine's [`crate::comp::Handle`], re-named to avoid clashing with the
+/// gizmo's `Handle`.)
+pub use crate::comp::Handle as GizmoHandle2;
+
+/// An in-progress preview transform-gizmo drag: the held handle, the layer +
+/// grab-time transform/parent for the local-space delta math, and the pointer's
+/// comp-space position at grab time. Recomputed each frame against the live
+/// pointer (mirrors the egui app's `GizmoDrag`).
+#[derive(Clone, Copy, Debug)]
+pub struct GizmoDrag {
+    pub layer: usize,
+    pub handle: GizmoHandle,
+    /// Playhead time when the grab started (where edits are keyed).
+    pub time: f32,
+    /// The layer's sampled transform at grab time.
+    pub start_tf: Transform,
+    /// The layer's parent matrix at grab time (parent-local conversion).
+    pub parent: Affine2,
+    /// Pointer position (comp space) when the grab started.
+    pub start_comp: (f32, f32),
+}
+
+/// Which end of the work area a timeline drag is moving (see [`App::wa_drag`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WorkAreaHandle {
+    /// The in-point (work-area start).
+    In,
+    /// The out-point (work-area end).
+    Out,
+}
+
+/// Identifies the keyframe being dragged on a timeline lane (see [`App::kf_drag`]).
+#[derive(Clone, Copy, Debug)]
+pub struct KeyframeDrag {
+    pub layer: usize,
+    pub prop: Prop,
+    pub key_index: usize,
+}
+
+
 impl App {
     pub(super) fn apply_keyframes(&mut self, action: Action) {
         match action {

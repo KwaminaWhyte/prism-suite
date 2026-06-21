@@ -1,5 +1,14 @@
 use super::*;
 
+/// Script language used by the expression engine.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+pub enum ExprLang {
+    #[default]
+    JavaScript,
+    Python,
+}
+
+
 /// Expression control layer kind (Wave 14).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExprControlKind {

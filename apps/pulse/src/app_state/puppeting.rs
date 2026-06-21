@@ -341,4 +341,57 @@ mod tests {
         app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 200.0 });
         assert!((app.puppet_meshes[0].expansion - 100.0).abs() < 1e-5);
     }
+    // ── Batch 6 depth: 3D Layer ───────────────────────────────────────────────
+
+    #[test]
+    fn test_enable_3d_layer() {
+        let mut app = App::new();
+        assert!(!app.layer_3d_configs.contains_key(&0));
+        app.apply(Action::Enable3DLayer { layer_id: 0, enabled: true });
+        assert!(app.layer_3d_configs[&0].enabled);
+        app.apply(Action::Enable3DLayer { layer_id: 0, enabled: false });
+        assert!(!app.layer_3d_configs[&0].enabled);
+    }
+
+    #[test]
+    fn test_set_3d_material_clamp() {
+        let mut app = App::new();
+        // shininess 200 → clamped to 100; metal -5 → clamped to 0.
+        app.apply(Action::Set3DMaterial { layer_id: 0, shininess: 200.0, metal: -5.0 });
+        let cfg = &app.layer_3d_configs[&0];
+        assert!((cfg.material_shininess - 100.0).abs() < 1e-5, "shininess must clamp to 100");
+        assert!((cfg.material_metal - 0.0).abs() < 1e-5, "metal must clamp to 0");
+    }
+
+    #[test]
+    fn test_reset_3d_layer_removes_config() {
+        let mut app = App::new();
+        app.apply(Action::Enable3DLayer { layer_id: 2, enabled: true });
+        assert!(app.layer_3d_configs.contains_key(&2));
+        app.apply(Action::Reset3DLayer { layer_id: 2 });
+        assert!(!app.layer_3d_configs.contains_key(&2));
+    }
+
+    #[test]
+    fn test_3d_position_set() {
+        let mut app = App::new();
+        app.apply(Action::Set3DPosition { layer_id: 0, pos: [10.0, 20.0, 30.0] });
+        let pos = app.layer_3d_configs[&0].position;
+        assert!((pos[0] - 10.0).abs() < 1e-5);
+        assert!((pos[1] - 20.0).abs() < 1e-5);
+        assert!((pos[2] - 30.0).abs() < 1e-5);
+    }
+
+    // ── New: PuppetPin (app-level) ────────────────────────────────────────────
+
+    #[test]
+    fn test_puppet_tool_activate() {
+        let mut app = App::new();
+        assert!(!app.puppet_tool_active);
+        app.apply(Action::ActivatePuppetTool(true));
+        assert!(app.puppet_tool_active);
+        app.apply(Action::ActivatePuppetTool(false));
+        assert!(!app.puppet_tool_active);
+    }
+
 }

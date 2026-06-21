@@ -1,5 +1,78 @@
 use super::*;
 
+/// Status of a job in the render queue.
+#[derive(Clone, Debug)]
+pub enum RenderJobStatus {
+    Pending,
+    Rendering(f32),
+    Done,
+    Failed(String),
+}
+
+/// Output format for a render queue item.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RenderFormat {
+    /// H.264 MP4 — broadly compatible, smallest file (default).
+    Mp4H264,
+    /// H.265/HEVC MP4 — better quality/size ratio; requires hardware support.
+    Mp4H265,
+    /// Apple ProRes 422 Proxy — lossless-ish, large; requires FFmpeg.
+    ProResProxy,
+    /// Animated GIF — legacy web format, palette-quantized.
+    Gif,
+}
+
+impl RenderFormat {
+    pub fn label(self) -> &'static str {
+        match self {
+            RenderFormat::Mp4H264 => "H.264 MP4",
+            RenderFormat::Mp4H265 => "H.265 MP4",
+            RenderFormat::ProResProxy => "ProRes Proxy",
+            RenderFormat::Gif => "Animated GIF",
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            RenderFormat::Mp4H264 | RenderFormat::Mp4H265 => "mp4",
+            RenderFormat::ProResProxy => "mov",
+            RenderFormat::Gif => "gif",
+        }
+    }
+
+    /// All supported render formats, for UI pickers.
+    pub const ALL: [RenderFormat; 4] = [
+        RenderFormat::Mp4H264,
+        RenderFormat::Mp4H265,
+        RenderFormat::ProResProxy,
+        RenderFormat::Gif,
+    ];
+}
+
+/// One export job in the render queue.
+#[derive(Clone, Debug)]
+pub struct RenderJob {
+    pub comp_name: String,
+    pub output_path: PathBuf,
+    pub format: RenderFormat,
+    pub status: RenderJobStatus,
+}
+
+/// A saved output module preset (Wave 14).
+#[derive(Clone, Debug)]
+pub struct OutputPreset {
+    pub name: String,
+    pub format: export::OutputFormat,
+}
+
+/// A captured group of layers extracted by pre-compose (Wave 11).
+#[derive(Clone, Debug)]
+pub struct SubComp {
+    pub name: String,
+    pub layers: Vec<crate::comp::PulseLayer>,
+}
+
+
 /// One randomised keyframe-variation preview in the Brainstorm panel.
 #[derive(Clone, Debug)]
 pub struct BrainstormVariation {

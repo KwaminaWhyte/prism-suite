@@ -1,5 +1,15 @@
 use super::*;
 
+/// A single frame-keyed rotobrush stroke: a list of 2-D points (layer-local)
+/// plus a flag indicating whether this is a subtract (background) stroke.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RotobrushStroke {
+    pub frame: u32,
+    pub pts: Vec<[f32; 2]>,
+    pub is_subtract: bool,
+}
+
+
 /// A single 2-D motion track point with per-frame position keyframes.
 #[derive(Clone, Debug)]
 pub struct TrackPoint {
@@ -494,5 +504,148 @@ mod tests {
         app.apply(Action::DeleteCameraTrackSolve { layer_id: 0 });
         assert_eq!(app.camera_track_solves.len(), 1);
         assert_eq!(app.camera_track_solves[0].layer_id, 1);
+    }
+    #[test]
+    fn test_motion_sketch_speed_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetMotionSketchCaptureSpeed(150.0));
+        assert!((app.motion_sketch_config.capture_speed - 100.0).abs() < 1e-3);
+        app.apply(Action::SetMotionSketchCaptureSpeed(-10.0));
+        assert!((app.motion_sketch_config.capture_speed - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_motion_sketch_record_toggle() {
+        let mut app = App::new();
+        assert!(!app.motion_sketch_recording);
+        app.apply(Action::ToggleMotionSketchRecord);
+        assert!(app.motion_sketch_recording);
+        app.apply(Action::ToggleMotionSketchRecord);
+        assert!(!app.motion_sketch_recording);
+    }
+
+    #[test]
+    fn test_motion_sketch_stroke_push() {
+        let mut app = App::new();
+        assert!(app.motion_sketch_strokes.is_empty());
+        let stroke = MotionSketchStroke {
+            points: vec![[0.0, 0.0], [1.0, 1.0]],
+            timestamps: vec![0.0, 0.1],
+            layer_id: 0,
+            smoothing: 25.0,
+        };
+        app.apply(Action::ApplyMotionSketchStroke(stroke));
+        assert_eq!(app.motion_sketch_strokes.len(), 1);
+    }
+
+    #[test]
+    fn test_motion_sketch_clear() {
+        let mut app = App::new();
+        let stroke = MotionSketchStroke {
+            points: vec![[0.0, 0.0]],
+            timestamps: vec![0.0],
+            layer_id: 0,
+            smoothing: 0.0,
+        };
+        app.apply(Action::ApplyMotionSketchStroke(stroke));
+        assert_eq!(app.motion_sketch_strokes.len(), 1);
+        app.apply(Action::ClearMotionSketchStrokes);
+        assert!(app.motion_sketch_strokes.is_empty());
+    }
+
+    #[test]
+    fn test_warp_stab_smoothness_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetWarpStabSmoothness(150.0));
+        assert!((app.warp_stab_config.smoothness - 100.0).abs() < 1e-3);
+        app.apply(Action::SetWarpStabSmoothness(-5.0));
+        assert!((app.warp_stab_config.smoothness - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_warp_stab_analyze_sets_flag() {
+        let mut app = App::new();
+        assert!(!app.warp_stab_analyzing);
+        app.apply(Action::AnalyzeWarpStab { layer_id: 2 });
+        assert!(app.warp_stab_analyzing);
+        assert_eq!(app.warp_stab_applied_layer, Some(2));
+        assert!((app.warp_stab_progress - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_warp_stab_complete_clears_flag() {
+        let mut app = App::new();
+        app.apply(Action::AnalyzeWarpStab { layer_id: 0 });
+        assert!(app.warp_stab_analyzing);
+        app.apply(Action::WarpStabAnalysisComplete);
+        assert!(!app.warp_stab_analyzing);
+        assert!((app.warp_stab_progress - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_warp_stab_rolling_shutter_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetWarpStabRollingShutter(200.0));
+        assert!((app.warp_stab_config.rolling_shutter_ripple - 100.0).abs() < 1e-3);
+        app.apply(Action::SetWarpStabRollingShutter(-1.0));
+        assert!((app.warp_stab_config.rolling_shutter_ripple - 0.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_rotobrush_mode_and_radius() {
+        let mut app = App::new();
+        assert!(!app.rotobrush_subtract);
+        assert!((app.rotobrush_radius - 20.0).abs() < 1e-4);
+        app.apply(Action::SetRotobrushMode { subtract: true });
+        assert!(app.rotobrush_subtract);
+        app.apply(Action::SetRotobrushRadius(50.0));
+        assert!((app.rotobrush_radius - 50.0).abs() < 1e-4);
+        app.apply(Action::SetRotobrushRadius(0.0));
+        assert!((app.rotobrush_radius - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_add_rotobrush_stroke() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        assert!(!app.project.comps[ci].layers.is_empty());
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 5,
+            pts: vec![[10.0, 20.0], [30.0, 40.0]],
+        });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes.len(), 1);
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes[0].frame, 5);
+        assert!(!app.project.comps[ci].layers[0].rotobrush_strokes[0].is_subtract);
+        app.apply(Action::SetRotobrushMode { subtract: true });
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 10,
+            pts: vec![[5.0, 5.0]],
+        });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes.len(), 2);
+        assert!(app.project.comps[ci].layers[0].rotobrush_strokes[1].is_subtract);
+    }
+
+    #[test]
+    fn test_clear_rotobrush_strokes() {
+        let mut app = App::new();
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 0,
+            pts: vec![[0.0, 0.0]],
+        });
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 1,
+            pts: vec![[1.0, 1.0]],
+        });
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].rotobrush_strokes.len(), 2);
+        app.apply(Action::ClearRotobrushStrokes { layer_id: 0 });
+        let ci = app.active_comp_index();
+        assert!(app.project.comps[ci].layers[0].rotobrush_strokes.is_empty());
     }
 }

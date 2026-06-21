@@ -24,6 +24,7 @@ mod lens_correction;
 mod panels;
 mod perspective_warp;
 mod plugin;
+mod welcome;
 
 use prism_ui::PrismAssets;
 
@@ -794,6 +795,23 @@ fn main() {
 
     gpui::Application::new().with_assets(PrismAssets).run(|cx: &mut gpui::App| {
         prism_ui::init(cx);
+        // Open the welcome screen as a separate OS-level window. It closes
+        // itself when the user clicks "New Document" or "Open File…".
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(
+                    Bounds::centered(None, size(px(900.0), px(580.0)), cx),
+                )),
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| welcome::WelcomeView::new(focus))
+            },
+        )
+        .expect("failed to open welcome window");
+
         let bounds = cx.primary_display()
             .map(|d| d.bounds())
             .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));

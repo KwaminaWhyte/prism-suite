@@ -42,6 +42,7 @@ mod text_anim;
 
 pub use expressions::{ExprControlKind, ExprControlValue, ExprControl};
 pub use text_anim::{TextAnimPreset, TextAnimProperty, TextAnimRange, TextAnimator, MogrParamKind, MogrParam, MogrTemplate};
+pub use tracking::{TrackPoint, CameraTracker, MotionSketchStroke, MotionSketchConfig, StabilizeResult, StabilizeMethod, StabilizeFraming, WarpStabConfig, CameraTrackStatus, CameraTrackPoint, CameraTrackSolve};
 
 /// Status of a job in the render queue.
 #[derive(Clone, Debug)]
@@ -169,27 +170,6 @@ pub enum PreRenderStatus {
 }
 
 // ── Batch 2: Track Camera ─────────────────────────────────────────────────────
-
-/// A single 2-D motion track point with per-frame position keyframes.
-#[derive(Clone, Debug)]
-pub struct TrackPoint {
-    pub name: String,
-    /// Position in comp space at the reference time.
-    pub position: [f32; 2],
-    /// `(time_secs, comp_space_position)` keyframes for this point.
-    pub keyframes: Vec<(f32, [f32; 2])>,
-}
-
-/// State for the 2-point camera tracker panel.
-#[derive(Clone, Debug, Default)]
-pub struct CameraTracker {
-    pub track_points: Vec<TrackPoint>,
-    pub solved: bool,
-    /// `(time_secs, [tx, ty, scale])` — the solved camera motion.
-    pub camera_keyframes: Vec<(f32, [f32; 3])>,
-    pub open: bool,
-    pub analyze_progress: f32,
-}
 
 /// Shared cell holding the timeline track's painted bounds (window-relative).
 ///
@@ -324,85 +304,6 @@ impl Default for DepthOfField {
             aperture: 5.6,
             blur_level: 100.0,
             iris_shape: IrisShape::Fast,
-        }
-    }
-}
-
-// ── Batch 5: Motion Sketch ───────────────────────────────────────────────────
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MotionSketchStroke {
-    pub points: Vec<[f32; 2]>,
-    pub timestamps: Vec<f32>,
-    pub layer_id: usize,
-    pub smoothing: f32,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MotionSketchConfig {
-    pub capture_speed: f32,
-    pub smoothing: f32,
-    pub show_wireframe: bool,
-    pub start_capture_at_outpoint: bool,
-}
-
-impl Default for MotionSketchConfig {
-    fn default() -> Self {
-        Self {
-            capture_speed: 100.0,
-            smoothing: 25.0,
-            show_wireframe: true,
-            start_capture_at_outpoint: false,
-        }
-    }
-}
-
-// ── Batch 5: Warp Stabilizer depth ───────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum StabilizeResult {
-    #[default]
-    Smooth,
-    NoBgMotion,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum StabilizeMethod {
-    #[default]
-    Subspace,
-    PositionScale,
-    Position,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum StabilizeFraming {
-    #[default]
-    StabilizeOnlyCropSmooth,
-    Stabilize,
-    NoCropSmooth,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WarpStabConfig {
-    pub result: StabilizeResult,
-    pub smoothness: f32,
-    pub method: StabilizeMethod,
-    pub framing: StabilizeFraming,
-    pub crop_less_smooth_more: f32,
-    pub detailed_analysis: bool,
-    pub rolling_shutter_ripple: f32,
-}
-
-impl Default for WarpStabConfig {
-    fn default() -> Self {
-        Self {
-            result: StabilizeResult::default(),
-            smoothness: 50.0,
-            method: StabilizeMethod::Subspace,
-            framing: StabilizeFraming::StabilizeOnlyCropSmooth,
-            crop_less_smooth_more: 50.0,
-            detailed_analysis: false,
-            rolling_shutter_ripple: 0.0,
         }
     }
 }
@@ -714,42 +615,6 @@ pub struct PuppetMesh {
     pub expansion: f32,
     /// Density: 1..=30
     pub density: u8,
-}
-
-// ── New Feature: CameraTracker (3D camera solve) ──────────────────────────────
-
-/// Status of a 3D camera track solve.
-#[derive(Clone, Debug, PartialEq)]
-pub enum CameraTrackStatus {
-    Idle,
-    Analyzing,
-    Solving,
-    Done,
-    Failed,
-}
-
-/// A single 3D track point from a camera solve.
-#[derive(Clone, Debug)]
-pub struct CameraTrackPoint {
-    pub id: usize,
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-    /// Confidence: 0.0..=1.0
-    pub confidence: f32,
-    pub selected: bool,
-}
-
-/// State for a 3D camera track solve on a specific layer.
-#[derive(Clone, Debug)]
-pub struct CameraTrackSolve {
-    pub layer_id: usize,
-    pub status: CameraTrackStatus,
-    pub solve_error: f32,
-    /// Method: "Typical", "Mostly Flat", "Tripod"
-    pub method: String,
-    pub track_points: Vec<CameraTrackPoint>,
-    pub attached_layer_ids: Vec<usize>,
 }
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -3561,61 +3426,6 @@ mod tests {
         assert!(!app.use_pre_render);
     }
 
-    // ── Batch 2: Track Camera ────────────────────────────────────────────────
-
-    #[test]
-    fn test_camera_tracker_toggle() {
-        let mut app = App::new();
-        assert!(!app.camera_tracker.open);
-        app.apply(Action::ToggleCameraTracker);
-        assert!(app.camera_tracker.open);
-    }
-
-    #[test]
-    fn test_camera_tracker_add_remove_point() {
-        let mut app = App::new();
-        app.apply(Action::AddTrackPoint { name: "A".to_string(), pos: [100.0, 200.0] });
-        app.apply(Action::AddTrackPoint { name: "B".to_string(), pos: [400.0, 300.0] });
-        assert_eq!(app.camera_tracker.track_points.len(), 2);
-        app.apply(Action::RemoveTrackPoint(0));
-        assert_eq!(app.camera_tracker.track_points.len(), 1);
-    }
-
-    #[test]
-    fn test_camera_tracker_solve() {
-        let mut app = App::new();
-        // Two track points each with 2 keyframes.
-        app.apply(Action::AddTrackPoint { name: "A".to_string(), pos: [100.0, 100.0] });
-        app.apply(Action::AddTrackPoint { name: "B".to_string(), pos: [300.0, 100.0] });
-        app.apply(Action::MoveTrackPoint { idx: 0, time: 1.0, pos: [110.0, 110.0] });
-        app.apply(Action::MoveTrackPoint { idx: 1, time: 1.0, pos: [310.0, 110.0] });
-        app.apply(Action::SolveCameraTrack);
-        assert!(app.camera_tracker.solved);
-        assert!(!app.camera_tracker.camera_keyframes.is_empty());
-    }
-
-    #[test]
-    fn test_camera_tracker_clear() {
-        let mut app = App::new();
-        app.apply(Action::AddTrackPoint { name: "X".to_string(), pos: [0.0, 0.0] });
-        app.apply(Action::ClearCameraTrack);
-        assert!(app.camera_tracker.track_points.is_empty());
-        assert!(!app.camera_tracker.solved);
-    }
-
-    #[test]
-    fn test_camera_tracker_move_point() {
-        let mut app = App::new();
-        app.apply(Action::AddTrackPoint { name: "P".to_string(), pos: [50.0, 50.0] });
-        app.apply(Action::MoveTrackPoint { idx: 0, time: 1.0, pos: [60.0, 70.0] });
-        let kfs = &app.camera_tracker.track_points[0].keyframes;
-        let kf = kfs.iter().find(|(t, _)| (*t - 1.0).abs() < 1e-3);
-        assert!(kf.is_some());
-        let pos = kf.unwrap().1;
-        assert!((pos[0] - 60.0).abs() < 1e-3);
-        assert!((pos[1] - 70.0).abs() < 1e-3);
-    }
-
     // ── Batch 3 extended: Rotobrush ─────────────────────────────────────────
 
     #[test]
@@ -4368,84 +4178,6 @@ mod tests {
         // Clamp: 200.0 → 100.0
         app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 200.0 });
         assert!((app.puppet_meshes[0].expansion - 100.0).abs() < 1e-5);
-    }
-
-    // ── New: CameraTracker (3D solve) ─────────────────────────────────────────
-
-    #[test]
-    fn test_start_camera_track_solve_creates_solve() {
-        let mut app = App::new();
-        assert!(app.camera_track_solves.is_empty());
-        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
-        assert_eq!(app.camera_track_solves.len(), 1);
-        assert_eq!(app.camera_track_solves[0].layer_id, 0);
-        assert_eq!(app.camera_track_solves[0].status, CameraTrackStatus::Analyzing);
-        assert_eq!(app.camera_track_solves[0].track_points.len(), 40);
-    }
-
-    #[test]
-    fn test_start_camera_track_stub_points_positions() {
-        let mut app = App::new();
-        app.apply(Action::StartCameraTrackSolve { layer_id: 2 });
-        let pts = &app.camera_track_solves[0].track_points;
-        // Check index 0: 0*7%1920=0, 0*11%1080=0
-        assert!((pts[0].x - 0.0).abs() < 1e-5);
-        assert!((pts[0].y - 0.0).abs() < 1e-5);
-        // Check index 1: 1*7%1920=7, 1*11%1080=11
-        assert!((pts[1].x - 7.0).abs() < 1e-5);
-        assert!((pts[1].y - 11.0).abs() < 1e-5);
-        // All confidence 0.8
-        for pt in pts {
-            assert!((pt.confidence - 0.8).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn test_solve_camera_track_ext() {
-        let mut app = App::new();
-        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
-        app.apply(Action::SolveCameraTrackExt { layer_id: 0 });
-        assert_eq!(app.camera_track_solves[0].status, CameraTrackStatus::Done);
-        assert!((app.camera_track_solves[0].solve_error - 0.73).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_select_track_points() {
-        let mut app = App::new();
-        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
-        let id0 = app.camera_track_solves[0].track_points[0].id;
-        let id1 = app.camera_track_solves[0].track_points[1].id;
-        app.apply(Action::SelectTrackPoints { layer_id: 0, point_ids: vec![id0] });
-        assert!(app.camera_track_solves[0].track_points[0].selected);
-        assert!(!app.camera_track_solves[0].track_points[1].selected);
-        // Select id1 now, id0 deselected
-        app.apply(Action::SelectTrackPoints { layer_id: 0, point_ids: vec![id1] });
-        assert!(!app.camera_track_solves[0].track_points[0].selected);
-        assert!(app.camera_track_solves[0].track_points[1].selected);
-    }
-
-    #[test]
-    fn test_create_solved_camera_requires_done() {
-        let mut app = App::new();
-        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
-        // Status is Analyzing; CreateSolvedCamera should not add attached_layer
-        app.apply(Action::CreateSolvedCamera { layer_id: 0 });
-        assert!(app.camera_track_solves[0].attached_layer_ids.is_empty());
-        // Now solve and try again
-        app.apply(Action::SolveCameraTrackExt { layer_id: 0 });
-        app.apply(Action::CreateSolvedCamera { layer_id: 0 });
-        assert_eq!(app.camera_track_solves[0].attached_layer_ids.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_camera_track_solve() {
-        let mut app = App::new();
-        app.apply(Action::StartCameraTrackSolve { layer_id: 0 });
-        app.apply(Action::StartCameraTrackSolve { layer_id: 1 });
-        assert_eq!(app.camera_track_solves.len(), 2);
-        app.apply(Action::DeleteCameraTrackSolve { layer_id: 0 });
-        assert_eq!(app.camera_track_solves.len(), 1);
-        assert_eq!(app.camera_track_solves[0].layer_id, 1);
     }
 
 }

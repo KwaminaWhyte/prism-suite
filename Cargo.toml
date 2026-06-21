@@ -13,12 +13,14 @@ members = [
     "apps/contour",
     "apps/pulse",
     "apps/reel",
+    "apps/tone",
 ]
 default-members = [
     "apps/pigment",
     "apps/contour",
     "apps/pulse",
     "apps/reel",
+    "apps/tone",
 ]
 
 [workspace.package]

@@ -1,0 +1,33 @@
+[package]
+name = "tone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "tone"
+
+[[bin]]
+name = "tone"
+path = "src/main.rs"
+
+[dependencies]
+prism-core.workspace = true
+prism-color.workspace = true
+prism-media.workspace = true
+prism-ui.workspace = true
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true
+gpui.workspace = true
+rfd.workspace = true
+
+[package.metadata.bundle]
+name = "Tone"
+identifier = "com.prism-suite.tone"
+short_description = "AI-first music creation — GarageBand/Logic Pro analog"
+long_description = "Tone is an AI-first DAW that generates full tracks from prompts while giving you full DAW-level control. Part of the open-source Prism creative suite."
+category = "Music"
+osx_minimum_system_version = "13.0"
+osx_url_schemes = ["tone"]
+
+[lints]
+workspace = true

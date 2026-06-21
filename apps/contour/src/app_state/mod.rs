@@ -52,6 +52,7 @@ mod apply_waves_w11;
 mod tests_wave9;
 mod apply_waves_wn;
 mod apply_extended4;
+mod apply_waves2_b24;
 mod apply_waves;
 mod apply_waves2;
 pub(super) mod helpers;

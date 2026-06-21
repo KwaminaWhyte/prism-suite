@@ -25,6 +25,7 @@ mod layer_3d;
 mod export;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
+pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
 
 use self::text::TextEdit;
 
@@ -1084,74 +1085,6 @@ pub enum Action {
     Set3DExtrudeDepth { layer_id: usize, depth: f32 },
     /// Flatten a 3-D layer back to a raster layer (removes it from the 3-D list).
     Flatten3DLayer { layer_id: usize },
-}
-
-// ---- New Feature: SmartObject (rich) -----------------------------------------
-
-/// Whether the Smart Object embeds its contents or links to an external file.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SmartObjectKind {
-    Embedded,
-    Linked,
-}
-
-/// A rich Smart Object entry — tracks id, name, kind, source path, and dirty flag.
-#[derive(Debug, Clone)]
-pub struct SmartObject {
-    pub id: usize,
-    pub name: String,
-    pub kind: SmartObjectKind,
-    pub source_path: Option<String>,
-    pub contents_dirty: bool,
-}
-
-// ---- New Feature: AdvancedMasking (Select & Mask workspace) ------------------
-
-/// Edge detection algorithm used in the Select & Mask workspace.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EdgeDetectMode {
-    Object,
-    Hair,
-    Custom,
-}
-
-/// Full configuration for the Select & Mask / Refine Edge workspace.
-#[derive(Debug, Clone)]
-pub struct SelectMaskConfig {
-    /// Detect Edges radius (0..=250).
-    pub radius: f32,
-    /// Automatically adjust the radius around complex edges.
-    pub smart_radius: bool,
-    /// Smooth the selection boundary (0..=100).
-    pub smooth: u8,
-    /// Gaussian feather applied to the mask edge (0..=250).
-    pub feather: f32,
-    /// Increase edge definition (0..=100).
-    pub contrast: u8,
-    /// Shrink or grow the selection boundary (-100..=100).
-    pub shift_edge: i8,
-    /// Where to deliver the refined mask.
-    pub output_to: String,
-    /// Remove colour fringing around the mask edge.
-    pub decontaminate_colors: bool,
-    /// Algorithm for Detect Edges.
-    pub edge_detect: EdgeDetectMode,
-}
-
-impl SelectMaskConfig {
-    pub fn new() -> Self {
-        Self {
-            radius: 3.0,
-            smart_radius: true,
-            smooth: 3,
-            feather: 0.0,
-            contrast: 0,
-            shift_edge: 0,
-            output_to: "Mask".into(),
-            decontaminate_colors: false,
-            edge_detect: EdgeDetectMode::Object,
-        }
-    }
 }
 
 // ---- New Feature: GenerativeFill ---------------------------------------------

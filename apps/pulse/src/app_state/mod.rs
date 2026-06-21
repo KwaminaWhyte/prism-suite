@@ -43,6 +43,7 @@ mod text_anim;
 pub use expressions::{ExprControlKind, ExprControlValue, ExprControl};
 pub use text_anim::{TextAnimPreset, TextAnimProperty, TextAnimRange, TextAnimator, MogrParamKind, MogrParam, MogrTemplate};
 pub use tracking::{TrackPoint, CameraTracker, MotionSketchStroke, MotionSketchConfig, StabilizeResult, StabilizeMethod, StabilizeFraming, WarpStabConfig, CameraTrackStatus, CameraTrackPoint, CameraTrackSolve};
+pub use puppeting::{MorphMode, CorrespondenceMode, ShapeMorphKeyframe, ShapeMorphConfig, PuppetPinMode, PuppetPin, PuppetMesh};
 
 /// Status of a job in the render queue.
 #[derive(Clone, Debug)]
@@ -308,48 +309,6 @@ impl Default for DepthOfField {
     }
 }
 
-// ── Batch 5: Shape Layer Morphing ─────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum MorphMode {
-    #[default]
-    Linear,
-    Smooth,
-    Hold,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Default)]
-pub enum CorrespondenceMode {
-    #[default]
-    Auto,
-    Manual,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ShapeMorphKeyframe {
-    pub time: f32,
-    pub layer_id: usize,
-    pub path_idx: usize,
-    pub mode: MorphMode,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ShapeMorphConfig {
-    pub enabled: bool,
-    pub keyframes: Vec<ShapeMorphKeyframe>,
-    pub correspondence_mode: CorrespondenceMode,
-}
-
-impl Default for ShapeMorphConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            keyframes: vec![],
-            correspondence_mode: CorrespondenceMode::Auto,
-        }
-    }
-}
-
 // ── Batch 4: Expression Engine depth ─────────────────────────────────────────
 
 /// Script language used by the expression engine.
@@ -582,40 +541,6 @@ impl Default for Layer3DConfig {
 }
 
 // ── New Feature: PuppetPin (app-level, independent of comp-model puppet pins) ─
-
-/// Puppet pin operating mode.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PuppetPinMode {
-    Deform,
-    Starch,
-    Overlap,
-}
-
-/// A single puppet deformation pin (app-level state).
-#[derive(Clone, Debug)]
-pub struct PuppetPin {
-    pub id: usize,
-    pub layer_id: usize,
-    pub name: String,
-    pub mode: PuppetPinMode,
-    pub x: f32,
-    pub y: f32,
-    /// Stiffness: 0.0..=100.0 (relevant for Starch mode).
-    pub stiffness: f32,
-    /// Extent: 0.0..=100.0 (relevant for Overlap mode).
-    pub extent: f32,
-}
-
-/// Puppet mesh parameters for a layer.
-#[derive(Clone, Debug)]
-pub struct PuppetMesh {
-    pub layer_id: usize,
-    pub triangle_count: usize,
-    /// Expansion: 3.0..=100.0
-    pub expansion: f32,
-    /// Density: 1..=30
-    pub density: u8,
-}
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
 /// view routes each into [`App::apply`]. EXTENSIBLE: later waves add variants
@@ -3829,44 +3754,6 @@ mod tests {
         assert!((app.warp_stab_config.rolling_shutter_ripple - 0.0).abs() < 1e-3);
     }
 
-    // ── Batch 5: Shape Morphing ───────────────────────────────────────────────
-
-    #[test]
-    fn test_morph_add_keyframe() {
-        let mut app = App::new();
-        assert!(app.shape_morph_config.keyframes.is_empty());
-        let kf = ShapeMorphKeyframe { time: 1.0, layer_id: 0, path_idx: 0, mode: MorphMode::Linear };
-        app.apply(Action::AddMorphKeyframe(kf));
-        assert_eq!(app.shape_morph_config.keyframes.len(), 1);
-    }
-
-    #[test]
-    fn test_morph_remove_keyframe_oob() {
-        let mut app = App::new();
-        // Remove index 99 on empty vec — should not panic
-        app.apply(Action::RemoveMorphKeyframe(99));
-        assert!(app.shape_morph_config.keyframes.is_empty());
-    }
-
-    #[test]
-    fn test_morph_clear() {
-        let mut app = App::new();
-        let kf = ShapeMorphKeyframe { time: 0.5, layer_id: 0, path_idx: 0, mode: MorphMode::Smooth };
-        app.apply(Action::AddMorphKeyframe(kf));
-        assert!(!app.shape_morph_config.keyframes.is_empty());
-        app.apply(Action::ClearMorphKeyframes);
-        assert!(app.shape_morph_config.keyframes.is_empty());
-    }
-
-    #[test]
-    fn test_morph_preview_time_non_neg() {
-        let mut app = App::new();
-        app.apply(Action::SetMorphPreviewTime(-1.0));
-        assert!((app.morph_preview_time - 0.0).abs() < 1e-3);
-        app.apply(Action::SetMorphPreviewTime(2.5));
-        assert!((app.morph_preview_time - 2.5).abs() < 1e-3);
-    }
-
     // ── Batch 5: Audio Spectrum ───────────────────────────────────────────────
 
     #[test]
@@ -4088,96 +3975,6 @@ mod tests {
         assert!(app.puppet_tool_active);
         app.apply(Action::ActivatePuppetTool(false));
         assert!(!app.puppet_tool_active);
-    }
-
-    #[test]
-    fn test_add_puppet_pin_ext() {
-        let mut app = App::new();
-        assert!(app.puppet_pins.is_empty());
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 100.0, y: 200.0, mode: PuppetPinMode::Deform });
-        assert_eq!(app.puppet_pins.len(), 1);
-        assert_eq!(app.puppet_pins[0].layer_id, 0);
-        assert_eq!(app.puppet_pins[0].name, "Pin 1");
-        assert_eq!(app.puppet_pins[0].mode, PuppetPinMode::Deform);
-        assert!((app.puppet_pins[0].x - 100.0).abs() < 1e-5);
-        assert!((app.puppet_pins[0].y - 200.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_add_puppet_pin_auto_name() {
-        let mut app = App::new();
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Deform });
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 10.0, y: 10.0, mode: PuppetPinMode::Starch });
-        assert_eq!(app.puppet_pins[0].name, "Pin 1");
-        assert_eq!(app.puppet_pins[1].name, "Pin 2");
-    }
-
-    #[test]
-    fn test_move_puppet_pin_ext() {
-        let mut app = App::new();
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Deform });
-        let pin_id = app.puppet_pins[0].id;
-        app.apply(Action::MovePuppetPinExt { pin_id, x: 50.0, y: 75.0 });
-        assert!((app.puppet_pins[0].x - 50.0).abs() < 1e-5);
-        assert!((app.puppet_pins[0].y - 75.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_puppet_pin_stiffness_clamp() {
-        let mut app = App::new();
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Starch });
-        let pin_id = app.puppet_pins[0].id;
-        // Within range
-        app.apply(Action::SetPuppetPinStiffnessExt { pin_id, stiffness: 75.0 });
-        assert!((app.puppet_pins[0].stiffness - 75.0).abs() < 1e-5);
-        // Above max → 100.0
-        app.apply(Action::SetPuppetPinStiffnessExt { pin_id, stiffness: 200.0 });
-        assert!((app.puppet_pins[0].stiffness - 100.0).abs() < 1e-5);
-        // Below min → 0.0
-        app.apply(Action::SetPuppetPinStiffnessExt { pin_id, stiffness: -5.0 });
-        assert!((app.puppet_pins[0].stiffness - 0.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_delete_puppet_pin() {
-        let mut app = App::new();
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 0.0, y: 0.0, mode: PuppetPinMode::Deform });
-        app.apply(Action::AddPuppetPinExt { layer_id: 0, x: 10.0, y: 10.0, mode: PuppetPinMode::Starch });
-        let pin_id = app.puppet_pins[0].id;
-        app.apply(Action::DeletePuppetPin(pin_id));
-        assert_eq!(app.puppet_pins.len(), 1);
-    }
-
-    #[test]
-    fn test_puppet_mesh_density_upsert() {
-        let mut app = App::new();
-        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 10 });
-        assert_eq!(app.puppet_meshes.len(), 1);
-        assert_eq!(app.puppet_meshes[0].density, 10);
-        // Update existing
-        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 20 });
-        assert_eq!(app.puppet_meshes.len(), 1);
-        assert_eq!(app.puppet_meshes[0].density, 20);
-        // Clamp: 0 → 1
-        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 0 });
-        assert_eq!(app.puppet_meshes[0].density, 1);
-        // Clamp: 99 → 30
-        app.apply(Action::SetPuppetMeshDensityExt { layer_id: 0, density: 99 });
-        assert_eq!(app.puppet_meshes[0].density, 30);
-    }
-
-    #[test]
-    fn test_puppet_mesh_expansion_upsert() {
-        let mut app = App::new();
-        app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 50.0 });
-        assert_eq!(app.puppet_meshes.len(), 1);
-        assert!((app.puppet_meshes[0].expansion - 50.0).abs() < 1e-5);
-        // Clamp: 1.0 → 3.0
-        app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 1.0 });
-        assert!((app.puppet_meshes[0].expansion - 3.0).abs() < 1e-5);
-        // Clamp: 200.0 → 100.0
-        app.apply(Action::SetPuppetMeshExpansion { layer_id: 1, expansion: 200.0 });
-        assert!((app.puppet_meshes[0].expansion - 100.0).abs() < 1e-5);
     }
 
 }

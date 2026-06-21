@@ -177,3 +177,137 @@ impl AppGraphicsExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+
+    #[test]
+    fn test_add_remove_mogr_template() {
+        let mut app = App::new();
+        assert_eq!(app.mogr_templates.len(), 0);
+        app.apply(Action::AddMogrTemplate(MogrTemplate {
+            name: "Lower Third".to_string(),
+            file_path: std::path::PathBuf::from("templates/lower_third.mogrt"),
+            duration_frames: 90,
+            params: Vec::new(),
+        }));
+        assert_eq!(app.mogr_templates.len(), 1);
+        assert_eq!(app.mogr_templates[0].name, "Lower Third");
+        app.apply(Action::RemoveMogrTemplate(0));
+        assert_eq!(app.mogr_templates.len(), 0);
+        // Out-of-bounds remove is a no-op.
+        app.apply(Action::RemoveMogrTemplate(99));
+        assert_eq!(app.mogr_templates.len(), 0);
+    }
+
+    #[test]
+    fn test_apply_mogr_to_clip() {
+        let mut app = App::new();
+        app.apply(Action::AddMogrTemplate(MogrTemplate { name: "T1".to_string(), ..Default::default() }));
+        app.apply(Action::ApplyMogrToClip { clip_idx: 3, template_idx: 0 });
+        assert_eq!(app.mogr_applied_clips.len(), 1);
+        assert_eq!(app.mogr_applied_clips[0], (3, 0));
+        // Applying again to same clip replaces entry.
+        app.apply(Action::AddMogrTemplate(MogrTemplate { name: "T2".to_string(), ..Default::default() }));
+        app.apply(Action::ApplyMogrToClip { clip_idx: 3, template_idx: 1 });
+        assert_eq!(app.mogr_applied_clips.len(), 1);
+        assert_eq!(app.mogr_applied_clips[0], (3, 1));
+    }
+
+    #[test]
+    fn test_detach_mogr_from_clip() {
+        let mut app = App::new();
+        app.apply(Action::AddMogrTemplate(MogrTemplate { name: "T".to_string(), ..Default::default() }));
+        app.apply(Action::ApplyMogrToClip { clip_idx: 2, template_idx: 0 });
+        assert_eq!(app.mogr_applied_clips.len(), 1);
+        app.apply(Action::DetachMogrFromClip { clip_idx: 2 });
+        assert_eq!(app.mogr_applied_clips.len(), 0);
+        // Detaching a clip with no mogr is a no-op.
+        app.apply(Action::DetachMogrFromClip { clip_idx: 99 });
+        assert_eq!(app.mogr_applied_clips.len(), 0);
+    }
+
+    #[test]
+    fn test_mogr_library_toggle() {
+        let mut app = App::new();
+        assert!(!app.mogr_library_open);
+        app.apply(Action::ToggleMogrLibrary);
+        assert!(app.mogr_library_open);
+        app.apply(Action::ToggleMogrLibrary);
+        assert!(!app.mogr_library_open);
+    }
+
+    #[test]
+    fn test_seq_resolution_min_1() {
+        let mut app = App::new();
+        app.apply(Action::SetSeqResolution { w: 0, h: 0 });
+        assert_eq!(app.sequence_settings.width, 1);
+        assert_eq!(app.sequence_settings.height, 1);
+    }
+
+    #[test]
+    fn test_seq_audio_channels_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSeqAudioChannels(0));
+        assert_eq!(app.sequence_settings.audio_channels, 1);
+        app.apply(Action::SetSeqAudioChannels(10));
+        assert_eq!(app.sequence_settings.audio_channels, 8);
+    }
+
+    #[test]
+    fn test_seq_frame_rate_set() {
+        let mut app = App::new();
+        assert_eq!(app.sequence_settings.frame_rate, SeqFrameRate::Fps29_97);
+        app.apply(Action::SetSeqFrameRate(SeqFrameRate::Fps60));
+        assert_eq!(app.sequence_settings.frame_rate, SeqFrameRate::Fps60);
+        app.apply(Action::SetSeqFrameRate(SeqFrameRate::Fps24));
+        assert_eq!(app.sequence_settings.frame_rate, SeqFrameRate::Fps24);
+    }
+
+    #[test]
+    fn test_nest_adds_sequence() {
+        let mut app = App::new();
+        assert_eq!(app.nested_sequences.len(), 0);
+        app.apply(Action::NestSelectedClipsB9 { name: "MyNest".to_string() });
+        assert_eq!(app.nested_sequences.len(), 1);
+        assert_eq!(app.nested_sequences[0].name, "MyNest");
+    }
+
+    #[test]
+    fn test_unnest_removes() {
+        let mut app = App::new();
+        app.apply(Action::NestSelectedClipsB9 { name: "Nest1".to_string() });
+        app.apply(Action::NestSelectedClipsB9 { name: "Nest2".to_string() });
+        assert_eq!(app.nested_sequences.len(), 2);
+        app.apply(Action::UnnestSequence(0));
+        assert_eq!(app.nested_sequences.len(), 1);
+        assert_eq!(app.nested_sequences[0].name, "Nest2");
+        // Out-of-bounds is a no-op.
+        app.apply(Action::UnnestSequence(99));
+        assert_eq!(app.nested_sequences.len(), 1);
+    }
+
+    #[test]
+    fn test_enter_exit_nested() {
+        let mut app = App::new();
+        app.apply(Action::NestSelectedClipsB9 { name: "N".to_string() });
+        assert!(app.active_nested_seq.is_none());
+        app.apply(Action::EnterNestedSequence(0));
+        assert_eq!(app.active_nested_seq, Some(0));
+        app.apply(Action::ExitNestedSequence);
+        assert!(app.active_nested_seq.is_none());
+        // Out-of-bounds enter is a no-op.
+        app.apply(Action::EnterNestedSequence(99));
+        assert!(app.active_nested_seq.is_none());
+    }
+
+    #[test]
+    fn test_rename_nested() {
+        let mut app = App::new();
+        app.apply(Action::NestSelectedClipsB9 { name: "OldName".to_string() });
+        app.apply(Action::RenameNestedSequence { idx: 0, name: "MySeq".to_string() });
+        assert_eq!(app.nested_sequences[0].name, "MySeq");
+    }
+}

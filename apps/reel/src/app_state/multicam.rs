@@ -138,3 +138,129 @@ impl AppMulticamExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+
+    #[test]
+    fn test_add_remove_multicam_angle() {
+        let mut app = App::new();
+        assert_eq!(app.multicam_angles.len(), 0);
+        app.apply(Action::AddMulticamAngle(MulticamAngle { label: "Cam A".to_string(), source_clip_idx: 0, sync_offset: 0.0, enabled: true }));
+        app.apply(Action::AddMulticamAngle(MulticamAngle { label: "Cam B".to_string(), source_clip_idx: 1, sync_offset: 0.5, enabled: true }));
+        assert_eq!(app.multicam_angles.len(), 2);
+        app.apply(Action::RemoveMulticamAngle(0));
+        assert_eq!(app.multicam_angles.len(), 1);
+        assert_eq!(app.multicam_angles[0].label, "Cam B");
+        // Out-of-bounds removal is a no-op.
+        app.apply(Action::RemoveMulticamAngle(99));
+        assert_eq!(app.multicam_angles.len(), 1);
+    }
+
+    #[test]
+    fn test_toggle_multicam_angle() {
+        let mut app = App::new();
+        app.apply(Action::AddMulticamAngle(MulticamAngle::default()));
+        assert!(app.multicam_angles[0].enabled);
+        app.apply(Action::ToggleMulticamAngle(0));
+        assert!(!app.multicam_angles[0].enabled);
+        app.apply(Action::ToggleMulticamAngle(0));
+        assert!(app.multicam_angles[0].enabled);
+    }
+
+    #[test]
+    fn test_sync_mode_set() {
+        let mut app = App::new();
+        assert_eq!(app.multicam_sync_mode, MulticamSyncMode::Timecode);
+        app.apply(Action::SetMulticamSyncMode(MulticamSyncMode::Waveform));
+        assert_eq!(app.multicam_sync_mode, MulticamSyncMode::Waveform);
+        app.apply(Action::SetMulticamDisplayMode(MulticamDisplayMode::Solo));
+        assert_eq!(app.multicam_display_mode, MulticamDisplayMode::Solo);
+    }
+
+    #[test]
+    fn test_flatten_multicam_clears() {
+        let mut app = App::new();
+        app.apply(Action::AddMulticamAngle(MulticamAngle::default()));
+        app.apply(Action::AddMulticamAngle(MulticamAngle::default()));
+        assert_eq!(app.multicam_angles.len(), 2);
+        app.multicam_active_angle = 1;
+        app.apply(Action::FlattenMulticam);
+        assert_eq!(app.multicam_angles.len(), 0);
+        assert_eq!(app.multicam_active_angle, 0);
+    }
+
+    #[test]
+    fn test_edl_frame_rate_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetEdlFrameRate(200.0));
+        assert!((app.edl_config.frame_rate - 120.0).abs() < 1e-5);
+        app.apply(Action::SetEdlFrameRate(0.0));
+        assert!((app.edl_config.frame_rate - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_edl_format_set() {
+        let mut app = App::new();
+        assert_eq!(app.edl_config.format, EdlFormat::Cmx3600);
+        app.apply(Action::SetEdlFormat(EdlFormat::FcpXml));
+        assert_eq!(app.edl_config.format, EdlFormat::FcpXml);
+        app.apply(Action::SetEdlFormat(EdlFormat::Otio));
+        assert_eq!(app.edl_config.format, EdlFormat::Otio);
+    }
+
+    #[test]
+    fn test_export_edl_records_path() {
+        let mut app = App::new();
+        assert!(app.last_edl_export_path.is_none());
+        let p = std::path::PathBuf::from("/tmp/export.edl");
+        app.apply(Action::ExportEdl(p.clone()));
+        assert_eq!(app.last_edl_export_path, Some(p.clone()));
+        let p2 = std::path::PathBuf::from("/tmp/export.xml");
+        app.apply(Action::ExportFcpXml(p2.clone()));
+        assert_eq!(app.last_edl_export_path, Some(p2));
+        let p3 = std::path::PathBuf::from("/tmp/export.otio");
+        app.apply(Action::ExportOtio(p3.clone()));
+        assert_eq!(app.last_edl_export_path, Some(p3));
+    }
+
+    #[test]
+    fn test_reframe_aspect_min_1() {
+        let mut app = App::new();
+        app.apply(Action::SetReframeAspect { w: 0, h: 0 });
+        assert_eq!(app.auto_reframe_config.target_aspect_w, 1);
+        assert_eq!(app.auto_reframe_config.target_aspect_h, 1);
+    }
+
+    #[test]
+    fn test_analyze_reframe_adds_result() {
+        let mut app = App::new();
+        assert_eq!(app.reframe_results.len(), 0);
+        app.apply(Action::AnalyzeReframe { clip_idx: 0 });
+        assert_eq!(app.reframe_results.len(), 1);
+        assert_eq!(app.reframe_results[0].0, 0);
+        assert_eq!(app.reframe_results[0].1, vec![0.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn test_clear_reframe() {
+        let mut app = App::new();
+        app.apply(Action::AnalyzeReframe { clip_idx: 0 });
+        app.apply(Action::AnalyzeReframe { clip_idx: 1 });
+        assert_eq!(app.reframe_results.len(), 2);
+        app.apply(Action::ClearReframeResults);
+        assert_eq!(app.reframe_results.len(), 0);
+    }
+
+    #[test]
+    fn test_reframe_motion_set() {
+        let mut app = App::new();
+        assert_eq!(app.auto_reframe_config.motion_preset, ReframeMotion::Default);
+        app.apply(Action::SetReframeMotion(ReframeMotion::SmoothFast));
+        assert_eq!(app.auto_reframe_config.motion_preset, ReframeMotion::SmoothFast);
+        app.apply(Action::SetReframeMotion(ReframeMotion::Slower));
+        assert_eq!(app.auto_reframe_config.motion_preset, ReframeMotion::Slower);
+    }
+}

@@ -107,3 +107,151 @@ impl AppEffectsExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+    use super::super::timeline::{ClipEffect, ClipEffectKind};
+
+    #[test]
+    fn test_add_clip_effect() {
+        let mut app = App::new();
+        let effect = ClipEffect::default();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect });
+        assert_eq!(app.project.clips[0].effects.len(), 1);
+    }
+
+    #[test]
+    fn test_remove_clip_effect() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect { kind: ClipEffectKind::Sharpen, ..ClipEffect::default() } });
+        app.apply(Action::RemoveClipEffect { clip_idx: 0, effect_idx: 0 });
+        assert_eq!(app.project.clips[0].effects.len(), 1);
+        assert_eq!(app.project.clips[0].effects[0].kind, ClipEffectKind::Sharpen);
+    }
+
+    #[test]
+    fn test_toggle_clip_effect() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        assert!(app.project.clips[0].effects[0].enabled);
+        app.apply(Action::ToggleClipEffect { clip_idx: 0, effect_idx: 0 });
+        assert!(!app.project.clips[0].effects[0].enabled);
+        app.apply(Action::ToggleClipEffect { clip_idx: 0, effect_idx: 0 });
+        assert!(app.project.clips[0].effects[0].enabled);
+    }
+
+    #[test]
+    fn test_clear_clip_effects() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect::default() });
+        app.apply(Action::ClearClipEffects { clip_idx: 0 });
+        assert!(app.project.clips[0].effects.is_empty());
+    }
+
+    #[test]
+    fn test_reorder_clip_effects() {
+        let mut app = App::new();
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect { kind: ClipEffectKind::GaussianBlur, ..ClipEffect::default() } });
+        app.apply(Action::AddClipEffect { clip_idx: 0, effect: ClipEffect { kind: ClipEffectKind::Glow, ..ClipEffect::default() } });
+        // swap: from=0, to=1 → Glow first, GaussianBlur second
+        app.apply(Action::ReorderClipEffects { clip_idx: 0, from: 0, to: 1 });
+        assert_eq!(app.project.clips[0].effects[0].kind, ClipEffectKind::Glow);
+        assert_eq!(app.project.clips[0].effects[1].kind, ClipEffectKind::GaussianBlur);
+    }
+
+    #[test]
+    fn test_clip_motion_set() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotion { clip_idx: 0, x: 100.0, y: -50.0 });
+        let c = &app.project.clips[0];
+        assert!((c.motion_x - 100.0).abs() < 1e-5);
+        assert!((c.motion_y - (-50.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_clip_motion_scale_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotionScale { clip_idx: 0, sx: 0.0, sy: -1.0 });
+        let c = &app.project.clips[0];
+        assert!(c.motion_scale_x >= 0.01);
+        assert!(c.motion_scale_y >= 0.01);
+    }
+
+    #[test]
+    fn test_clip_motion_reset() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotion { clip_idx: 0, x: 200.0, y: 300.0 });
+        app.apply(Action::SetClipMotionScale { clip_idx: 0, sx: 2.0, sy: 3.0 });
+        app.apply(Action::SetClipMotionRotation { clip_idx: 0, angle: 45.0 });
+        app.apply(Action::ResetClipMotion { clip_idx: 0 });
+        let c = &app.project.clips[0];
+        assert!((c.motion_x).abs() < 1e-5);
+        assert!((c.motion_y).abs() < 1e-5);
+        assert!((c.motion_scale_x - 1.0).abs() < 1e-5);
+        assert!((c.motion_scale_y - 1.0).abs() < 1e-5);
+        assert!((c.motion_rotation).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_scene_edit_sensitivity() {
+        let mut app = App::new();
+        app.apply(Action::SetSceneEditSensitivity(0.7));
+        assert!((app.scene_edit_sensitivity - 0.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_scene_edit_sensitivity_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetSceneEditSensitivity(1.5));
+        assert!((app.scene_edit_sensitivity - 1.0).abs() < 1e-5);
+        app.apply(Action::SetSceneEditSensitivity(-0.3));
+        assert!((app.scene_edit_sensitivity).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_detect_scene_edits_produces_result() {
+        let mut app = App::new();
+        app.apply(Action::SetSceneEditSensitivity(0.6));
+        app.apply(Action::DetectSceneEdits { clip_idx: 0 });
+        assert!(app.last_scene_edit_result.is_some());
+        let result = app.last_scene_edit_result.as_ref().unwrap();
+        assert_eq!(result.clip_idx, 0);
+        assert!(!result.cut_times.is_empty());
+    }
+
+    #[test]
+    fn test_set_project_name() {
+        let mut app = App::new();
+        app.apply(Action::SetProjectName("My Film".to_string()));
+        assert_eq!(app.project_name, "My Film");
+    }
+
+    #[test]
+    fn test_set_project_path_adds_to_recent() {
+        let mut app = App::new();
+        let path = std::path::PathBuf::from("/tmp/my_project.reel");
+        app.apply(Action::SetProjectPath(path.clone()));
+        assert_eq!(app.project_path, Some(path.clone()));
+        assert!(app.recent_project_paths.contains(&path));
+    }
+
+    #[test]
+    fn test_recent_projects_capped_at_10() {
+        let mut app = App::new();
+        for i in 0..15 {
+            app.apply(Action::AddRecentProject(std::path::PathBuf::from(format!("/tmp/project_{}.reel", i))));
+        }
+        assert!(app.recent_project_paths.len() <= 10);
+    }
+
+    #[test]
+    fn test_auto_save_interval_min() {
+        let mut app = App::new();
+        app.apply(Action::SetAutoSaveInterval(5));
+        assert_eq!(app.auto_save_interval_sec, 30);
+    }
+}

@@ -246,3 +246,73 @@ impl AppAudioExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action, lufs_integrated};
+
+    #[test]
+    fn lufs_integrated_pure_functions() {
+        // A history of constant-power blocks at -23 LUFS equivalent.
+        // -23 LUFS → mean-square = 10^((-23+0.691)/10) ≈ 5.37e-3
+        let target_ms = 10f32.powf((-23.0 + 0.691) / 10.0);
+        let history: Vec<f32> = vec![target_ms; 100];
+        let lufs = lufs_integrated(&history);
+        // Should be approximately -23 ± 1 dB.
+        assert!((lufs + 23.0).abs() < 1.5, "integrated LUFS ≈ -23, got {lufs:.2}");
+    }
+
+    #[test]
+    fn update_lufs_meters_action_updates_app_fields() {
+        let mut app = App::new();
+        let power = 10f32.powf((-23.0 + 0.691) / 10.0);
+        for _ in 0..50 {
+            app.apply(Action::UpdateLufsMeters { power });
+        }
+        assert!(app.lufs_short_term.is_finite() || app.lufs_short_term == -f32::INFINITY);
+        app.apply(Action::ResetLufsIntegrated);
+        assert_eq!(app.lufs_power_history.len(), 0);
+        assert_eq!(app.lufs_integrated, -f32::INFINITY);
+    }
+
+    #[test]
+    fn test_audio_suite_gain_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioSuiteGain(100.0));
+        assert!((app.audio_suite_config.gain_db - 60.0).abs() < 1e-5);
+        app.apply(Action::SetAudioSuiteGain(-100.0));
+        assert!((app.audio_suite_config.gain_db - (-60.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_audio_suite_pitch_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioSuitePitch(-30.0));
+        assert!((app.audio_suite_config.pitch_semitones - (-24.0)).abs() < 1e-5);
+        app.apply(Action::SetAudioSuitePitch(30.0));
+        assert!((app.audio_suite_config.pitch_semitones - 24.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_audio_suite_stretch_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetAudioSuiteStretch(0.0));
+        assert!((app.audio_suite_config.stretch_ratio - 0.1).abs() < 1e-5);
+        app.apply(Action::SetAudioSuiteStretch(100.0));
+        assert!((app.audio_suite_config.stretch_ratio - 10.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_audio_suite_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.audio_suite_panel_open);
+        app.apply(Action::ToggleAudioSuitePanel);
+        assert!(app.audio_suite_panel_open);
+        app.apply(Action::ToggleAudioSuitePanel);
+        assert!(!app.audio_suite_panel_open);
+        assert!(!app.audio_suite_preview);
+        app.apply(Action::ToggleAudioSuitePreview);
+        assert!(app.audio_suite_preview);
+    }
+}

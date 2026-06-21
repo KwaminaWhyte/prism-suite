@@ -126,3 +126,60 @@ impl AppCaptionsExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+
+    #[test]
+    fn test_add_remove_caption() {
+        let mut app = App::new();
+        assert_eq!(app.captions_b9.len(), 0);
+        app.apply(Action::AddCaptionB9(CaptionB9 {
+            start_sec: 0.0, end_sec: 2.0, text: "Hello".to_string(),
+            speaker: "A".to_string(), style_id: 0,
+        }));
+        assert_eq!(app.captions_b9.len(), 1);
+        app.apply(Action::RemoveCaptionB9(0));
+        assert_eq!(app.captions_b9.len(), 0);
+    }
+
+    #[test]
+    fn test_caption_text_set() {
+        let mut app = App::new();
+        app.apply(Action::AddCaptionB9(CaptionB9::default()));
+        app.apply(Action::SetCaptionText { idx: 0, text: "Updated text".to_string() });
+        assert_eq!(app.captions_b9[0].text, "Updated text");
+    }
+
+    #[test]
+    fn test_export_srt_records_path() {
+        let mut app = App::new();
+        assert!(app.last_srt_export_path.is_none());
+        let p = std::path::PathBuf::from("/tmp/test.srt");
+        app.apply(Action::ExportSrtB9(p.clone()));
+        assert_eq!(app.last_srt_export_path, Some(p));
+    }
+
+    #[test]
+    fn test_auto_transcribe_adds_caption() {
+        let mut app = App::new();
+        assert_eq!(app.captions_b9.len(), 0);
+        app.apply(Action::AutoTranscribe);
+        assert_eq!(app.captions_b9.len(), 1);
+        assert_eq!(app.captions_b9[0].text, "[Auto-transcribed]");
+        assert!((app.captions_b9[0].start_sec).abs() < 1e-5);
+        assert!((app.captions_b9[0].end_sec - 5.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_caption_track_toggle() {
+        let mut app = App::new();
+        assert!(app.caption_track_visible);
+        app.apply(Action::ToggleCaptionTrack);
+        assert!(!app.caption_track_visible);
+        app.apply(Action::ToggleCaptionTrack);
+        assert!(app.caption_track_visible);
+    }
+}

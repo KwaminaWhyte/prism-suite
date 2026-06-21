@@ -155,3 +155,62 @@ impl AppExportPresetsExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+
+    #[test]
+    fn test_export_frame_rate_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 1.
+        app.apply(Action::SetExportFrameRate(0.0));
+        assert_eq!(app.export_presets_b10[0].frame_rate, 1.0);
+        // Above maximum → clamped to 120.
+        app.apply(Action::SetExportFrameRate(200.0));
+        assert_eq!(app.export_presets_b10[0].frame_rate, 120.0);
+    }
+
+    #[test]
+    fn test_export_bitrate_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 0.1.
+        app.apply(Action::SetExportBitrate(0.0));
+        assert_eq!(app.export_presets_b10[0].bitrate_mbps, 0.1);
+    }
+
+    #[test]
+    fn test_export_audio_bitrate_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 64.
+        app.apply(Action::SetExportAudioBitrate(10));
+        assert_eq!(app.export_presets_b10[0].audio_bitrate_kbps, 64);
+    }
+
+    #[test]
+    fn test_remove_last_preset_blocked() {
+        let mut app = App::new();
+        // Only one preset exists; removing it should be a no-op.
+        assert_eq!(app.export_presets_b10.len(), 1);
+        app.apply(Action::RemoveExportPresetB10(0));
+        assert_eq!(app.export_presets_b10.len(), 1);
+    }
+
+    #[test]
+    fn test_add_preset_and_set_active() {
+        let mut app = App::new();
+        app.apply(Action::AddExportPresetB10(ExportPresetB10 {
+            name: "4K ProRes".to_string(),
+            format: ExportFormatB10::ProRes,
+            resolution: ExportResolution::FourK,
+            ..Default::default()
+        }));
+        assert_eq!(app.export_presets_b10.len(), 2);
+        app.apply(Action::SetActiveExportPreset(1));
+        assert_eq!(app.active_export_preset, 1);
+        // Clamp out-of-bounds index.
+        app.apply(Action::SetActiveExportPreset(99));
+        assert_eq!(app.active_export_preset, 1);
+    }
+}

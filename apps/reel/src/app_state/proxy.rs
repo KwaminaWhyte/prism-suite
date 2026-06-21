@@ -75,3 +75,71 @@ impl AppProxyExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+
+    #[test]
+    fn test_proxy_scale_clamp() {
+        let mut app = App::new();
+        // Below minimum → 0.1.
+        app.apply(Action::SetProxyScale(0.0));
+        assert_eq!(app.proxy_settings.scale, 0.1);
+        // Above maximum → 1.0.
+        app.apply(Action::SetProxyScale(2.0));
+        assert_eq!(app.proxy_settings.scale, 1.0);
+        // Within range.
+        app.apply(Action::SetProxyScale(0.5));
+        assert_eq!(app.proxy_settings.scale, 0.5);
+    }
+
+    #[test]
+    fn test_create_proxies_pushes_entries() {
+        let mut app = App::new();
+        assert_eq!(app.clip_proxies.len(), 0);
+        app.apply(Action::CreateProxies { clip_indices: vec![0, 2, 5] });
+        assert_eq!(app.clip_proxies.len(), 3);
+        assert_eq!(app.clip_proxies[0].clip_idx, 0);
+        assert_eq!(app.clip_proxies[1].clip_idx, 2);
+        assert_eq!(app.clip_proxies[2].clip_idx, 5);
+        // All newly created proxies start unattached.
+        assert!(!app.clip_proxies[0].attached);
+        // Duplicate clip_idx should not add a second entry.
+        app.apply(Action::CreateProxies { clip_indices: vec![0] });
+        assert_eq!(app.clip_proxies.len(), 3);
+    }
+
+    #[test]
+    fn test_attach_proxy_sets_flag() {
+        let mut app = App::new();
+        let p = std::path::PathBuf::from("Proxies/clip_0.mp4");
+        app.apply(Action::AttachProxy { clip_idx: 0, path: p.clone() });
+        assert_eq!(app.clip_proxies.len(), 1);
+        assert!(app.clip_proxies[0].attached);
+        assert_eq!(app.clip_proxies[0].proxy_path, p);
+    }
+
+    #[test]
+    fn test_detach_proxy() {
+        let mut app = App::new();
+        app.apply(Action::AttachProxy {
+            clip_idx: 1,
+            path: std::path::PathBuf::from("Proxies/clip_1.mp4"),
+        });
+        assert!(app.clip_proxies[0].attached);
+        app.apply(Action::DetachProxy { clip_idx: 1 });
+        assert!(!app.clip_proxies[0].attached);
+    }
+
+    #[test]
+    fn test_toggle_proxy_playback() {
+        let mut app = App::new();
+        assert!(!app.toggle_proxy_enabled);
+        app.apply(Action::ToggleProxyPlayback);
+        assert!(app.toggle_proxy_enabled);
+        app.apply(Action::ToggleProxyPlayback);
+        assert!(!app.toggle_proxy_enabled);
+    }
+}

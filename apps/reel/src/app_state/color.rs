@@ -345,3 +345,81 @@ impl AppColorExt for App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{App, Action};
+
+    #[test]
+    fn test_lumetri_exposure_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetLumetriExposure(10.0));
+        assert!((app.lumetri.exposure - 5.0).abs() < 1e-5);
+        app.apply(Action::SetLumetriExposure(-10.0));
+        assert!((app.lumetri.exposure - (-5.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lumetri_saturation_clamp() {
+        let mut app = App::new();
+        app.apply(Action::SetLumetriSaturation(200.0));
+        assert!((app.lumetri.saturation - 100.0).abs() < 1e-5);
+        app.apply(Action::SetLumetriSaturation(-200.0));
+        assert!((app.lumetri.saturation - (-100.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lumetri_apply_to_clip() {
+        let mut app = App::new();
+        assert!(app.lumetri_applied_clip.is_none());
+        app.apply(Action::ApplyLumetriToClip { clip_idx: 0 });
+        assert_eq!(app.lumetri_applied_clip, Some(0));
+    }
+
+    #[test]
+    fn test_lumetri_panel_toggle() {
+        let mut app = App::new();
+        assert!(!app.lumetri_panel_open);
+        app.apply(Action::ToggleLumetriPanel);
+        assert!(app.lumetri_panel_open);
+        app.apply(Action::ToggleLumetriPanel);
+        assert!(!app.lumetri_panel_open);
+    }
+
+    #[test]
+    fn test_max_luminance_clamp() {
+        let mut app = App::new();
+        // Below minimum → clamped to 100.
+        app.apply(Action::SetMaxLuminance(50.0));
+        assert_eq!(app.color_management.max_luminance_nits, 100.0);
+        // Above maximum → clamped to 10000.
+        app.apply(Action::SetMaxLuminance(20000.0));
+        assert_eq!(app.color_management.max_luminance_nits, 10000.0);
+        // Within range passes through.
+        app.apply(Action::SetMaxLuminance(4000.0));
+        assert_eq!(app.color_management.max_luminance_nits, 4000.0);
+    }
+
+    #[test]
+    fn test_color_mgmt_reset() {
+        let mut app = App::new();
+        app.apply(Action::SetColorManagementEnabled(true));
+        app.apply(Action::SetHdrOutput(true));
+        app.apply(Action::SetMaxLuminance(5000.0));
+        app.apply(Action::ResetColorManagement);
+        assert!(!app.color_management.enabled);
+        assert!(!app.color_management.hdr_output);
+        assert_eq!(app.color_management.max_luminance_nits, 1000.0);
+    }
+
+    #[test]
+    fn test_display_color_space_set() {
+        let mut app = App::new();
+        assert_eq!(app.color_management.display_space, DisplayColorSpace::Rec709);
+        app.apply(Action::SetDisplayColorSpace(DisplayColorSpace::P3D65));
+        assert_eq!(app.color_management.display_space, DisplayColorSpace::P3D65);
+        app.apply(Action::SetDisplayColorSpace(DisplayColorSpace::Rec2020));
+        assert_eq!(app.color_management.display_space, DisplayColorSpace::Rec2020);
+    }
+}

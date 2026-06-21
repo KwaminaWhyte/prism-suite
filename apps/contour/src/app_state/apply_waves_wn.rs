@@ -158,6 +158,30 @@ impl App {
                     self.active_artboard_ex = Some(new_id);
                 }
             }
+
+            // --- Welcome panel ---
+            Action::DismissWelcome => {
+                self.show_welcome = false;
+            }
+            Action::NewDocument => {
+                // Reset the document to an empty state (stubs — real dialog in a
+                // future wave). We dismiss the welcome panel first via DismissWelcome
+                // so this action is safe to call stand-alone too.
+                self.show_welcome = false;
+                self.checkpoint();
+                self.doc = crate::document::Document::default();
+                self.selection.clear();
+                self.selected = None;
+                self.secondary = None;
+                self.host.mark_dirty();
+            }
+            Action::OpenFile => {
+                // Real file-picker integration is deferred; dismiss the welcome
+                // panel so the user can work with the current document in the
+                // meantime.
+                self.show_welcome = false;
+            }
+
             _ => {}
         }
     }

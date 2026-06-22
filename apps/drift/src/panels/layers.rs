@@ -202,6 +202,25 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .overflow_hidden()
                         .child(name),
                 )
+                // Delete button [×]
+                .child(
+                    div()
+                        .id(("layer-del", layer_id))
+                        .w(px(16.0))
+                        .h(px(16.0))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(9.0))
+                        .text_color(colors::text_disabled())
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                            this.app.apply(Action::DeleteLayer(layer_id));
+                            cx.notify();
+                        }))
+                        .child("×"),
+                )
                 // Select on row click
                 .on_click(cx.listener(move |this, _ev, _win, cx| {
                     this.app.apply(Action::SetActiveLayer(layer_id));

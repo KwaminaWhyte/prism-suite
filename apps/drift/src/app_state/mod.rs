@@ -463,6 +463,10 @@ pub enum Action {
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
     // Tool selection
     SetActiveTool(DriftTool),
+
+    // History
+    Undo,
+    Redo,
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -1110,6 +1114,9 @@ impl App {
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
+
+            // History (stub — no-op until history stack is implemented)
+            Action::Undo | Action::Redo => {}
         }
     }
 }

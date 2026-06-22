@@ -41,6 +41,12 @@ pub mod camera;
 pub mod mocap;
 pub mod publish;
 pub mod stage;
+// Batch 7 domains
+pub mod scripting;
+pub mod facial_capture;
+pub mod ai_motion;
+pub mod advanced_tweening;
+pub mod beat_sync;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -67,6 +73,11 @@ pub use camera::{DriftCamera, CameraKeyframe};
 pub use mocap::{MocapFormat, MocapImport, MocapBoneMapping};
 pub use publish::{PublishTarget, PublishConfig, VideoCodecKind, SpriteFormat, ExportStatus, ExportJob, ExportQueue};
 pub use stage::{StageSettings, StageRulerUnit, LabelColor, SceneProperties};
+pub use scripting::{Script, ScriptLanguage, ScriptTarget, ScriptEvent, LogLevel, ScriptLogEntry, ScriptConsole};
+pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, CaptureMapping};
+pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
+pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
+pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -368,6 +379,75 @@ pub enum Action {
     SetSceneLabel { scene_id: usize, color: LabelColor },
     SetSceneDescription { scene_id: usize, description: String },
     SetSceneFrameCount { scene_id: usize, count: u32 },
+    // Scripting (Batch 7 — A)
+    AddScript { name: String, language: ScriptLanguage },
+    RemoveScript { script_id: usize },
+    RenameScript { script_id: usize, name: String },
+    SetScriptSource { script_id: usize, source: String },
+    SetScriptTarget { script_id: usize, target: ScriptTarget },
+    SetScriptEvent { script_id: usize, event: ScriptEvent },
+    ToggleScript { script_id: usize },
+    SetScriptError { script_id: usize, error: Option<String> },
+    ClearScriptError { script_id: usize },
+    AppendScriptLog { level: LogLevel, message: String, script_id: Option<usize> },
+    ClearScriptConsole,
+    SetScriptExecutionEnabled(bool),
+
+    // Facial Capture (Batch 7 — B)
+    AddCaptureSession { name: String, source: CaptureSource },
+    RemoveCaptureSession { session_id: usize },
+    SetCaptureTarget { session_id: usize, layer_id: Option<usize> },
+    ToggleCaptureRecording { session_id: usize },
+    SetCaptureActive { session_id: usize, active: bool },
+    AddCaptureMapping { feature: TrackedFeature, target_param: String },
+    RemoveCaptureMapping { mapping_index: usize },
+    SetCaptureMappingMultiplier { index: usize, multiplier: f32 },
+    SetCaptureMappingOffset { index: usize, offset: f32 },
+    ToggleLivePreview,
+
+    // AI Motion (Batch 7 — C)
+    RequestAiMotion { prompt: String, model: AiMotionModel, layer_ids: Vec<usize>, frames: u32 },
+    UpdateAiMotionStatus { request_id: usize, status: AiRequestStatus },
+    CancelAiMotion { request_id: usize },
+    RequestAiInterpolation2 { layer_id: usize, from_frame: u32, to_frame: u32, inbetweens: u32 },
+    UpdateAiInterpStatus { request_id: usize, status: AiRequestStatus },
+    RequestStyleTransfer { source: String, layer_id: usize, strength: f32 },
+    UpdateStyleTransferStatus { request_id: usize, status: AiRequestStatus },
+    SetAiModelPath(Option<String>),
+    SetAiComputeBackend(AiBackend),
+
+    // Advanced Tweening (Batch 7 — D)
+    AddMotionGuide { layer_id: usize, path_id: usize, start_frame: u32, end_frame: u32 },
+    RemoveMotionGuide { guide_id: usize },
+    SetMotionGuideOrient { guide_id: usize, orient: bool },
+    SetMotionGuideSnap { guide_id: usize, snap: bool },
+    AddPropertyTween {
+        layer_id: usize,
+        property: String,
+        from_frame: u32,
+        to_frame: u32,
+        from_val: f32,
+        to_val: f32,
+        kind: AdvancedTweenKind,
+    },
+    RemovePropertyTween { tween_id: usize },
+    UpdatePropertyTweenKind { tween_id: usize, kind: AdvancedTweenKind },
+    SetPropertyTweenRange { tween_id: usize, from_frame: u32, to_frame: u32 },
+
+    // Beat Sync (Batch 7 — E)
+    AddAudioMarker { time_secs: f32, label: String, kind: MarkerKind },
+    RemoveAudioMarker { marker_id: usize },
+    MoveAudioMarker { marker_id: usize, time_secs: f32 },
+    SetMarkerLabel { marker_id: usize, label: String },
+    SetBeatSyncEnabled(bool),
+    SetBeatSyncBpm(f32),
+    SetBeatSyncOffset(f32),
+    SetBeatSyncAudioTrack { track_id: Option<usize> },
+    SetDetectedBpm(Option<f32>),
+    ToggleSyncSnapping,
+    AddSyncGroup { name: String, layer_ids: Vec<usize> },
+    RemoveSyncGroup { group_id: usize },
+    SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -515,6 +595,40 @@ pub struct App {
     pub stage: StageSettings,
     /// Extended per-scene properties.  scene_id → SceneProperties.
     pub scene_properties: HashMap<usize, SceneProperties>,
+    // Batch 7 — A: Scripting
+    pub scripts: Vec<Script>,
+    pub next_script_id: usize,
+    pub script_console: ScriptConsole,
+    pub script_execution_enabled: bool,
+
+    // Batch 7 — B: Facial Capture
+    pub capture_sessions: Vec<FacialCaptureSession>,
+    pub next_capture_id: usize,
+    pub capture_mappings: Vec<CaptureMapping>,
+    pub live_preview_enabled: bool,
+
+    // Batch 7 — C: AI Motion
+    pub ai_motion_requests: Vec<AiMotionRequest>,
+    pub next_ai_motion_id: usize,
+    pub ai_interpolation_requests: Vec<AiInterpolationRequest>,
+    pub next_interp_id: usize,
+    pub ai_style_transfers: Vec<AiStyleTransfer>,
+    pub next_style_id: usize,
+    pub ai_model_path: Option<String>,
+    pub ai_compute_backend: AiBackend,
+
+    // Batch 7 — D: Advanced Tweening
+    pub motion_guides: Vec<MotionGuide>,
+    pub next_guide_id: usize,
+    pub property_tweens: Vec<PropertyTween>,
+    pub next_prop_tween_id: usize,
+
+    // Batch 7 — E: Beat Sync
+    pub audio_markers: Vec<AudioMarker>,
+    pub next_marker_id: usize,
+    pub beat_sync: BeatSyncConfig,
+    pub sync_groups: Vec<SyncGroup>,
+    pub next_sync_group_id: usize,
 }
 
 impl App {
@@ -618,6 +732,36 @@ impl App {
             // Batch 6 — E: Stage
             stage: StageSettings::new(),
             scene_properties: HashMap::new(),
+            // Batch 7 — A: Scripting
+            scripts: Vec::new(),
+            next_script_id: 0,
+            script_console: ScriptConsole::new(),
+            script_execution_enabled: true,
+            // Batch 7 — B: Facial Capture
+            capture_sessions: Vec::new(),
+            next_capture_id: 0,
+            capture_mappings: Vec::new(),
+            live_preview_enabled: false,
+            // Batch 7 — C: AI Motion
+            ai_motion_requests: Vec::new(),
+            next_ai_motion_id: 0,
+            ai_interpolation_requests: Vec::new(),
+            next_interp_id: 0,
+            ai_style_transfers: Vec::new(),
+            next_style_id: 0,
+            ai_model_path: None,
+            ai_compute_backend: AiBackend::Cpu,
+            // Batch 7 — D: Advanced Tweening
+            motion_guides: Vec::new(),
+            next_guide_id: 0,
+            property_tweens: Vec::new(),
+            next_prop_tween_id: 0,
+            // Batch 7 — E: Beat Sync
+            audio_markers: Vec::new(),
+            next_marker_id: 0,
+            beat_sync: BeatSyncConfig::new(),
+            sync_groups: Vec::new(),
+            next_sync_group_id: 0,
         };
         app.seed_easing_curves();
         app
@@ -884,6 +1028,67 @@ impl App {
             | Action::SetSceneLabel { .. }
             | Action::SetSceneDescription { .. }
             | Action::SetSceneFrameCount { .. } => self.apply_stage(action),
+            // Scripting (Batch 7 — A)
+            Action::AddScript { .. }
+            | Action::RemoveScript { .. }
+            | Action::RenameScript { .. }
+            | Action::SetScriptSource { .. }
+            | Action::SetScriptTarget { .. }
+            | Action::SetScriptEvent { .. }
+            | Action::ToggleScript { .. }
+            | Action::SetScriptError { .. }
+            | Action::ClearScriptError { .. }
+            | Action::AppendScriptLog { .. }
+            | Action::ClearScriptConsole
+            | Action::SetScriptExecutionEnabled(_) => self.apply_scripting(action),
+
+            // Facial Capture (Batch 7 — B)
+            Action::AddCaptureSession { .. }
+            | Action::RemoveCaptureSession { .. }
+            | Action::SetCaptureTarget { .. }
+            | Action::ToggleCaptureRecording { .. }
+            | Action::SetCaptureActive { .. }
+            | Action::AddCaptureMapping { .. }
+            | Action::RemoveCaptureMapping { .. }
+            | Action::SetCaptureMappingMultiplier { .. }
+            | Action::SetCaptureMappingOffset { .. }
+            | Action::ToggleLivePreview => self.apply_facial_capture(action),
+
+            // AI Motion (Batch 7 — C)
+            Action::RequestAiMotion { .. }
+            | Action::UpdateAiMotionStatus { .. }
+            | Action::CancelAiMotion { .. }
+            | Action::RequestAiInterpolation2 { .. }
+            | Action::UpdateAiInterpStatus { .. }
+            | Action::RequestStyleTransfer { .. }
+            | Action::UpdateStyleTransferStatus { .. }
+            | Action::SetAiModelPath(_)
+            | Action::SetAiComputeBackend(_) => self.apply_ai_motion(action),
+
+            // Advanced Tweening (Batch 7 — D)
+            Action::AddMotionGuide { .. }
+            | Action::RemoveMotionGuide { .. }
+            | Action::SetMotionGuideOrient { .. }
+            | Action::SetMotionGuideSnap { .. }
+            | Action::AddPropertyTween { .. }
+            | Action::RemovePropertyTween { .. }
+            | Action::UpdatePropertyTweenKind { .. }
+            | Action::SetPropertyTweenRange { .. } => self.apply_advanced_tweening(action),
+
+            // Beat Sync (Batch 7 — E)
+            Action::AddAudioMarker { .. }
+            | Action::RemoveAudioMarker { .. }
+            | Action::MoveAudioMarker { .. }
+            | Action::SetMarkerLabel { .. }
+            | Action::SetBeatSyncEnabled(_)
+            | Action::SetBeatSyncBpm(_)
+            | Action::SetBeatSyncOffset(_)
+            | Action::SetBeatSyncAudioTrack { .. }
+            | Action::SetDetectedBpm(_)
+            | Action::ToggleSyncSnapping
+            | Action::AddSyncGroup { .. }
+            | Action::RemoveSyncGroup { .. }
+            | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
         }
     }
 }

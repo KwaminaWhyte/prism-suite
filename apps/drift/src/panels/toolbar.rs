@@ -1,8 +1,8 @@
 //! Toolbar panel for Drift — tool buttons + playback controls.
 //!
-//! Left cluster: tool buttons (Select, Move, Pen, Rect, Ellipse).
-//! Center: playback transport (|< < ▶/⏸ > >|) + frame counter + FPS readout.
-//! Right: document name.
+//! Row 1 (top): tool buttons (V=Select, M=Move, P=Pen, R=Rect, E=Ellipse)
+//!              + playback transport (|< < ▶/⏸ > >|) + frame counter + FPS.
+//! Row 2 (hint): active tool name + keyboard shortcut legend.
 
 use crate::app_state::{Action, App, DriftTool};
 use crate::Drift;
@@ -18,59 +18,100 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
     let doc_name = app.document.name.clone();
     let active_tool = app.active_tool;
 
+    let tool_name = match active_tool {
+        DriftTool::Select  => "Select",
+        DriftTool::Move    => "Move",
+        DriftTool::Pen     => "Pen",
+        DriftTool::Rect    => "Rect",
+        DriftTool::Ellipse => "Ellipse",
+        DriftTool::Lasso   => "Lasso",
+    };
+
     div()
         .w_full()
-        .h(px(44.0))
         .bg(colors::surface_raised())
         .border_b_1()
         .border_color(colors::surface_border())
         .flex()
-        .items_center()
-        .px_3()
-        .gap_2()
-        // Left: tool buttons — wired to SetActiveTool
-        .child(tool_btn("V", DriftTool::Select, active_tool, cx))
-        .child(tool_btn("M", DriftTool::Move, active_tool, cx))
-        .child(tool_btn("P", DriftTool::Pen, active_tool, cx))
-        .child(tool_btn("R", DriftTool::Rect, active_tool, cx))
-        .child(tool_btn("E", DriftTool::Ellipse, active_tool, cx))
-        // Divider
+        .flex_col()
+        // ── Row 1: tool buttons + playback ───────────────────────────────────
         .child(
             div()
-                .w(px(1.0))
-                .h(px(24.0))
-                .bg(colors::surface_border())
-                .mx_2(),
+                .w_full()
+                .h(px(44.0))
+                .flex()
+                .items_center()
+                .px_3()
+                .gap_2()
+                // Left: tool buttons — wired to SetActiveTool
+                .child(tool_btn("V", DriftTool::Select, active_tool, cx))
+                .child(tool_btn("M", DriftTool::Move, active_tool, cx))
+                .child(tool_btn("P", DriftTool::Pen, active_tool, cx))
+                .child(tool_btn("R", DriftTool::Rect, active_tool, cx))
+                .child(tool_btn("E", DriftTool::Ellipse, active_tool, cx))
+                // Divider
+                .child(
+                    div()
+                        .w(px(1.0))
+                        .h(px(24.0))
+                        .bg(colors::surface_border())
+                        .mx_2(),
+                )
+                // Center: playback controls
+                .child(playback_btn("|<"))
+                .child(playback_btn("<"))
+                .child(play_pause_btn(playing, cx))
+                .child(playback_btn(">"))
+                .child(playback_btn(">|"))
+                // Frame counter
+                .child(
+                    div()
+                        .mx_3()
+                        .text_size(px(font_size::SM))
+                        .text_color(colors::text_primary())
+                        .child(format!("{current} / {total}")),
+                )
+                // FPS readout
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_secondary())
+                        .child(format!("{fps}fps")),
+                )
+                // Spacer
+                .child(div().flex_1())
+                // Right: doc name
+                .child(
+                    div()
+                        .text_size(px(font_size::SM))
+                        .text_color(colors::text_secondary())
+                        .child(doc_name),
+                ),
         )
-        // Center: playback controls
-        .child(playback_btn("|<"))
-        .child(playback_btn("<"))
-        .child(play_pause_btn(playing, cx))
-        .child(playback_btn(">"))
-        .child(playback_btn(">|"))
-        // Frame counter
+        // ── Row 2: active tool hint + shortcut legend ─────────────────────
         .child(
             div()
-                .mx_3()
-                .text_size(px(font_size::SM))
-                .text_color(colors::text_primary())
-                .child(format!("{current} / {total}")),
-        )
-        // FPS readout
-        .child(
-            div()
-                .text_size(px(font_size::XS))
-                .text_color(colors::text_secondary())
-                .child(format!("{fps}fps")),
-        )
-        // Spacer
-        .child(div().flex_1())
-        // Right: doc name
-        .child(
-            div()
-                .text_size(px(font_size::SM))
-                .text_color(colors::text_secondary())
-                .child(doc_name),
+                .w_full()
+                .h(px(22.0))
+                .px_3()
+                .flex()
+                .items_center()
+                .gap_4()
+                .bg(colors::surface_bg())
+                .border_b_1()
+                .border_color(colors::surface_border())
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .child(format!("Tool: {tool_name}")),
+                )
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_disabled())
+                        .child("V=Select  M=Move  P=Pen  R=Rect  E=Ellipse"),
+                ),
         )
 }
 

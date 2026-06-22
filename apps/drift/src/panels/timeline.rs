@@ -56,7 +56,37 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                             app.in_point, app.out_point
                         )),
                 )
+                // BPM and frame-rate info
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_disabled())
+                        .child(format!(
+                            "BPM: {:.1}  FPS: {}",
+                            app.beat_sync.bpm,
+                            fps
+                        )),
+                )
                 .child(div().flex_1())
+                // Stop button
+                .child(
+                    div()
+                        .id("stop-btn")
+                        .px_2()
+                        .h(px(20.0))
+                        .bg(colors::surface_overlay())
+                        .rounded(px(2.0))
+                        .flex()
+                        .items_center()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _ev, _win, cx| {
+                            this.app.apply(Action::Stop);
+                            cx.notify();
+                        }))
+                        .child("■"),
+                )
                 .child(
                     div()
                         .text_size(px(font_size::XS))

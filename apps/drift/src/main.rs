@@ -141,16 +141,30 @@ impl Render for Drift {
             .font_family(".SystemUIFont")
             // Top toolbar — tool buttons + playback controls
             .child(panels::render_toolbar(&self.app, cx))
-            // Main workspace: left layers | center canvas | right AI panel
+            // Main workspace: left layers+inspector | center canvas | right AI panel
             .child(
                 div()
                     .flex_1()
                     .flex()
                     .flex_row()
                     .min_h(px(0.0))
-                    // Left: Layers panel
-                    .child(panels::render_layers(&self.app, cx))
-                    // Center: Canvas area
+                    // Left: Layers panel stacked above Inspector
+                    .child(
+                        div()
+                            .w(px(240.0))
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                // Layers panel takes available space
+                                div()
+                                    .flex_1()
+                                    .min_h(px(0.0))
+                                    .child(panels::render_layers(&self.app, cx)),
+                            )
+                            .child(panels::render_inspector(&self.app, cx)),
+                    )
+                    // Center: Canvas area + stage status bar
                     .child(
                         div()
                             .id("canvas")
@@ -159,68 +173,123 @@ impl Render for Drift {
                             .overflow_hidden()
                             .bg(colors::surface_bg())
                             .flex()
-                            .items_center()
-                            .justify_center()
+                            .flex_col()
+                            // Stage viewport (fills remaining space)
                             .child(
                                 div()
-                                    .id("stage")
-                                    .w(px(stage_w))
-                                    .h(px(stage_h))
-                                    .bg(gpui::rgb(0x1a1a2e))
-                                    .border_1()
-                                    .border_color(colors::surface_border())
-                                    .relative()
-                                    .overflow_hidden()
-                                    // Render visible layers as colored labeled boxes
-                                    .children(visible_layers.iter().map(
-                                        |(layer_id, is_active, tx, ty, opacity, layer_color, name)| {
-                                            let layer_id = *layer_id;
-                                            let is_active = *is_active;
-                                            let left = tx * 0.5 + 60.0;
-                                            let top = ty * 0.5 + 40.0;
-                                            div()
-                                                .id(("layer-vis", layer_id))
-                                                .absolute()
-                                                .left(px(left))
-                                                .top(px(top))
-                                                .w(px(120.0))
-                                                .h(px(80.0))
-                                                .bg(*layer_color)
-                                                .opacity(*opacity)
-                                                .border_2()
-                                                .border_color(if is_active {
-                                                    gpui::rgb(0xffffff)
-                                                } else {
-                                                    gpui::rgba(0xffffff22)
-                                                })
-                                                .rounded(px(4.0))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_size(px(10.0))
-                                                .text_color(gpui::rgb(0xffffff))
-                                                .cursor_pointer()
-                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
-                                                    this.app.apply(Action::SetActiveLayer(layer_id));
-                                                    cx.notify();
-                                                }))
-                                                .child(name.clone())
-                                        },
-                                    ))
-                                    // Empty state hint
-                                    .when(!has_layers, |el: gpui::Stateful<gpui::Div>| {
-                                        el.flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .child(
+                                    .flex_1()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .min_h(px(0.0))
+                                    .child(
+                                        div()
+                                            .id("stage")
+                                            .w(px(stage_w))
+                                            .h(px(stage_h))
+                                            .bg(gpui::rgb(0x1a1a2e))
+                                            .border_1()
+                                            .border_color(colors::surface_border())
+                                            .relative()
+                                            .overflow_hidden()
+                                            // Grid overlay — horizontal lines every 50px
+                                            .children((0..=(stage_h as u32 / 50)).map(|i| {
                                                 div()
-                                                    .text_size(px(font_size::SM))
-                                                    .text_color(colors::text_secondary())
+                                                    .id(("grid-h", i))
+                                                    .absolute()
+                                                    .left(px(0.0))
+                                                    .right(px(0.0))
+                                                    .top(px(i as f32 * 50.0))
+                                                    .h(px(1.0))
+                                                    .bg(gpui::rgba(0xffffff26))
+                                            }))
+                                            // Grid overlay — vertical lines every 50px
+                                            .children((0..=(stage_w as u32 / 50)).map(|j| {
+                                                div()
+                                                    .id(("grid-v", j))
+                                                    .absolute()
+                                                    .top(px(0.0))
+                                                    .bottom(px(0.0))
+                                                    .left(px(j as f32 * 50.0))
+                                                    .w(px(1.0))
+                                                    .bg(gpui::rgba(0xffffff26))
+                                            }))
+                                            // Render visible layers as colored labeled boxes
+                                            .children(visible_layers.iter().map(
+                                                |(layer_id, is_active, tx, ty, opacity, layer_color, name)| {
+                                                    let layer_id = *layer_id;
+                                                    let is_active = *is_active;
+                                                    let left = tx * 0.5 + 60.0;
+                                                    let top = ty * 0.5 + 40.0;
+                                                    div()
+                                                        .id(("layer-vis", layer_id))
+                                                        .absolute()
+                                                        .left(px(left))
+                                                        .top(px(top))
+                                                        .w(px(120.0))
+                                                        .h(px(80.0))
+                                                        .bg(*layer_color)
+                                                        .opacity(*opacity)
+                                                        .border_2()
+                                                        .border_color(if is_active {
+                                                            gpui::rgb(0xffffff)
+                                                        } else {
+                                                            gpui::rgba(0xffffff22)
+                                                        })
+                                                        .rounded(px(4.0))
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_size(px(10.0))
+                                                        .text_color(gpui::rgb(0xffffff))
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                            this.app.apply(Action::SetActiveLayer(layer_id));
+                                                            cx.notify();
+                                                        }))
+                                                        .child(name.clone())
+                                                },
+                                            ))
+                                            // Empty state hint
+                                            .when(!has_layers, |el: gpui::Stateful<gpui::Div>| {
+                                                el.flex()
+                                                    .items_center()
+                                                    .justify_center()
                                                     .child(
-                                                        "Click + in the Layers panel to add a layer",
-                                                    ),
-                                            )
-                                    }),
+                                                        div()
+                                                            .text_size(px(font_size::SM))
+                                                            .text_color(colors::text_secondary())
+                                                            .child(
+                                                                "Click + in the Layers panel to add a layer",
+                                                            ),
+                                                    )
+                                            }),
+                                    ),
+                            )
+                            // Stage status bar
+                            .child(
+                                div()
+                                    .w_full()
+                                    .h(px(22.0))
+                                    .px_3()
+                                    .flex()
+                                    .items_center()
+                                    .gap_4()
+                                    .bg(colors::surface_raised())
+                                    .border_t_1()
+                                    .border_color(colors::surface_border())
+                                    .child(
+                                        div()
+                                            .text_size(px(font_size::XS))
+                                            .text_color(colors::text_secondary())
+                                            .child(format!(
+                                                "Stage: {}x{}px  FPS:{}  Frame:{}",
+                                                self.app.document.width,
+                                                self.app.document.height,
+                                                self.app.document.fps as u32,
+                                                self.app.current_frame,
+                                            )),
+                                    ),
                             ),
                     )
                     // Right: AI panel

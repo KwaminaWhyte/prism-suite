@@ -117,19 +117,37 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .child("Loop"),
                 ),
         )
-        // 2. Frame ruler — tick at every second
+        // 2. Frame ruler — tick at every second, click-to-seek
         .child({
             let step = fps.max(1);
             let max_ticks = total / step + 1;
+            // Playhead indicator: absolute div at the current frame position.
+            // The ruler content starts at x=240 (name-column offset).
+            // We approximate the track area width as the full element minus that.
+            let playhead_pct = current as f32 / total.max(1) as f32;
             div()
+                .id("frame-ruler")
                 .w_full()
                 .h(px(20.0))
+                .relative()
                 .bg(colors::surface_bg())
                 .border_b_1()
                 .border_color(colors::surface_border())
                 .flex()
                 .items_center()
                 .px(px(240.0)) // offset for layer name column
+                .cursor_pointer()
+                // Playhead line
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .bottom(px(0.0))
+                        .left(relative(playhead_pct))
+                        .w(px(1.5))
+                        .bg(gpui::rgba(0xff6b6bff)),
+                )
+                // Tick marks
                 .children((0..=max_ticks.min(60)).map(|i| {
                     let f = i * step;
                     div()
@@ -137,6 +155,24 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .text_size(px(8.0))
                         .text_color(colors::text_disabled())
                         .child(format!("{f}"))
+                }))
+                // Click-to-seek: click on the ruler to jump to that frame
+                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _win, cx| {
+                    let pos = ev.position();
+                    let click_x = f32::from(pos.x);
+                    // Subtract the 240px name-column padding; what remains is
+                    // position within the scrollable track region.
+                    let track_x = (click_x - 240.0).max(0.0);
+                    // We don't have exact element width here, so we use an
+                    // empirical ruler track width.  The window is ~1370px wide
+                    // minus 240px name column and ~10px padding = ~1120px.
+                    // Using 1120.0 as a good-enough constant; worst-case it's
+                    // slightly off at non-standard window widths.
+                    let ruler_track_w = 1120.0_f32;
+                    let fraction = (track_x / ruler_track_w).clamp(0.0, 1.0);
+                    let new_frame = (fraction * total as f32) as usize;
+                    this.app.apply(Action::SetCurrentFrame(new_frame));
+                    cx.notify();
                 }))
         })
         // 3. Layer tracks
@@ -215,16 +251,27 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                                         .border_1()
                                         .border_color(gpui::rgb(0x1a1a2e))
                                 }))
-                                // Click to add keyframe at current frame
+                                // Click to add keyframes at current frame — records
+                                // actual current transform values for x, y, and opacity.
                                 .on_click(cx.listener(move |this, _ev, _win, cx| {
                                     let frame = this.app.current_frame;
-                                    this.app.apply(Action::AddKeyframe {
-                                        layer_id,
-                                        property: "position_x".to_string(),
-                                        frame,
-                                        value: 0.0,
-                                        easing: EasingKind::Linear,
-                                    });
+                                    let t = this.app.transforms.get(&layer_id);
+                                    let (cur_x, cur_y, cur_opacity) = t
+                                        .map(|t| (t.x, t.y, t.opacity))
+                                        .unwrap_or((0.0, 0.0, 1.0));
+                                    for (prop, val) in [
+                                        ("x",       cur_x),
+                                        ("y",       cur_y),
+                                        ("opacity", cur_opacity),
+                                    ] {
+                                        this.app.apply(Action::AddKeyframe {
+                                            layer_id,
+                                            property: prop.to_string(),
+                                            frame,
+                                            value: val,
+                                            easing: EasingKind::Linear,
+                                        });
+                                    }
                                     cx.notify();
                                 })),
                         )

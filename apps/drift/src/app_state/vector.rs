@@ -81,6 +81,52 @@ pub struct VectorPath {
     pub closed: bool,
 }
 
+impl VectorPath {
+    /// Returns `Some((x, y, w, h))` if this looks like an axis-aligned rectangle
+    /// (4 closed points where all bezier handles coincide with their anchors).
+    pub fn as_rect(&self) -> Option<(f32, f32, f32, f32)> {
+        if self.points.len() == 4 && self.closed {
+            let all_linear = self.points.iter().all(|p| {
+                (p.in_handle.0 - p.x).abs() < 0.001
+                    && (p.in_handle.1 - p.y).abs() < 0.001
+                    && (p.out_handle.0 - p.x).abs() < 0.001
+                    && (p.out_handle.1 - p.y).abs() < 0.001
+            });
+            if all_linear {
+                let (min_x, max_x, min_y, max_y) = self.point_bounds();
+                return Some((min_x, min_y, max_x - min_x, max_y - min_y));
+            }
+        }
+        None
+    }
+
+    /// Returns `true` if this looks like a bezier-approximated ellipse (4 curved points).
+    pub fn is_ellipse(&self) -> bool {
+        self.points.len() == 4
+            && self.closed
+            && self.points.iter().any(|p| {
+                (p.in_handle.0 - p.x).abs() > 0.001 || (p.in_handle.1 - p.y).abs() > 0.001
+            })
+    }
+
+    /// Axis-aligned bounding box `(min_x, min_y, width, height)`.
+    pub fn bbox(&self) -> (f32, f32, f32, f32) {
+        if self.points.is_empty() {
+            return (0.0, 0.0, 10.0, 10.0);
+        }
+        let (min_x, max_x, min_y, max_y) = self.point_bounds();
+        (min_x, min_y, max_x - min_x, max_y - min_y)
+    }
+
+    fn point_bounds(&self) -> (f32, f32, f32, f32) {
+        let min_x = self.points.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+        let max_x = self.points.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
+        let min_y = self.points.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let max_y = self.points.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+        (min_x, max_x, min_y, max_y)
+    }
+}
+
 impl App {
     pub fn apply_vector(&mut self, action: Action) {
         match action {

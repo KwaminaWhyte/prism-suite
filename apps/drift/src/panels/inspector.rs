@@ -33,12 +33,6 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
         None => (0x6366f1, "#6366f1"),
     };
 
-    let active_layer_name = app
-        .active_layer
-        .and_then(|lid| app.layers.iter().find(|l| l.id == lid))
-        .map(|l| l.name.clone())
-        .unwrap_or_else(|| "—".to_string());
-
     div()
         .id("inspector-panel")
         .w_full()
@@ -63,29 +57,8 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
                         .child("INSPECTOR"),
                 ),
         )
-        // Body
+        // Body (includes Layer name row, Position, Scale, Rotation, Opacity)
         .child(inspector_body(app))
-        // Active layer name
-        .child(
-            div()
-                .px_3()
-                .py(px(4.0))
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_secondary())
-                        .child("Layer"),
-                )
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_primary())
-                        .child(active_layer_name),
-                ),
-        )
         // Fill Color row
         .child(
             div()

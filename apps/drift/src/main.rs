@@ -16,7 +16,8 @@ mod welcome;
 
 use prism_ui::PrismAssets;
 
-use app_state::{Action, App, DriftTool, DriftOnnxModel, Fill, Stroke, StrokeCap, StrokeJoin};
+use app_state::{Action, App, DriftTool, DriftOnnxModel, Fill, Stroke, StrokeCap, StrokeJoin,
+    VectorPath, Keyframe, EasingKind, LayerTransform};
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
@@ -41,6 +42,147 @@ impl Focusable for Drift {
     fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
         self.focus.clone()
     }
+}
+
+// ── Keyframe interpolation helpers ───────────────────────────────────────────
+
+/// Linearly interpolate a single float property from keyframes at `frame`.
+/// Falls back to `default_val` when no keyframes exist for the property.
+fn kf_interpolate(keyframes: &[Keyframe], layer_id: usize, prop: &str, frame: usize, default_val: f32) -> f32 {
+    let mut layer_kfs: Vec<&Keyframe> = keyframes
+        .iter()
+        .filter(|k| k.layer_id == layer_id && k.property == prop)
+        .collect();
+    if layer_kfs.is_empty() {
+        return default_val;
+    }
+    layer_kfs.sort_by_key(|k| k.frame);
+
+    // Before first keyframe
+    if frame <= layer_kfs[0].frame {
+        return layer_kfs[0].value;
+    }
+    // After last keyframe
+    let last = layer_kfs[layer_kfs.len() - 1];
+    if frame >= last.frame {
+        return last.value;
+    }
+    // Find surrounding pair
+    let after_idx = layer_kfs.iter().position(|k| k.frame > frame).unwrap_or(layer_kfs.len() - 1);
+    let before = layer_kfs[after_idx - 1];
+    let after  = layer_kfs[after_idx];
+    let span = (after.frame - before.frame) as f32;
+    if span <= 0.0 { return before.value; }
+    let t = (frame - before.frame) as f32 / span;
+    // Apply easing
+    let t = match before.easing {
+        EasingKind::EaseIn    => t * t,
+        EasingKind::EaseOut   => 1.0 - (1.0 - t) * (1.0 - t),
+        EasingKind::EaseInOut => if t < 0.5 { 2.0 * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(2) / 2.0 },
+        EasingKind::Hold      => 0.0, // jump at end
+        _                     => t,   // Linear / Bezier approximated as linear
+    };
+    before.value + (after.value - before.value) * t
+}
+
+/// Compute the animated transform for `layer_id` at `frame`, merging keyframe
+/// data over the base transform stored in `app.transforms`.
+fn animated_transform(app: &App, layer_id: usize, frame: usize) -> LayerTransform {
+    let base = app.transforms.get(&layer_id).cloned().unwrap_or_else(LayerTransform::new);
+    let kfs = &app.keyframes;
+    LayerTransform {
+        x:         kf_interpolate(kfs, layer_id, "x",         frame, base.x),
+        y:         kf_interpolate(kfs, layer_id, "y",         frame, base.y),
+        scale_x:   kf_interpolate(kfs, layer_id, "scale_x",   frame, base.scale_x),
+        scale_y:   kf_interpolate(kfs, layer_id, "scale_y",   frame, base.scale_y),
+        rotation:  kf_interpolate(kfs, layer_id, "rotation",  frame, base.rotation),
+        opacity:   kf_interpolate(kfs, layer_id, "opacity",   frame, base.opacity),
+        anchor_x:  base.anchor_x,
+        anchor_y:  base.anchor_y,
+    }
+}
+
+/// Convert a `Fill` to a GPUI rgba colour, with a fallback for `Fill::None`.
+fn fill_to_rgba(fill: &Fill, fallback: gpui::Rgba) -> gpui::Rgba {
+    match fill {
+        Fill::Solid { r, g, b, a } => {
+            let ri = (r.clamp(0.0, 1.0) * 255.0) as u32;
+            let gi = (g.clamp(0.0, 1.0) * 255.0) as u32;
+            let bi = (b.clamp(0.0, 1.0) * 255.0) as u32;
+            let ai = (a.clamp(0.0, 1.0) * 255.0) as u32;
+            gpui::rgba((ri << 24) | (gi << 16) | (bi << 8) | ai)
+        }
+        Fill::None => fallback,
+        _ => fallback,
+    }
+}
+
+/// Build the GPUI div elements for all vector paths belonging to a visible layer.
+fn render_vector_paths(
+    paths: &[VectorPath],
+    layer_id: usize,
+    tx: f32,
+    ty: f32,
+    opacity: f32,
+    layer_color: gpui::Rgba,
+    scale: f32,
+) -> Vec<gpui::Div> {
+    paths
+        .iter()
+        .filter(|p| p.layer_id == layer_id)
+        .map(|path| {
+            let fill_color = fill_to_rgba(&path.fill, gpui::rgba(
+                ((layer_color.r * 255.0) as u32) << 24
+                | ((layer_color.g * 255.0) as u32) << 16
+                | ((layer_color.b * 255.0) as u32) << 8
+                | 0xcc,
+            ));
+            let stroke_color = gpui::rgba(
+                ((path.stroke.r * 255.0) as u32) << 24
+                | ((path.stroke.g * 255.0) as u32) << 16
+                | ((path.stroke.b * 255.0) as u32) << 8
+                | 0xff,
+            );
+            if let Some((rx, ry, rw, rh)) = path.as_rect() {
+                div()
+                    .absolute()
+                    .left(px((rx + tx) * scale))
+                    .top(px((ry + ty) * scale))
+                    .w(px(rw.max(1.0) * scale))
+                    .h(px(rh.max(1.0) * scale))
+                    .bg(fill_color)
+                    .border_1()
+                    .border_color(stroke_color)
+                    .opacity(opacity)
+            } else if path.is_ellipse() {
+                let (bx, by, bw, bh) = path.bbox();
+                div()
+                    .absolute()
+                    .left(px((bx + tx) * scale))
+                    .top(px((by + ty) * scale))
+                    .w(px(bw.max(1.0) * scale))
+                    .h(px(bh.max(1.0) * scale))
+                    .rounded_full()
+                    .bg(fill_color)
+                    .border_1()
+                    .border_color(stroke_color)
+                    .opacity(opacity)
+            } else {
+                // Generic path: render bounding box outline
+                let (bx, by, bw, bh) = path.bbox();
+                div()
+                    .absolute()
+                    .left(px((bx + tx) * scale))
+                    .top(px((by + ty) * scale))
+                    .w(px(bw.max(1.0) * scale))
+                    .h(px(bh.max(1.0) * scale))
+                    .bg(fill_color)
+                    .border_1()
+                    .border_color(stroke_color)
+                    .opacity(opacity)
+            }
+        })
+        .collect()
 }
 
 impl Drift {
@@ -151,6 +293,25 @@ impl Drift {
                 "e" => {
                     self.app.apply(Action::SetActiveTool(DriftTool::Ellipse));
                     cx.notify();
+                }
+                // Arrow-key nudge when Move tool is active
+                "up" | "down" | "left" | "right"
+                    if self.app.active_tool == DriftTool::Move =>
+                {
+                    if let Some(id) = self.app.active_layer {
+                        let t = self.app.transforms.get(&id)
+                            .cloned()
+                            .unwrap_or_else(crate::app_state::LayerTransform::new);
+                        let step = if ks.modifiers.shift { 10.0_f32 } else { 1.0_f32 };
+                        let (nx, ny) = match ks.key.as_str() {
+                            "up"    => (t.x, t.y - step),
+                            "down"  => (t.x, t.y + step),
+                            "left"  => (t.x - step, t.y),
+                            _       => (t.x + step, t.y),
+                        };
+                        self.app.apply(Action::SetLayerPosition { id, x: nx, y: ny });
+                        cx.notify();
+                    }
                 }
                 _ => {}
             }
@@ -284,7 +445,8 @@ impl Render for Drift {
         // Vertical ruler ticks at every 50px (canvas-space) up to stage_h.
         let v_tick_count = ((stage_h / 50.0).floor() as usize) + 1;
 
-        // ── Collect visible layers ────────────────────────────────────────────
+        // ── Collect visible layers (keyframe-interpolated transforms) ─────────
+        let current_frame = self.app.current_frame;
         let visible_layers: Vec<_> = self
             .app
             .layers
@@ -294,30 +456,36 @@ impl Render for Drift {
             .map(|(idx, layer)| {
                 let layer_id = layer.id;
                 let is_active = self.app.active_layer == Some(layer_id);
-                let (tx, ty) = self
-                    .app
-                    .transforms
-                    .get(&layer_id)
-                    .map(|t| (t.x, t.y))
-                    .unwrap_or((0.0, 0.0));
-                let opacity = self
-                    .app
-                    .transforms
-                    .get(&layer_id)
-                    .map(|t| t.opacity)
-                    .unwrap_or(1.0);
+                let t = animated_transform(&self.app, layer_id, current_frame);
                 let layer_color = match idx % 6 {
-                    0 => gpui::rgb(0x6366f1),
-                    1 => gpui::rgb(0x22d3ee),
-                    2 => gpui::rgb(0xf59e0b),
-                    3 => gpui::rgb(0x10b981),
-                    4 => gpui::rgb(0xf43f5e),
-                    _ => gpui::rgb(0xa78bfa),
+                    0 => gpui::rgba(0x6366f1ff),
+                    1 => gpui::rgba(0x22d3eeff),
+                    2 => gpui::rgba(0xf59e0bff),
+                    3 => gpui::rgba(0x10b981ff),
+                    4 => gpui::rgba(0xf43f5eff),
+                    _ => gpui::rgba(0xa78bfaff),
                 };
                 let name = layer.name.clone();
-                (layer_id, is_active, tx, ty, opacity, layer_color, name)
+                let has_shapes = self.app.vector_paths.iter().any(|p| p.layer_id == layer_id);
+                (layer_id, is_active, t.x, t.y, t.opacity, layer_color, name, has_shapes)
             })
             .collect();
+
+        // ── Build shape divs for all visible layers ───────────────────────────
+        let stage_scale = 0.5_f32;
+        let mut shape_divs: Vec<gpui::Div> = Vec::new();
+        for (layer_id, _is_active, tx, ty, opacity, layer_color, _name, _has_shapes) in &visible_layers {
+            let mut layer_shapes = render_vector_paths(
+                &self.app.vector_paths,
+                *layer_id,
+                *tx,
+                *ty,
+                *opacity,
+                *layer_color,
+                stage_scale,
+            );
+            shape_divs.append(&mut layer_shapes);
+        }
 
         // ── Rig bone dots for the active layer ───────────────────────────────
         let active_layer_id = self.app.active_layer;
@@ -527,12 +695,11 @@ impl Render for Drift {
                                                     .w(px(1.0))
                                                     .bg(gpui::rgba(0xffffff26))
                                             }))
-                                            // Render visible layers as colored labeled boxes
                                             // ── Checkerboard background ───────
                                             .children(checker_cells)
-                                            // ── Visible layer boxes ───────────
-                                            .children(visible_layers.iter().map(
-                                                |(layer_id, is_active, tx, ty, opacity, layer_color, name)| {
+                                            // ── Placeholder boxes for layers with no shapes ──
+                                            .children(visible_layers.iter().filter(|(.., has_shapes)| !has_shapes).map(
+                                                |(layer_id, is_active, tx, ty, opacity, layer_color, name, _has_shapes)| {
                                                     let layer_id = *layer_id;
                                                     let is_active = *is_active;
                                                     let left = tx * 0.5 + 60.0;
@@ -566,6 +733,8 @@ impl Render for Drift {
                                                         .child(name.clone())
                                                 },
                                             ))
+                                            // ── Actual vector shapes ──────────
+                                            .children(shape_divs)
                                             // ── Rig bone overlay dots ─────────
                                             .children(bone_dots)
                                             // ── Shape tool hint text ──────────
@@ -582,47 +751,60 @@ impl Render for Drift {
                                                 )
                                             })
                                             // ── Shape tool click-to-place ─────
-                                            .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                            .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _win, cx| {
                                                 let tool = this.app.active_tool;
                                                 let layer_id = this.app.active_layer.unwrap_or(0);
+                                                // ev.position() is in stage-div pixels (0.5× scale).
+                                                // Multiply by 2 to get full-resolution canvas coords.
+                                                let pos = ev.position();
+                                                let canvas_x = f32::from(pos.x) * 2.0;
+                                                let canvas_y = f32::from(pos.y) * 2.0;
+                                                // Pick a fill color based on how many paths already exist
+                                                let n = this.app.vector_paths.len();
+                                                let (r, g, b) = match n % 6 {
+                                                    0 => (0.388, 0.400, 0.945), // indigo
+                                                    1 => (0.133, 0.827, 0.933), // cyan
+                                                    2 => (0.961, 0.620, 0.043), // amber
+                                                    3 => (0.063, 0.725, 0.506), // emerald
+                                                    4 => (0.957, 0.247, 0.369), // rose
+                                                    _ => (0.655, 0.545, 0.980), // violet
+                                                };
+                                                let white_stroke = Stroke {
+                                                    width: 2.0, r: 1.0, g: 1.0, b: 1.0, a: 0.5,
+                                                    cap: StrokeCap::Butt, join: StrokeJoin::Miter,
+                                                };
                                                 match tool {
                                                     DriftTool::Rect => {
                                                         this.app.apply(Action::AddRectangle {
                                                             layer_id,
-                                                            x: 100.0,
-                                                            y: 80.0,
-                                                            width: 100.0,
-                                                            height: 60.0,
-                                                            fill: Fill::Solid { r: 0.388, g: 0.400, b: 0.945, a: 1.0 },
-                                                            stroke: Stroke {
-                                                                width: 2.0,
-                                                                r: 1.0,
-                                                                g: 1.0,
-                                                                b: 1.0,
-                                                                a: 1.0,
-                                                                cap: StrokeCap::Butt,
-                                                                join: StrokeJoin::Miter,
-                                                            },
+                                                            x: canvas_x - 60.0,
+                                                            y: canvas_y - 40.0,
+                                                            width: 120.0,
+                                                            height: 80.0,
+                                                            fill: Fill::Solid { r, g, b, a: 0.85 },
+                                                            stroke: white_stroke,
                                                         });
                                                         cx.notify();
                                                     }
                                                     DriftTool::Ellipse => {
                                                         this.app.apply(Action::AddEllipse {
                                                             layer_id,
-                                                            cx: 150.0,
-                                                            cy: 110.0,
-                                                            rx: 50.0,
-                                                            ry: 30.0,
-                                                            fill: Fill::Solid { r: 0.388, g: 0.400, b: 0.945, a: 1.0 },
-                                                            stroke: Stroke {
-                                                                width: 2.0,
-                                                                r: 1.0,
-                                                                g: 1.0,
-                                                                b: 1.0,
-                                                                a: 1.0,
-                                                                cap: StrokeCap::Butt,
-                                                                join: StrokeJoin::Miter,
-                                                            },
+                                                            cx: canvas_x,
+                                                            cy: canvas_y,
+                                                            rx: 60.0,
+                                                            ry: 40.0,
+                                                            fill: Fill::Solid { r, g, b, a: 0.85 },
+                                                            stroke: white_stroke,
+                                                        });
+                                                        cx.notify();
+                                                    }
+                                                    DriftTool::Move => {
+                                                        // Click-to-position: move the active layer
+                                                        // so its origin lands at the clicked point.
+                                                        this.app.apply(Action::SetLayerPosition {
+                                                            id: layer_id,
+                                                            x: canvas_x,
+                                                            y: canvas_y,
                                                         });
                                                         cx.notify();
                                                     }

@@ -17,7 +17,14 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 | 5 | Export pipeline, Lottie, state machines, interactive | 80% | 650+ | Planned |
 | 6 | Polish: audio mixing, scripting, plugin API | 90% | 800+ | Planned |
 
-**Current overall parity: ~30%** — 221 tests passing.
+**Current overall parity: ~70%** — 287 tests passing.
+
+### Batch 7 (done)
+- [x] ActionScript-like Scripting State — scripts, console, log levels, execution toggle (14 tests)
+- [x] Webcam / Facial Capture State — sessions, mappings, live preview (10 tests)
+- [x] AI Motion Generation Structure (ONNX stubs) — motion requests, interpolation, style transfer, backends (12 tests)
+- [x] Advanced Tweening Depth — path motion, elastic, bounce, spring, cubic bezier, property tweens (10 tests)
+- [x] Beat Sync + Audio Markers — BPM config, markers, sync groups, beat time (14 tests)
 
 ---
 

@@ -54,6 +54,7 @@ impl Render for Tone {
                     .child(panels::render_piano_roll(&self.app, cx)),
             )
             .child(panels::render_timeline(&self.app, cx))
+            .child(panels::render_mixer(&self.app, cx))
     }
 }
 

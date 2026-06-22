@@ -33,6 +33,18 @@ pub fn render_piano_roll(app: &App, cx: &mut Context<Tone>) -> impl IntoElement 
         .map(|n| (n.id, n.pitch, n.start_beat, n.duration_beats))
         .collect();
 
+    // Velocity lane data: (x_fraction, bar_height_px) for each note
+    let velocity_lane_data: Vec<(f32, f32)> = app
+        .midi_notes
+        .iter()
+        .filter(|n| clip_id.map_or(false, |cid| n.clip_id == cid))
+        .map(|n| {
+            let x = (n.start_beat / VISIBLE_BEATS).clamp(0.0, 1.0);
+            let h = (n.velocity as f32 / 127.0) * 40.0;
+            (x, h)
+        })
+        .collect();
+
     div()
         .flex_1()
         .h_full()
@@ -183,6 +195,52 @@ pub fn render_piano_roll(app: &App, cx: &mut Context<Tone>) -> impl IntoElement 
                                     }
                                 }))
                                 .children(note_blocks)
+                        })),
+                ),
+        )
+        // Velocity lane (40px, below the note grid)
+        .child(
+            div()
+                .w_full()
+                .h(px(40.0))
+                .bg(colors::surface_raised())
+                .border_t_1()
+                .border_color(colors::surface_border())
+                .flex()
+                .flex_row()
+                .items_end()
+                .relative()
+                // "VELOCITY" label at far left
+                .child(
+                    div()
+                        .w(px(PIANO_KEY_W))
+                        .h_full()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(7.0))
+                        .text_color(colors::text_disabled())
+                        .child("VEL"),
+                )
+                // Bar area for velocity bars
+                .child(
+                    div()
+                        .flex_1()
+                        .h_full()
+                        .relative()
+                        .overflow_hidden()
+                        .children(velocity_lane_data.iter().map(|(x_pct, bar_h)| {
+                            let x = *x_pct;
+                            let h = *bar_h;
+                            div()
+                                .absolute()
+                                .left(gpui::relative(x))
+                                .w(px(4.0))
+                                .h(px(h))
+                                .bottom(px(0.0))
+                                .bg(colors::accent())
+                                .rounded(px(1.0))
                         })),
                 ),
         )

@@ -4,6 +4,7 @@ use gpui::{
     div, px, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
+use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, font_size};
 
 use crate::app_state::{Action, App, ClipKind, TrackKind};
@@ -64,6 +65,13 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                             let track_id = track.id;
                             let is_midi = matches!(track.kind, TrackKind::Midi | TrackKind::Instrument);
                             let piano_roll_clip = app.piano_roll_clip;
+                            let kind_badge = match track.kind {
+                                TrackKind::Midi => "MIDI",
+                                TrackKind::Audio => "AUDIO",
+                                TrackKind::Instrument => "INST",
+                                TrackKind::Bus => "BUS",
+                                TrackKind::Master => "MSTR",
+                            };
                             let track_clips: Vec<_> = app
                                 .clips
                                 .iter()
@@ -86,13 +94,34 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                         .px_2()
                                         .flex()
                                         .items_center()
+                                        .gap_1()
                                         .border_r_1()
                                         .border_color(colors::surface_border())
                                         .flex_shrink_0()
-                                        .text_size(px(font_size::XS))
-                                        .text_color(colors::text_secondary())
                                         .overflow_hidden()
-                                        .child(track_name),
+                                        // Kind badge
+                                        .child(
+                                            div()
+                                                .px(px(3.0))
+                                                .h(px(12.0))
+                                                .bg(colors::surface_overlay())
+                                                .rounded(px(2.0))
+                                                .flex()
+                                                .items_center()
+                                                .text_size(px(7.0))
+                                                .text_color(colors::text_disabled())
+                                                .flex_shrink_0()
+                                                .child(kind_badge),
+                                        )
+                                        // Track name
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .text_size(px(font_size::XS))
+                                                .text_color(colors::text_secondary())
+                                                .overflow_hidden()
+                                                .child(track_name),
+                                        ),
                                 )
                                 // Clip lane — click empty area to add clip; click clip block to open piano roll
                                 .child(
@@ -122,6 +151,18 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                 cx.notify();
                                             }
                                         }))
+                                        // Empty lane placeholder
+                                        .when(track_clips.is_empty(), |d| {
+                                            d.child(
+                                                div()
+                                                    .absolute()
+                                                    .left(px(8.0))
+                                                    .top(px(4.0))
+                                                    .text_size(px(font_size::XS))
+                                                    .text_color(colors::text_disabled())
+                                                    .child("\u{2014}"),
+                                            )
+                                        })
                                         .children(track_clips.iter().map(|(clip_id, _, start_beat, duration_beats, clip_name, muted)| {
                                             let clip_id = *clip_id;
                                             let start_pct = (start_beat / VISIBLE_BARS).clamp(0.0, 1.0);

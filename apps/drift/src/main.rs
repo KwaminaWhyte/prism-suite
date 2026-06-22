@@ -30,6 +30,7 @@ pub struct Drift {
     pub app: App,
     focus: FocusHandle,
     last_tick: Option<std::time::Instant>,
+    pub editing_prompt: bool,
 }
 
 impl Focusable for Drift {
@@ -42,6 +43,42 @@ impl Drift {
     fn on_key(&mut self, ev: &KeyDownEvent, cx: &mut Context<Self>) {
         let ks = &ev.keystroke;
         let m = &ks.modifiers;
+
+        // If typing into the AI prompt textarea, intercept all keys
+        if self.editing_prompt {
+            match ks.key.as_str() {
+                "escape" | "return" => {
+                    self.editing_prompt = false;
+                    cx.notify();
+                }
+                "backspace" => {
+                    let mut p = self.app.ai_motion_prompt.clone();
+                    p.pop();
+                    self.app.apply(Action::SetAiMotionPrompt(p));
+                    cx.notify();
+                }
+                key if key.len() == 1 && !m.platform && !m.control => {
+                    let ch = if m.shift {
+                        key.to_uppercase()
+                    } else {
+                        key.to_string()
+                    };
+                    let mut p = self.app.ai_motion_prompt.clone();
+                    p.push_str(&ch);
+                    self.app.apply(Action::SetAiMotionPrompt(p));
+                    cx.notify();
+                }
+                " " if !m.platform && !m.control => {
+                    let mut p = self.app.ai_motion_prompt.clone();
+                    p.push(' ');
+                    self.app.apply(Action::SetAiMotionPrompt(p));
+                    cx.notify();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if m.platform && !m.alt && !m.control {
             match ks.key.as_str() {
                 "z" if m.shift => {
@@ -550,7 +587,7 @@ impl Render for Drift {
                     )
                     )
                     // Right: AI panel only — inspector lives in the left column
-                    .child(panels::render_ai_panel(&self.app, cx)),
+                    .child(panels::render_ai_panel(&self.app, self.editing_prompt, cx)),
             )
             // Bottom: Timeline
             .child(panels::render_timeline(&self.app, cx))
@@ -597,7 +634,7 @@ fn main() {
                     let app = App::new();
                     let focus = cx.focus_handle();
                     window.focus(&focus);
-                    Drift { app, focus, last_tick: None }
+                    Drift { app, focus, last_tick: None, editing_prompt: false }
                 })
             },
         )

@@ -47,6 +47,9 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// Batch 8 domains
+pub mod state_machine_eval;
+pub mod export_presets;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +81,8 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use state_machine_eval::SmRuntime;
+pub use export_presets::{ExportPreset, BatchJobStatus, BatchExportJob, RenderQueueBatch};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -461,6 +466,24 @@ pub enum Action {
     AddSyncGroup { name: String, layer_ids: Vec<usize> },
     RemoveSyncGroup { group_id: usize },
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
+    // State machine evaluator (Batch 8)
+    InitSmRuntime { machine_id: usize },
+    TickSmRuntime { machine_id: usize },
+    TriggerSmInput { machine_id: usize, trigger: StateTransitionTrigger },
+    StopSmRuntime { machine_id: usize },
+    ResetSmRuntime { machine_id: usize },
+
+    // Export presets / render queue batch (Batch 8)
+    SaveExportPreset { name: String, config: ExportConfig },
+    DeleteExportPreset { preset_id: usize },
+    RenameExportPreset { preset_id: usize, name: String },
+    CreateRenderBatch,
+    AddJobToBatch { batch_id: usize, preset_id: usize, output_path: String },
+    StartRenderBatch { batch_id: usize },
+    UpdateBatchJobProgress { job_id: usize, progress: f32 },
+    CompleteBatchJob { job_id: usize },
+    CancelRenderBatch { batch_id: usize },
+
     // Tool selection
     SetActiveTool(DriftTool),
 }
@@ -647,6 +670,16 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // Batch 8 — State machine runtime
+    pub sm_runtimes: Vec<SmRuntime>,
+
+    // Batch 8 — Export presets + render queue
+    pub export_presets: Vec<ExportPreset>,
+    pub next_preset_id: usize,
+    pub render_batches: Vec<RenderQueueBatch>,
+    pub next_batch_id: usize,
+    pub next_batch_job_id: usize,
 }
 
 impl App {
@@ -781,6 +814,13 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // Batch 8
+            sm_runtimes: Vec::new(),
+            export_presets: Vec::new(),
+            next_preset_id: 1,
+            render_batches: Vec::new(),
+            next_batch_id: 1,
+            next_batch_job_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1108,6 +1148,25 @@ impl App {
             | Action::AddSyncGroup { .. }
             | Action::RemoveSyncGroup { .. }
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
+
+            // State machine eval (Batch 8)
+            Action::InitSmRuntime { .. }
+            | Action::TickSmRuntime { .. }
+            | Action::TriggerSmInput { .. }
+            | Action::StopSmRuntime { .. }
+            | Action::ResetSmRuntime { .. } => self.apply_sm_eval(action),
+
+            // Export presets / render queue (Batch 8)
+            Action::SaveExportPreset { .. }
+            | Action::DeleteExportPreset { .. }
+            | Action::RenameExportPreset { .. }
+            | Action::CreateRenderBatch
+            | Action::AddJobToBatch { .. }
+            | Action::StartRenderBatch { .. }
+            | Action::UpdateBatchJobProgress { .. }
+            | Action::CompleteBatchJob { .. }
+            | Action::CancelRenderBatch { .. } => self.apply_export_presets(action),
+
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
         }

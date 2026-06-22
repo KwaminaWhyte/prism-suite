@@ -12,7 +12,7 @@ mod model_manager;
 mod panels;
 mod welcome;
 
-use app_state::{App, OnnxModelKind};
+use app_state::{Action, App, OnnxModelKind};
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
@@ -255,7 +255,23 @@ fn main() {
                     cx.new(|cx| {
                         let focus = cx.focus_handle();
                         window.focus(&focus);
-                        Tone { app: App::new(), focus, last_tick: None, editing_ai_prompt: false, model_downloads: vec![] }
+                        {
+                            let mut app = App::new();
+                            for (model_id, kind) in [
+                                (model_manager::ToneModelId::MusicGenSmall, OnnxModelKind::MusicGen),
+                                (model_manager::ToneModelId::DemucsHybrid,  OnnxModelKind::Demucs),
+                                (model_manager::ToneModelId::AiMasterNet,   OnnxModelKind::AiMasterNet),
+                                (model_manager::ToneModelId::MelodyRnn,     OnnxModelKind::MelodyRnn),
+                            ] {
+                                if model_id.is_downloaded() {
+                                    app.apply(Action::CompleteModelDownload {
+                                        kind,
+                                        local_path: model_id.local_path().to_string_lossy().to_string(),
+                                    });
+                                }
+                            }
+                            Tone { app, focus, last_tick: None, editing_ai_prompt: false, model_downloads: vec![] }
+                        }
                     })
                 },
             )

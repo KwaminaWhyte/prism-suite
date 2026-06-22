@@ -1,5 +1,8 @@
 //! Model download manager for Drift.
 
+// Several model variants and helpers are stubs pending Phase 3 AI wiring.
+#![allow(dead_code)]
+
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;

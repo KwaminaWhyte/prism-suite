@@ -11,6 +11,10 @@
 //! Panels NEVER mutate `App` fields directly — they emit an [`Action`], and the
 //! root view routes it through [`App::apply`], the single mutation choke point.
 
+// This module is primarily a re-export façade; many items are public API
+// even if not yet used within the crate itself.
+#![allow(unused_imports)]
+
 use std::collections::HashMap;
 
 // Domain modules
@@ -933,8 +937,6 @@ impl App {
             | Action::SaveDocument { .. }
             | Action::OpenDocument { .. }
             | Action::MarkDirty => self.apply_history(action),
-            // History (stub — no-op until history stack is implemented)
-            Action::Undo | Action::Redo => {}
         }
     }
 }

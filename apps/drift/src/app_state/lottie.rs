@@ -1,5 +1,8 @@
 //! Lottie import/export domain for Drift.
 
+// Lottie IR types are forward-declared stubs; full wiring happens in Phase 3.
+#![allow(dead_code)]
+
 use super::{App, Action};
 
 // ── Types ─────────────────────────────────────────────────────────────────────

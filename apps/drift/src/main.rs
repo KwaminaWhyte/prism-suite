@@ -30,9 +30,11 @@ use prism_ui::{colors, font_size};
 pub struct Drift {
     pub app: App,
     focus: FocusHandle,
-    last_tick: Option<std::time::Instant>,
     pub editing_prompt: bool,
     model_downloads: Vec<model_manager::ModelDownloadHandle>,
+    /// Drives the real-time animation tick; present only while playing.
+    /// Dropping it cancels the background timer.
+    playback_task: Option<gpui::Task<()>>,
 }
 
 impl Focusable for Drift {
@@ -129,6 +131,27 @@ impl Drift {
                     self.app.apply(Action::GoToLastFrame);
                     cx.notify();
                 }
+                // Tool shortcuts (advertised in hint bar)
+                "v" => {
+                    self.app.apply(Action::SetActiveTool(DriftTool::Select));
+                    cx.notify();
+                }
+                "m" => {
+                    self.app.apply(Action::SetActiveTool(DriftTool::Move));
+                    cx.notify();
+                }
+                "p" => {
+                    self.app.apply(Action::SetActiveTool(DriftTool::Pen));
+                    cx.notify();
+                }
+                "r" => {
+                    self.app.apply(Action::SetActiveTool(DriftTool::Rect));
+                    cx.notify();
+                }
+                "e" => {
+                    self.app.apply(Action::SetActiveTool(DriftTool::Ellipse));
+                    cx.notify();
+                }
                 _ => {}
             }
         }
@@ -145,7 +168,7 @@ fn drift_model_from_id(m: &model_manager::DriftModelId) -> DriftOnnxModel {
 }
 
 impl Render for Drift {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // ── Model download polling ────────────────────────────────────────────
         {
             use model_manager::DownloadEvent;
@@ -184,26 +207,44 @@ impl Render for Drift {
         }
 
         // ── Transport tick ────────────────────────────────────────────────────
-        if self.app.playing {
-            let now = std::time::Instant::now();
-            if let Some(last) = self.last_tick {
-                let elapsed = now.duration_since(last).as_secs_f32();
-                let fps = self.app.document.fps as f32;
-                let frames = (elapsed * fps) as usize;
-                if frames > 0 {
-                    let max_frame = self.app.document.duration_frames.saturating_sub(1);
-                    let new_frame = self.app.current_frame + frames;
-                    if new_frame >= max_frame {
-                        self.app.current_frame = 0; // loop back
-                    } else {
-                        self.app.current_frame = new_frame;
+        // Spawn a background timer when playback starts; drop it when it stops.
+        // cx.notify() inside render() does NOT reliably cause GPUI to re-render
+        // continuously without external events, so we use an async timer task.
+        if self.app.playing && self.playback_task.is_none() {
+            let fps = self.app.document.fps;
+            // Poll every ~10 ms; use wall-clock elapsed to gate actual frame advances.
+            // macOS timer resolution is ~10 ms, so we cannot rely on a 41 ms timer
+            // firing exactly once per frame — instead we measure real elapsed time.
+            let poll_interval = std::time::Duration::from_millis(10);
+            self.playback_task = Some(cx.spawn_in(window, async move |entity: gpui::WeakEntity<Drift>, cx: &mut gpui::AsyncWindowContext| {
+                let mut last_advance = std::time::Instant::now();
+                let frame_duration = std::time::Duration::from_secs_f64(1.0 / fps as f64);
+                loop {
+                    cx.background_executor().timer(poll_interval).await;
+                    let elapsed = last_advance.elapsed();
+                    if elapsed < frame_duration {
+                        continue; // not yet time for next frame
                     }
+                    // How many frames have accumulated (handles lag/catch-up)?
+                    let frames = (elapsed.as_secs_f64() / frame_duration.as_secs_f64()) as usize;
+                    let frames = frames.min(4); // cap catch-up to avoid jumps
+                    last_advance += frame_duration * frames as u32;
+                    let keep_going = entity.update(cx, |drift: &mut Drift, cx: &mut gpui::Context<Drift>| {
+                        if drift.app.playing {
+                            let max = drift.app.document.duration_frames;
+                            let new = drift.app.current_frame + frames;
+                            drift.app.current_frame = if new >= max { new % max } else { new };
+                            cx.notify();
+                            true
+                        } else {
+                            false
+                        }
+                    }).unwrap_or(false);
+                    if !keep_going { break; }
                 }
-            }
-            self.last_tick = Some(now);
-            cx.notify();
-        } else {
-            self.last_tick = None;
+            }));
+        } else if !self.app.playing {
+            self.playback_task = None;
         }
 
         let has_layers = !self.app.layers.is_empty();
@@ -650,7 +691,43 @@ fn main() {
     gpui::Application::new().with_assets(PrismAssets).run(|cx: &mut gpui::App| {
         prism_ui::init(cx);
 
-        // Open the welcome window first (900 × 560 px, centered).
+        // Open the main editor window first (full display or sensible default).
+        // Welcome window opens AFTER so it appears on top of the editor.
+        let bounds = cx
+            .primary_display()
+            .map(|d| d.bounds())
+            .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.new(|cx| {
+                    let mut app = App::new();
+                    let focus = cx.focus_handle();
+                    window.focus(&focus);
+                    for (model_id, drift_model) in [
+                        (model_manager::DriftModelId::AnimateDiff,   DriftOnnxModel::AnimateDiff),
+                        (model_manager::DriftModelId::FilmRife,      DriftOnnxModel::FilmRife),
+                        (model_manager::DriftModelId::Wav2Vec2,      DriftOnnxModel::Wav2Vec2),
+                        (model_manager::DriftModelId::StyleTransfer, DriftOnnxModel::StyleTransfer),
+                    ] {
+                        if model_id.is_downloaded() {
+                            app.apply(Action::CompleteDriftModelDownload {
+                                model: drift_model,
+                                local_path: model_id.local_path().to_string_lossy().to_string(),
+                            });
+                        }
+                    }
+                    Drift { app, focus, editing_prompt: false, model_downloads: vec![], playback_task: None }
+                })
+            },
+        )
+        .expect("failed to open Drift window");
+
+        // Open the welcome window second (900 × 560 px, centered) so it
+        // appears on top of the full-display editor window.
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(
@@ -666,27 +743,6 @@ fn main() {
             },
         )
         .expect("failed to open Drift welcome window");
-
-        // Open the main editor window (full display or sensible default).
-        let bounds = cx
-            .primary_display()
-            .map(|d| d.bounds())
-            .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            |window, cx| {
-                cx.new(|cx| {
-                    let app = App::new();
-                    let focus = cx.focus_handle();
-                    window.focus(&focus);
-                    Drift { app, focus, last_tick: None, editing_prompt: false, model_downloads: vec![] }
-                })
-            },
-        )
-        .expect("failed to open Drift window");
 
         cx.activate(true);
     });

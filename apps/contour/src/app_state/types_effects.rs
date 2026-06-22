@@ -356,3 +356,259 @@ impl Default for VariableFontConfig {
         Self { axes: vec![], preview_text: "Sphinx of black quartz".to_string() }
     }
 }
+
+// --- Batch 10: Blend Tool ---
+
+/// How intermediate steps are distributed in a blend object.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlendSpacing {
+    SpecifiedSteps(u32),
+    SpecifiedDistance(f32),
+    SmoothColor,
+}
+
+impl Default for BlendSpacing {
+    fn default() -> Self { BlendSpacing::SpecifiedSteps(5) }
+}
+
+/// Orientation of the blend (relative to page or to the spine path).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlendOrientation {
+    #[default]
+    AlignToPage,
+    AlignToPath,
+}
+
+/// A blend object interpolating between exactly two shapes.
+#[derive(Debug, Clone)]
+pub struct BlendObject {
+    pub id: usize,
+    pub name: String,
+    pub shape_ids: Vec<usize>,       // exactly 2 source shapes
+    pub spacing: BlendSpacing,
+    pub orientation: BlendOrientation,
+    pub spine_path_id: Option<usize>, // replaced spine path, if any
+}
+
+// --- Batch 10: 3D Effects (Extrude & Bevel, Revolve) ---
+
+/// Bevel profile for 3D Extrude.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BevelKind {
+    #[default]
+    None,
+    Classic,
+    Round,
+    StepUp,
+    Tall,
+    Complex,
+}
+
+/// Whether bevel is inset or outset from the shape edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BevelExtent {
+    #[default]
+    Inn,
+    Out,
+}
+
+/// Surface shading mode for 3D effects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SurfaceShading {
+    WireFrame,
+    NoShading,
+    DiffuseShading,
+    #[default]
+    PlasticShading,
+}
+
+/// Per-shape 3D Extrude & Bevel configuration.
+#[derive(Debug, Clone)]
+pub struct Extrude3D {
+    pub depth: f32,
+    pub bevel_kind: BevelKind,
+    pub bevel_height: f32,
+    pub bevel_extent: BevelExtent,
+    pub surface: SurfaceShading,
+    pub rotate_x: f32,
+    pub rotate_y: f32,
+    pub rotate_z: f32,
+    pub perspective: f32,
+    pub cap: bool,
+    pub light_intensity: f32,
+    pub ambient_light: f32,
+    pub highlight_intensity: f32,
+    pub highlight_size: f32,
+    pub blend_steps: u32,
+    pub draw_hidden_faces: bool,
+    pub preserve_spot_colors: bool,
+}
+
+impl Default for Extrude3D {
+    fn default() -> Self {
+        Self {
+            depth: 50.0,
+            bevel_kind: BevelKind::None,
+            bevel_height: 4.0,
+            bevel_extent: BevelExtent::Inn,
+            surface: SurfaceShading::PlasticShading,
+            rotate_x: -26.0,
+            rotate_y: -38.0,
+            rotate_z: 0.0,
+            perspective: 0.0,
+            cap: true,
+            light_intensity: 100.0,
+            ambient_light: 50.0,
+            highlight_intensity: 70.0,
+            highlight_size: 90.0,
+            blend_steps: 25,
+            draw_hidden_faces: false,
+            preserve_spot_colors: false,
+        }
+    }
+}
+
+/// Which edge a revolve rotates around.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RevolveFrom {
+    #[default]
+    LeftEdge,
+    RightEdge,
+}
+
+/// Per-shape 3D Revolve configuration.
+#[derive(Debug, Clone)]
+pub struct Revolve3D {
+    pub angle: f32,
+    pub offset: f32,
+    pub from: RevolveFrom,
+    pub cap: bool,
+    pub surface: SurfaceShading,
+    pub rotate_x: f32,
+    pub rotate_y: f32,
+    pub rotate_z: f32,
+}
+
+impl Default for Revolve3D {
+    fn default() -> Self {
+        Self {
+            angle: 360.0,
+            offset: 0.0,
+            from: RevolveFrom::LeftEdge,
+            cap: true,
+            surface: SurfaceShading::PlasticShading,
+            rotate_x: 0.0,
+            rotate_y: -26.0,
+            rotate_z: 0.0,
+        }
+    }
+}
+
+// --- Batch 10: PDF Export State ---
+
+/// PDF/A and PDF/X standards compliance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PdfStandard {
+    #[default]
+    None,
+    PdfA1b,
+    PdfA2b,
+    PdfX1a,
+    PdfX3,
+    PdfX4,
+}
+
+/// Acrobat compatibility level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PdfCompatibility {
+    Pdf13,
+    Pdf14,
+    #[default]
+    Pdf15,
+    Pdf16,
+    Pdf17,
+}
+
+/// Output colour space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PdfColorSpace {
+    #[default]
+    Rgb,
+    Cmyk,
+    Grayscale,
+}
+
+/// Printer's marks included in the export.
+#[derive(Debug, Clone, Default)]
+pub struct PdfMarks {
+    pub trim: bool,
+    pub bleed: bool,
+    pub reg: bool,
+    pub color_bars: bool,
+    pub page_info: bool,
+}
+
+/// Which layers are exported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PdfLayerVisibility {
+    #[default]
+    AsInDocument,
+    AllVisible,
+    AllHidden,
+}
+
+/// Full PDF export configuration (mirrors Illustrator's Save As PDF dialog).
+#[derive(Debug, Clone)]
+pub struct PdfExportConfig {
+    pub standard: PdfStandard,
+    pub compatibility: PdfCompatibility,
+    pub embed_fonts: bool,
+    pub subset_fonts: bool,
+    pub compress_text_and_line_art: bool,
+    pub flatten_transparency: bool,
+    pub resolution: f32,
+    pub color_space: PdfColorSpace,
+    pub output_intent: String,
+    pub include_bleed: bool,
+    pub bleed_top: f32,
+    pub bleed_bottom: f32,
+    pub bleed_left: f32,
+    pub bleed_right: f32,
+    pub marks: PdfMarks,
+    pub layer_visibility: PdfLayerVisibility,
+    pub require_password: bool,
+    pub user_password: String,
+    pub owner_password: String,
+    pub allow_printing: bool,
+    pub allow_editing: bool,
+    pub allow_copying: bool,
+}
+
+impl Default for PdfExportConfig {
+    fn default() -> Self {
+        Self {
+            standard: PdfStandard::None,
+            compatibility: PdfCompatibility::Pdf15,
+            embed_fonts: true,
+            subset_fonts: true,
+            compress_text_and_line_art: true,
+            flatten_transparency: false,
+            resolution: 300.0,
+            color_space: PdfColorSpace::Rgb,
+            output_intent: String::new(),
+            include_bleed: false,
+            bleed_top: 3.0,
+            bleed_bottom: 3.0,
+            bleed_left: 3.0,
+            bleed_right: 3.0,
+            marks: PdfMarks::default(),
+            layer_visibility: PdfLayerVisibility::AsInDocument,
+            require_password: false,
+            user_password: String::new(),
+            owner_password: String::new(),
+            allow_printing: true,
+            allow_editing: false,
+            allow_copying: false,
+        }
+    }
+}

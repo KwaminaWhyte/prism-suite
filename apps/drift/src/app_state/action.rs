@@ -12,6 +12,9 @@ use super::{
     TextAlign, TextStyle, Projection3D, RulerUnit, ExportConfig,
 };
 use super::ai_motion_ext::EaseSuggestion;
+use super::drawing_tools::{PenMode, GizmoHandle};
+use super::onnx_inference::DriftOnnxModel;
+use super::export_web::MediaExportFormat;
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -501,4 +504,96 @@ pub enum Action {
     StartCharPackExport { rig_layer_id: usize, output_path: String, include_audio: bool },
     CompleteCharPackExport { export_id: usize },
     CancelCharPackExport { export_id: usize },
+
+    // Drawing Tools — Pen (Batch 8)
+    PenAddPoint { x: f32, y: f32 },
+    PenSelectPoint { idx: usize },
+    PenMovePoint { idx: usize, x: f32, y: f32 },
+    PenSetHandle { idx: usize, in_x: f32, in_y: f32, out_x: f32, out_y: f32 },
+    PenClosePath,
+    PenCommitPath,
+    PenSetMode { mode: PenMode },
+
+    // Drawing Tools — Pencil (Batch 8)
+    PencilBeginStroke { layer_id: usize, color: u32, width: f32 },
+    PencilAddPoint { x: f32, y: f32 },
+    PencilCommitStroke,
+    PencilCancelStroke,
+
+    // Drawing Tools — Onion Skin fine-grained (Batch 8)
+    SetOnionSkinEnabled { enabled: bool },
+    SetOnionSkinFrames { prev: usize, next: usize },
+    SetOnionSkinOpacity { prev_opacity: f32, next_opacity: f32 },
+
+    // Drawing Tools — Selection Gizmo (Batch 8)
+    SetSelectionGizmo { layer_id: usize, x: f32, y: f32, w: f32, h: f32 },
+    ClearSelectionGizmo,
+    GizmoDragHandle { handle: GizmoHandle },
+    GizmoRelease,
+    GizmoRotate { delta_deg: f32 },
+
+    // Nested Timelines (Batch 8)
+    CreateNestedTimeline { symbol_id: usize, fps: f32, duration_frames: usize },
+    AddNestedLayer { timeline_id: usize, name: String },
+    AddNestedKeyframe { timeline_id: usize, frame: usize, property: String, value: f32 },
+    SetNestedFrame { timeline_id: usize, frame: usize },
+    SetNestedLoop { timeline_id: usize, loop_on: bool },
+    DeleteNestedTimeline { id: usize },
+
+    // ONNX inference stubs (Batch 8)
+    RegisterDriftModel { model: DriftOnnxModel, local_path: String },
+    QueueAnimateDiff { layer_id: usize, prompt: String, num_frames: usize, guidance_scale: f32 },
+    CompleteAnimateDiff { job_id: usize },
+    FailAnimateDiff { job_id: usize, error: String },
+    QueueFilmRife { layer_id: usize, from_frame: usize, to_frame: usize, output_frames: usize, model: DriftOnnxModel },
+    CompleteFilmRife { job_id: usize },
+    QueuePhonemeDetect { audio_path: String, target_layer_id: usize, model: DriftOnnxModel },
+    CompletePhonemeDetect { job_id: usize, phonemes_detected: usize },
+    QueueStyleTransfer { layer_id: usize, style_prompt: String, strength: f32 },
+    CompleteStyleTransfer { job_id: usize },
+    QueueAiBgGen { prompt: String, width: u32, height: u32, steps: u32 },
+    CompleteAiBgGen { job_id: usize, output_layer_id: usize },
+    QueueAiScript { prompt: String },
+    CompleteAiScript { job_id: usize, code: String },
+
+    // Lottie JSON builder / web import / media export / JS runtime / web publish / collab (Batch 8)
+    BuildLottieJson { scene_id: usize, output_path: String },
+    StartWebLottieImport { source_path: String },
+    CompleteWebLottieImport { session_id: usize, layers_created: usize },
+    FailWebLottieImport { session_id: usize, error: String },
+    QueueMediaExport {
+        format: MediaExportFormat,
+        output_path: String,
+        fps: f32,
+        start_frame: usize,
+        end_frame: usize,
+        scale: f32,
+    },
+    StartMediaExport { job_id: usize },
+    UpdateMediaExportProgress { job_id: usize, progress: f32 },
+    CompleteMediaExport { job_id: usize },
+    FailMediaExport { job_id: usize, error: String },
+    SetJsRuntime { enabled: bool, bundle_path: String, auto_reload: bool },
+    StartWebPublish { output_dir: String, include_player: bool, minify: bool },
+    CompleteWebPublish { job_id: usize },
+    SetWsLivePreview { enabled: bool, port: u16 },
+    SetWsClientCount { count: usize },
+    StartCollabSession { room_id: String },
+    CollabSessionConnected { peer_count: usize },
+    StopCollabSession,
+
+    // Audio Ops (Batch 8)
+    SetAudioClipTrim { layer_id: usize, trim_start: usize, trim_end: usize },
+    SetAudioFade { layer_id: usize, fade_in: usize, fade_out: usize },
+    SetAudioPan { layer_id: usize, pan: f32 },
+    SetAudioClipVolume { layer_id: usize, volume: f32 },
+    SetWaveformPeaks { layer_id: usize, peaks: Vec<(f32, f32)>, sample_rate: u32 },
+    InvalidateWaveformPeaks { layer_id: usize },
+    SetMultiTrackMix { enabled: bool, normalize: bool, master_gain: f32 },
+    SetRhaiRuntime { enabled: bool, max_ops: u64, debug: bool },
+    AddAudioSyncMarker { frame: usize, label: String, color: u32 },
+    RemoveAudioSyncMarker { id: usize },
+    StartAs3Import { source_path: String },
+    CompleteAs3Import { job_id: usize, scripts_found: usize, symbols_found: usize },
+    FailAs3Import { job_id: usize, error: String },
 }

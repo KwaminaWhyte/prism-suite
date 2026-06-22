@@ -29,7 +29,7 @@ impl LottieJsonBuilder {
 // ── Lottie import parser stub ─────────────────────────────────────────────────
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum LottieImportStatus {
+pub enum WebLottieImportStatus {
     Idle,
     Parsing,
     Done,
@@ -37,10 +37,10 @@ pub enum LottieImportStatus {
 }
 
 #[derive(Clone, Debug)]
-pub struct LottieImportSession {
+pub struct WebLottieImportSession {
     pub id: usize,
     pub source_path: String,
-    pub status: LottieImportStatus,
+    pub status: WebLottieImportStatus,
     pub layers_created: usize,
     pub error: Option<String>,
 }
@@ -184,26 +184,26 @@ impl App {
                 });
                 self.next_lottie_build_id += 1;
             }
-            Action::StartLottieImport { source_path } => {
+            Action::StartWebLottieImport { source_path } => {
                 let id = self.next_lottie_import_id;
                 self.next_lottie_import_id += 1;
-                self.lottie_imports.push(LottieImportSession {
+                self.lottie_imports.push(WebLottieImportSession {
                     id,
                     source_path: source_path.clone(),
-                    status: LottieImportStatus::Parsing,
+                    status: WebLottieImportStatus::Parsing,
                     layers_created: 0,
                     error: None,
                 });
             }
-            Action::CompleteLottieImport { session_id, layers_created } => {
+            Action::CompleteWebLottieImport { session_id, layers_created } => {
                 if let Some(s) = self.lottie_imports.iter_mut().find(|s| s.id == *session_id) {
-                    s.status = LottieImportStatus::Done;
+                    s.status = WebLottieImportStatus::Done;
                     s.layers_created = *layers_created;
                 }
             }
-            Action::FailLottieImport { session_id, error } => {
+            Action::FailWebLottieImport { session_id, error } => {
                 if let Some(s) = self.lottie_imports.iter_mut().find(|s| s.id == *session_id) {
-                    s.status = LottieImportStatus::Error;
+                    s.status = WebLottieImportStatus::Error;
                     s.error = Some(error.clone());
                 }
             }
@@ -321,28 +321,28 @@ mod tests {
     #[test]
     fn test_start_lottie_import() {
         let mut a = app();
-        a.apply(Action::StartLottieImport { source_path: "/tmp/input.json".to_string() });
+        a.apply(Action::StartWebLottieImport { source_path: "/tmp/input.json".to_string() });
         assert_eq!(a.lottie_imports.len(), 1);
-        assert_eq!(a.lottie_imports[0].status, LottieImportStatus::Parsing);
+        assert_eq!(a.lottie_imports[0].status, WebLottieImportStatus::Parsing);
     }
 
     #[test]
     fn test_complete_lottie_import() {
         let mut a = app();
-        a.apply(Action::StartLottieImport { source_path: "/tmp/input.json".to_string() });
+        a.apply(Action::StartWebLottieImport { source_path: "/tmp/input.json".to_string() });
         let sid = a.lottie_imports[0].id;
-        a.apply(Action::CompleteLottieImport { session_id: sid, layers_created: 5 });
-        assert_eq!(a.lottie_imports[0].status, LottieImportStatus::Done);
+        a.apply(Action::CompleteWebLottieImport { session_id: sid, layers_created: 5 });
+        assert_eq!(a.lottie_imports[0].status, WebLottieImportStatus::Done);
         assert_eq!(a.lottie_imports[0].layers_created, 5);
     }
 
     #[test]
     fn test_fail_lottie_import() {
         let mut a = app();
-        a.apply(Action::StartLottieImport { source_path: "/bad.json".to_string() });
+        a.apply(Action::StartWebLottieImport { source_path: "/bad.json".to_string() });
         let sid = a.lottie_imports[0].id;
-        a.apply(Action::FailLottieImport { session_id: sid, error: "parse error".to_string() });
-        assert_eq!(a.lottie_imports[0].status, LottieImportStatus::Error);
+        a.apply(Action::FailWebLottieImport { session_id: sid, error: "parse error".to_string() });
+        assert_eq!(a.lottie_imports[0].status, WebLottieImportStatus::Error);
         assert_eq!(a.lottie_imports[0].error.as_deref(), Some("parse error"));
     }
 
@@ -496,8 +496,8 @@ mod tests {
     #[test]
     fn test_ids_increment() {
         let mut a = app();
-        a.apply(Action::StartLottieImport { source_path: "/a.json".to_string() });
-        a.apply(Action::StartLottieImport { source_path: "/b.json".to_string() });
+        a.apply(Action::StartWebLottieImport { source_path: "/a.json".to_string() });
+        a.apply(Action::StartWebLottieImport { source_path: "/b.json".to_string() });
         assert_ne!(a.lottie_imports[0].id, a.lottie_imports[1].id);
     }
 

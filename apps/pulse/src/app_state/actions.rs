@@ -24,6 +24,9 @@ use super::{
     DepthOfField,
     EchoConfig,
     MoGrtControl,
+    MotionEasing,
+    ShapeItemKind, ShapeGroupTransform, MergeMode,
+    CellPatternKind, GradientEffectKind,
 };
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -705,6 +708,53 @@ pub enum Action {
     ExportMogrt { template_id: usize },
     /// Delete a MOGRT template by id.
     DeleteMogrTemplate(usize),
+
+    // --- Batch 5 (New): More Built-in Effects ---
+    AddMotionBlurEffect { layer_id: usize, angle: f32, distance: f32 },
+    AddGlowEffect { layer_id: usize, threshold: f32, radius: f32, intensity: f32 },
+    AddCcRepeTileEffect { layer_id: usize, expand_right: f32, expand_left: f32, expand_up: f32, expand_down: f32 },
+    AddPosterizeTime { layer_id: usize, frame_rate: f32 },
+    AddCellPattern { layer_id: usize, pattern: CellPatternKind, size: f32 },
+    AddCheckerboard { layer_id: usize, size: f32, color_a: String, color_b: String },
+    AddGradientEffect { layer_id: usize, kind: GradientEffectKind, start_color: String, end_color: String },
+    AddGridEffect { layer_id: usize, size: (f32, f32), border: f32, color: String },
+    AddStrokeEffect { layer_id: usize, color: String, brush_size: f32 },
+    SetMotionBlur { layer_id: usize, angle: f32, distance: f32 },
+    RemoveBatch5Effect { layer_id: usize, effect_idx: usize },
+
+    // --- Batch 5 (New): Motion Paths ---
+    CreateMotionPath { layer_id: usize },
+    AddMotionPathPoint { path_id: usize, time_s: f32, x: f32, y: f32 },
+    RemoveMotionPathPoint { path_id: usize, index: usize },
+    SetMotionPathPoint { path_id: usize, index: usize, x: f32, y: f32 },
+    SetMotionPathEasing { path_id: usize, index: usize, easing: MotionEasing },
+    SetAutoOrient { path_id: usize, enabled: bool },
+    DeleteMotionPath { path_id: usize },
+
+    // --- Batch 5 (New): Shape Layer Groups ---
+    AddShapeGroup { layer_id: usize, name: String },
+    AddShapeItemToGroup { group_id: usize, kind: ShapeItemKind },
+    RemoveShapeItemFromGroup { group_id: usize, item_index: usize },
+    SetShapeGroupTransform { group_id: usize, transform: ShapeGroupTransform },
+    SetShapeStar { layer_id: usize, group_id: usize, points: u32, inner_radius: f32, outer_radius: f32 },
+    AddRepeaterToGroup { layer_id: usize, group_id: usize, copies: u32 },
+    AddTrimPath { layer_id: usize, group_id: usize, start: f32, end: f32 },
+    AddMergeShapes { layer_id: usize, group_id: usize, mode: MergeMode },
+    DeleteShapeGroup { group_id: usize },
+
+    // --- Batch 5 (New): Audio Mixer Buses ---
+    AddAudioBus { name: String },
+    RemoveAudioBus { bus_id: usize },
+    SetBusVolume { bus_id: usize, volume: f32 },
+    SetBusPan { bus_id: usize, pan: f32 },
+    MuteBus { bus_id: usize, muted: bool },
+    SoloBus { bus_id: usize, solo: bool },
+    AddBusSend { from_id: usize, to_id: usize, level: f32 },
+    RemoveBusSend { from_id: usize, to_id: usize },
+    SetBusEq { bus_id: usize, low: f32, mid: f32, high: f32 },
+    SetBusCompressor { bus_id: usize, threshold: f32, ratio: f32 },
+    SetMasterVolume(f32),
+    SetMasterPan(f32),
 }
 
 impl Action {
@@ -823,6 +873,45 @@ impl Action {
                 | Action::SetPuppetMeshDensity { .. }
                 | Action::SetLayerEcho { .. }
                 | Action::ClearLayerEcho { .. }
+                | Action::AddMotionBlurEffect { .. }
+                | Action::AddGlowEffect { .. }
+                | Action::AddCcRepeTileEffect { .. }
+                | Action::AddPosterizeTime { .. }
+                | Action::AddCellPattern { .. }
+                | Action::AddCheckerboard { .. }
+                | Action::AddGradientEffect { .. }
+                | Action::AddGridEffect { .. }
+                | Action::AddStrokeEffect { .. }
+                | Action::SetMotionBlur { .. }
+                | Action::RemoveBatch5Effect { .. }
+                | Action::CreateMotionPath { .. }
+                | Action::AddMotionPathPoint { .. }
+                | Action::RemoveMotionPathPoint { .. }
+                | Action::SetMotionPathPoint { .. }
+                | Action::SetMotionPathEasing { .. }
+                | Action::SetAutoOrient { .. }
+                | Action::DeleteMotionPath { .. }
+                | Action::AddShapeGroup { .. }
+                | Action::AddShapeItemToGroup { .. }
+                | Action::RemoveShapeItemFromGroup { .. }
+                | Action::SetShapeGroupTransform { .. }
+                | Action::SetShapeStar { .. }
+                | Action::AddRepeaterToGroup { .. }
+                | Action::AddTrimPath { .. }
+                | Action::AddMergeShapes { .. }
+                | Action::DeleteShapeGroup { .. }
+                | Action::AddAudioBus { .. }
+                | Action::RemoveAudioBus { .. }
+                | Action::SetBusVolume { .. }
+                | Action::SetBusPan { .. }
+                | Action::MuteBus { .. }
+                | Action::SoloBus { .. }
+                | Action::AddBusSend { .. }
+                | Action::RemoveBusSend { .. }
+                | Action::SetBusEq { .. }
+                | Action::SetBusCompressor { .. }
+                | Action::SetMasterVolume(_)
+                | Action::SetMasterPan(_)
         )
     }
 }

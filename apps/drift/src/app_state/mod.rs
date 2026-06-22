@@ -47,6 +47,8 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// History + document lifecycle
+pub mod history;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +80,7 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use history::{AppHistory, HistoryEntry};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -463,6 +466,15 @@ pub enum Action {
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
     // Tool selection
     SetActiveTool(DriftTool),
+
+    // History + document lifecycle
+    Undo,
+    Redo,
+    ClearHistory,
+    NewDocument,
+    SaveDocument { path: String },
+    OpenDocument { path: String },
+    MarkDirty,
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -647,6 +659,11 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // History + document lifecycle
+    pub history: AppHistory,
+    pub document_path: Option<String>,
+    pub document_dirty: bool,
 }
 
 impl App {
@@ -781,6 +798,10 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // History + document lifecycle
+            history: AppHistory::default(),
+            document_path: None,
+            document_dirty: false,
         };
         app.seed_easing_curves();
         app
@@ -1110,6 +1131,15 @@ impl App {
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
+
+            // History + document lifecycle
+            Action::Undo
+            | Action::Redo
+            | Action::ClearHistory
+            | Action::NewDocument
+            | Action::SaveDocument { .. }
+            | Action::OpenDocument { .. }
+            | Action::MarkDirty => self.apply_history(action),
         }
     }
 }

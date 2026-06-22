@@ -9,14 +9,16 @@ Current status: Phase 1 scaffold (0%).
 
 | Phase | Feature area | Status | Tests |
 |-------|-------------|--------|-------|
-| 1 | Foundation scaffold | In progress | 120+ |
+| 1 | Foundation scaffold | Done | 120+ |
+| 1.5 | Extended DAW state (Batch 1) | Done | 288 |
+| 1.6 | Automation, tempo map, scenes, plugins, MIDI control (Batch 2) | Done | 366 |
 | 2 | Core DAW | Not started | — |
 | 3 | AI Generation | Not started | — |
 | 4 | AI Power Tools | Not started | — |
 | 5 | Live / Session | Not started | — |
 | 6 | Advanced | Not started | — |
 
-Overall parity: **~5%** (state machine + transport stub).
+Overall parity: **~35%** (full DAW state machine: tracks, clips, MIDI, mixer, transport, automation lanes, tempo map, session/arrangement mode, plugin state, MIDI controller mapping).
 
 ---
 

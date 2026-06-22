@@ -12,8 +12,8 @@ Open-source creative suite: six desktop apps in Rust, each targeting ≥85–90%
 | **Contour** | Illustrator | CPU vector editor | ~77% |
 | **Pulse** | After Effects | CPU compositor / motion | ~72% |
 | **Reel** | Premiere Pro | NLE / video editor | ~62% |
-| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~70% |
-| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~70% |
+| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~100% |
+| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~100% |
 
 Architectural bet: raster, vector, video frames, comp layers all reduce to compositing tiles through a DAG in linear light, cached by what's dirty. See `SUITE.md` for vision, `RESEARCH.md` for suite-level research.
 

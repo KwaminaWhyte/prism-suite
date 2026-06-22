@@ -14,8 +14,8 @@ mod welcome;
 use app_state::App;
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, Styled, Window, WindowBounds,
-    WindowOptions,
+    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
+    WindowBounds, WindowOptions,
 };
 use prism_ui::colors;
 use welcome::WelcomeView;
@@ -25,6 +25,7 @@ use welcome::WelcomeView;
 struct Tone {
     app: App,
     focus: FocusHandle,
+    last_tick: Option<std::time::Instant>,
 }
 
 impl Focusable for Tone {
@@ -35,6 +36,21 @@ impl Focusable for Tone {
 
 impl Render for Tone {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // ── Transport tick ──────────────────────────────────────────
+        if self.app.playing {
+            let now = std::time::Instant::now();
+            if let Some(last) = self.last_tick {
+                let elapsed = now.duration_since(last).as_secs_f32();
+                let beats_per_sec = self.app.project.bpm / 60.0;
+                let new_beat = self.app.playhead_beat + elapsed * beats_per_sec;
+                self.app.apply(crate::app_state::Action::SetPlayheadBeat(new_beat));
+            }
+            self.last_tick = Some(now);
+            cx.notify();
+        } else {
+            self.last_tick = None;
+        }
+
         div()
             .track_focus(&self.focus)
             .size_full()
@@ -43,6 +59,27 @@ impl Render for Tone {
             .bg(colors::surface_bg())
             .text_color(colors::text_primary())
             .font_family(".SystemUIFont")
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _win, cx| {
+                let ks = &ev.keystroke;
+                let m = &ks.modifiers;
+                if m.platform && !m.alt && !m.control {
+                    match ks.key.as_str() {
+                        "z" if m.shift => { this.app.apply(crate::app_state::Action::Redo); cx.notify(); }
+                        "z" => { this.app.apply(crate::app_state::Action::Undo); cx.notify(); }
+                        _ => {}
+                    }
+                }
+                if !m.platform && !m.control && !m.alt && !m.shift {
+                    match ks.key.as_str() {
+                        " " => {
+                            if this.app.playing { this.app.apply(crate::app_state::Action::Pause); }
+                            else { this.app.apply(crate::app_state::Action::Play); }
+                            cx.notify();
+                        }
+                        _ => {}
+                    }
+                }
+            }))
             .child(panels::render_toolbar(&self.app, cx))
             .child(
                 div()
@@ -95,7 +132,7 @@ fn main() {
                     cx.new(|cx| {
                         let focus = cx.focus_handle();
                         window.focus(&focus);
-                        Tone { app: App::new(), focus }
+                        Tone { app: App::new(), focus, last_tick: None }
                     })
                 },
             )

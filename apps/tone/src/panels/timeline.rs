@@ -22,7 +22,8 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
         .flex()
         .flex_col()
         // Bar ruler
-        .child(
+        .child({
+            let playhead_pct = (app.playhead_beat / VISIBLE_BARS).clamp(0.0, 1.0);
             div()
                 .w_full()
                 .h(px(20.0))
@@ -31,6 +32,7 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                 .border_color(colors::surface_border())
                 .flex()
                 .items_center()
+                .relative()
                 .pl(px(LABEL_W))
                 .children((1..=32u32).map(|bar| {
                     div()
@@ -45,8 +47,18 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                         .text_size(px(8.0))
                         .text_color(colors::text_disabled())
                         .child(format!("{bar}"))
-                })),
-        )
+                }))
+                // Playhead line
+                .child(
+                    div()
+                        .absolute()
+                        .left(gpui::relative(playhead_pct))
+                        .top(px(0.0))
+                        .bottom(px(0.0))
+                        .w(px(2.0))
+                        .bg(colors::accent()),
+                )
+        })
         // Track lanes
         .child(
             div()
@@ -86,13 +98,38 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                         .px_2()
                                         .flex()
                                         .items_center()
+                                        .justify_between()
                                         .border_r_1()
                                         .border_color(colors::surface_border())
                                         .flex_shrink_0()
                                         .text_size(px(font_size::XS))
                                         .text_color(colors::text_secondary())
                                         .overflow_hidden()
-                                        .child(track_name),
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .overflow_hidden()
+                                                .child(track_name),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(("del-track", lane_idx))
+                                                .w(px(20.0))
+                                                .h(px(14.0))
+                                                .bg(colors::surface_overlay())
+                                                .rounded(px(2.0))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_size(px(7.0))
+                                                .text_color(colors::text_disabled())
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                    this.app.apply(Action::DeleteTrack(track_id));
+                                                    cx.notify();
+                                                }))
+                                                .child("\u{00d7}"),
+                                        ),
                                 )
                                 // Clip lane — click empty area to add clip; click clip block to open piano roll
                                 .child(

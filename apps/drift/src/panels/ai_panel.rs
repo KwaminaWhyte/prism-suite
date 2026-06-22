@@ -5,11 +5,12 @@ use crate::Drift;
 use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
 use prism_ui::{colors, font_size};
 
+/// Full AI panel with outer shell (width, border, background). Used when the
+/// panel is rendered standalone in the flex row.
 pub fn render_ai_panel(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement {
     div()
         .id("ai-panel")
         .w(px(260.0))
-        .h_full()
         .bg(colors::surface_raised())
         .border_l_1()
         .border_color(colors::surface_border())

@@ -36,6 +36,11 @@ pub mod chord_tools;
 pub mod freeze;
 pub mod midi_routing;
 
+// ─── Batch 5 domain modules ───────────────────────────────────────────────────
+pub mod midi_controllers;
+pub mod loop_recording;
+pub mod hardware_sync;
+
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
@@ -63,6 +68,11 @@ pub use clip_launch::{ClipSlot, LaunchGrid, LaunchQuantize, SlotAction, SlotFoll
 pub use chord_tools::{ChordDegree, ChordProgression, ChordQualityTone, ChordSuggestion, ChordVoicing, ScaleMode};
 pub use freeze::{FreezeState, FrozenTrackInfo, StemConfig, StemExportStatus, StemFormat};
 pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument, VirtualInstrumentKind};
+
+// ─── Batch 5 re-exports ───────────────────────────────────────────────────────
+pub use midi_controllers::{ControllerPreset, PadMapping, KnobMapping, HardwareController, MidiLearnCtrlState};
+pub use loop_recording::{TakeStatus, Take, CompRegion, TakeStack};
+pub use hardware_sync::{MidiClockSource, MidiClockStatus, MidiClockConfig, AbletonLinkConfig};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -755,6 +765,40 @@ pub enum Action {
     SetArpRate { arp_id: usize, rate: f32 },
     SetArpOctaveRange { arp_id: usize, octaves: u8 },
     ToggleArpeggiator { arp_id: usize },
+
+    // ── MIDI Controllers (Batch 5) ────────────────────────────────────────────
+    RegisterController { name: String, preset: ControllerPreset },
+    UnregisterController { controller_id: usize },
+    SetControllerPreset { controller_id: usize, preset: ControllerPreset },
+    ActivateController { controller_id: usize },
+    DeactivateController { controller_id: usize },
+    StartPadLearn { controller_id: usize, pad_index: u8 },
+    CompletePadLearn { controller_id: usize, note: u8 },
+    StartKnobLearn { controller_id: usize, knob_index: u8 },
+    CompleteKnobLearn { controller_id: usize, cc: u8 },
+    CancelCtrlLearn,
+
+    // ── Loop Recording (Batch 5) ──────────────────────────────────────────────
+    StartLoopRecord { track_id: usize, beat_start: f32 },
+    EndLoopRecord { take_id: usize, beat_end: f32, clip_id: usize },
+    DiscardTake { take_id: usize },
+    SetLoopActiveTake { stack_id: usize, take_id: usize },
+    SetCompRegion { stack_id: usize, beat_start: f32, beat_end: f32 },
+    BakeComp { stack_id: usize },
+    DeleteTakeStack { stack_id: usize },
+
+    // ── Hardware Sync (Batch 5) ───────────────────────────────────────────────
+    SetMidiClockSource { source: MidiClockSource },
+    SetMidiClockBpm { bpm: f32 },
+    ToggleSendClock,
+    ToggleReceiveClock,
+    StartMidiClock,
+    StopMidiClock,
+    SetHardwareLinkEnabled { enabled: bool },
+    SetLinkBpm { bpm: f32 },
+    UpdateLinkPeers { count: u8 },
+    SetLinkQuantum { quantum: f32 },
+    ToggleLinkStartStop,
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -944,6 +988,21 @@ pub struct App {
     pub next_vi_id: usize,
     pub arp_configs: Vec<ArpConfig>,
     pub next_arp_id: usize,
+
+    // ── MIDI Controllers (Batch 5) ────────────────────────────────────────────
+    pub hardware_controllers: Vec<HardwareController>,
+    pub next_controller_id: usize,
+    pub ctrl_learn_state: MidiLearnCtrlState,
+
+    // ── Loop Recording (Batch 5) ──────────────────────────────────────────────
+    pub take_stacks: Vec<TakeStack>,
+    pub loop_takes: Vec<Take>,
+    pub next_take_stack_id: usize,
+    pub next_take_id: usize,
+
+    // ── Hardware Sync (Batch 5) ───────────────────────────────────────────────
+    pub midi_clock: MidiClockConfig,
+    pub ableton_link: AbletonLinkConfig,
 }
 
 impl App {
@@ -1066,6 +1125,16 @@ impl App {
             next_vi_id: 0,
             arp_configs: Vec::new(),
             next_arp_id: 0,
+            // Batch 5 fields
+            hardware_controllers: vec![],
+            next_controller_id: 1,
+            ctrl_learn_state: MidiLearnCtrlState::Idle,
+            take_stacks: vec![],
+            loop_takes: vec![],
+            next_take_stack_id: 1,
+            next_take_id: 1,
+            midi_clock: MidiClockConfig::default(),
+            ableton_link: AbletonLinkConfig::default(),
         }
     }
 
@@ -1479,6 +1548,40 @@ impl App {
             | Action::SetArpRate { .. }
             | Action::SetArpOctaveRange { .. }
             | Action::ToggleArpeggiator { .. } => self.apply_midi_routing(action),
+
+            // ── MIDI Controllers (Batch 5) ────────────────────────────────────
+            Action::RegisterController { .. }
+            | Action::UnregisterController { .. }
+            | Action::SetControllerPreset { .. }
+            | Action::ActivateController { .. }
+            | Action::DeactivateController { .. }
+            | Action::StartPadLearn { .. }
+            | Action::CompletePadLearn { .. }
+            | Action::StartKnobLearn { .. }
+            | Action::CompleteKnobLearn { .. }
+            | Action::CancelCtrlLearn => self.apply_midi_controllers(action),
+
+            // ── Loop Recording (Batch 5) ──────────────────────────────────────
+            Action::StartLoopRecord { .. }
+            | Action::EndLoopRecord { .. }
+            | Action::DiscardTake { .. }
+            | Action::SetLoopActiveTake { .. }
+            | Action::SetCompRegion { .. }
+            | Action::BakeComp { .. }
+            | Action::DeleteTakeStack { .. } => self.apply_loop_recording(action),
+
+            // ── Hardware Sync (Batch 5) ───────────────────────────────────────
+            Action::SetMidiClockSource { .. }
+            | Action::SetMidiClockBpm { .. }
+            | Action::ToggleSendClock
+            | Action::ToggleReceiveClock
+            | Action::StartMidiClock
+            | Action::StopMidiClock
+            | Action::SetHardwareLinkEnabled { .. }
+            | Action::SetLinkBpm { .. }
+            | Action::UpdateLinkPeers { .. }
+            | Action::SetLinkQuantum { .. }
+            | Action::ToggleLinkStartStop => self.apply_hardware_sync(action),
         }
     }
 }

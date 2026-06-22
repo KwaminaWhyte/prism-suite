@@ -36,6 +36,13 @@ pub mod chord_tools;
 pub mod freeze;
 pub mod midi_routing;
 
+// ─── Batch 5 domain modules ───────────────────────────────────────────────────
+pub mod vst_host;
+pub mod surround;
+pub mod spectral;
+pub mod notation;
+pub mod tempo_film;
+
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
@@ -63,6 +70,13 @@ pub use clip_launch::{ClipSlot, LaunchGrid, LaunchQuantize, SlotAction, SlotFoll
 pub use chord_tools::{ChordDegree, ChordProgression, ChordQualityTone, ChordSuggestion, ChordVoicing, ScaleMode};
 pub use freeze::{FreezeState, FrozenTrackInfo, StemConfig, StemExportStatus, StemFormat};
 pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument, VirtualInstrumentKind};
+
+// ─── Batch 5 re-exports ───────────────────────────────────────────────────────
+pub use vst_host::{VstFormat, VstHostStatus, VstPluginInfo, LoadedVst};
+pub use surround::{SurroundFormat, SurroundPan, SurroundBusConfig, AtmosObject};
+pub use spectral::{SpectralTool, SpectralBrushStroke, SpectralStretchJob, SpectralViewConfig};
+pub use notation::{NotationClef, StemDir, NoteHead, NotationStaff, PdfExportStatus, NotationExport};
+pub use tempo_film::{TempoChange, TimeSigChange2, VideoLockStatus, VideoFilmConfig};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -755,6 +769,61 @@ pub enum Action {
     SetArpRate { arp_id: usize, rate: f32 },
     SetArpOctaveRange { arp_id: usize, octaves: u8 },
     ToggleArpeggiator { arp_id: usize },
+
+    // ── VST Host (Batch 5) ─────────────────────────────────────────────────
+    ScanVstDirectory { path: String },
+    CompletVstScan { found_plugins: Vec<VstPluginInfo> },
+    LoadVst { plugin_id: String, track_id: Option<usize>, slot_index: usize },
+    UnloadVst { vst_instance_id: usize },
+    BypassVst { vst_instance_id: usize, bypass: bool },
+    SetVstPreset { vst_instance_id: usize, preset_name: String },
+    BlacklistVst { plugin_id: String },
+
+    // ── Surround (Batch 5) ─────────────────────────────────────────────────
+    SetSurroundFormat { format: SurroundFormat },
+    ToggleSurroundBus,
+    ToggleBinauralMonitor,
+    SetTrackSurroundPan { track_id: usize, pan: SurroundPan },
+    CreateAtmosObject { track_id: usize },
+    SetAtmosPan { object_id: usize, pan: SurroundPan },
+    RemoveAtmosObject { object_id: usize },
+
+    // ── Spectral (Batch 5) ─────────────────────────────────────────────────
+    ToggleSpectralView,
+    SetSpectralFftSize { size: usize },
+    SetSpectralColorMap { name: String },
+    ApplySpectralBrush {
+        clip_id: usize,
+        freq_low: f32,
+        freq_high: f32,
+        time_start: f32,
+        time_end: f32,
+        tool: SpectralTool,
+        strength: f32,
+    },
+    UndoLastSpectralBrush,
+    QueueSpectralStretch { clip_id: usize, time_ratio: f32, preserve_pitch: bool },
+    CompleteSpectralStretch { job_id: usize },
+
+    // ── Notation (Batch 5) ─────────────────────────────────────────────────
+    OpenNotationView { track_id: usize },
+    CloseNotationView { staff_id: usize },
+    SetStaffClef { staff_id: usize, clef: NotationClef },
+    SetStaffKeySig { staff_id: usize, key_sig: i8 },
+    SetStaffTranspose { staff_id: usize, semitones: i8 },
+    ExportNotationPdf { path: String },
+    CompleteNotationExport { export_id: usize },
+
+    // ── Tempo Film (Batch 5) ───────────────────────────────────────────────
+    AddTempoChange2 { bar: u32, bpm: f32, smooth: bool },
+    RemoveTempoChange { change_id: usize },
+    SetTempoChangeBpm { change_id: usize, bpm: f32 },
+    AddTimeSigChange2 { bar: u32, num: u8, denom: u8 },
+    RemoveTimeSigChange { change_id: usize },
+    LinkVideo { path: String, fps: f32 },
+    UnlinkVideo,
+    SetVideoOffset { frames: i32 },
+    ToggleVideoPlaybackLink,
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -944,6 +1013,40 @@ pub struct App {
     pub next_vi_id: usize,
     pub arp_configs: Vec<ArpConfig>,
     pub next_arp_id: usize,
+
+    // ── VST Host (Batch 5) ────────────────────────────────────────────────────
+    pub vst_scan_path: String,
+    pub vst_scan_running: bool,
+    pub vst_scan_results: Vec<VstPluginInfo>,
+    pub vst_blacklist: Vec<String>,
+    pub loaded_vsts: Vec<LoadedVst>,
+    pub next_vst_instance_id: usize,
+
+    // ── Surround (Batch 5) ────────────────────────────────────────────────────
+    pub surround_bus: SurroundBusConfig,
+    pub surround_pans: Vec<(usize, SurroundPan)>,
+    pub atmos_objects: Vec<AtmosObject>,
+    pub next_atmos_id: usize,
+
+    // ── Spectral (Batch 5) ────────────────────────────────────────────────────
+    pub spectral_view: SpectralViewConfig,
+    pub spectral_strokes: Vec<SpectralBrushStroke>,
+    pub spectral_stretch_jobs: Vec<SpectralStretchJob>,
+    pub next_spectral_brush_id: usize,
+    pub next_spectral_stretch_id: usize,
+
+    // ── Notation (Batch 5) ────────────────────────────────────────────────────
+    pub notation_staves: Vec<NotationStaff>,
+    pub notation_exports: Vec<NotationExport>,
+    pub next_notation_staff_id: usize,
+    pub next_notation_export_id: usize,
+
+    // ── Tempo Film (Batch 5) ──────────────────────────────────────────────────
+    pub tempo_changes: Vec<TempoChange>,
+    pub tsig_changes: Vec<TimeSigChange2>,
+    pub next_tempo_change_id: usize,
+    pub next_tsig_change_id: usize,
+    pub video_film: VideoFilmConfig,
 }
 
 impl App {
@@ -1066,6 +1169,35 @@ impl App {
             next_vi_id: 0,
             arp_configs: Vec::new(),
             next_arp_id: 0,
+            // Batch 5 fields
+            vst_scan_path: String::new(),
+            vst_scan_running: false,
+            vst_scan_results: Vec::new(),
+            vst_blacklist: Vec::new(),
+            loaded_vsts: Vec::new(),
+            next_vst_instance_id: 1,
+            surround_bus: SurroundBusConfig {
+                format: SurroundFormat::Stereo,
+                enabled: false,
+                binaural_monitor: false,
+            },
+            surround_pans: Vec::new(),
+            atmos_objects: Vec::new(),
+            next_atmos_id: 1,
+            spectral_view: SpectralViewConfig::default(),
+            spectral_strokes: Vec::new(),
+            spectral_stretch_jobs: Vec::new(),
+            next_spectral_brush_id: 1,
+            next_spectral_stretch_id: 1,
+            notation_staves: Vec::new(),
+            notation_exports: Vec::new(),
+            next_notation_staff_id: 1,
+            next_notation_export_id: 1,
+            tempo_changes: Vec::new(),
+            tsig_changes: Vec::new(),
+            next_tempo_change_id: 1,
+            next_tsig_change_id: 1,
+            video_film: VideoFilmConfig::default(),
         }
     }
 
@@ -1479,6 +1611,53 @@ impl App {
             | Action::SetArpRate { .. }
             | Action::SetArpOctaveRange { .. }
             | Action::ToggleArpeggiator { .. } => self.apply_midi_routing(action),
+
+            // ── VST Host ─────────────────────────────────────────────────────
+            Action::ScanVstDirectory { .. }
+            | Action::CompletVstScan { .. }
+            | Action::LoadVst { .. }
+            | Action::UnloadVst { .. }
+            | Action::BypassVst { .. }
+            | Action::SetVstPreset { .. }
+            | Action::BlacklistVst { .. } => self.apply_vst_host(action),
+
+            // ── Surround ─────────────────────────────────────────────────────
+            Action::SetSurroundFormat { .. }
+            | Action::ToggleSurroundBus
+            | Action::ToggleBinauralMonitor
+            | Action::SetTrackSurroundPan { .. }
+            | Action::CreateAtmosObject { .. }
+            | Action::SetAtmosPan { .. }
+            | Action::RemoveAtmosObject { .. } => self.apply_surround(action),
+
+            // ── Spectral ─────────────────────────────────────────────────────
+            Action::ToggleSpectralView
+            | Action::SetSpectralFftSize { .. }
+            | Action::SetSpectralColorMap { .. }
+            | Action::ApplySpectralBrush { .. }
+            | Action::UndoLastSpectralBrush
+            | Action::QueueSpectralStretch { .. }
+            | Action::CompleteSpectralStretch { .. } => self.apply_spectral(action),
+
+            // ── Notation ─────────────────────────────────────────────────────
+            Action::OpenNotationView { .. }
+            | Action::CloseNotationView { .. }
+            | Action::SetStaffClef { .. }
+            | Action::SetStaffKeySig { .. }
+            | Action::SetStaffTranspose { .. }
+            | Action::ExportNotationPdf { .. }
+            | Action::CompleteNotationExport { .. } => self.apply_notation(action),
+
+            // ── Tempo Film ────────────────────────────────────────────────────
+            Action::AddTempoChange2 { .. }
+            | Action::RemoveTempoChange { .. }
+            | Action::SetTempoChangeBpm { .. }
+            | Action::AddTimeSigChange2 { .. }
+            | Action::RemoveTimeSigChange { .. }
+            | Action::LinkVideo { .. }
+            | Action::UnlinkVideo
+            | Action::SetVideoOffset { .. }
+            | Action::ToggleVideoPlaybackLink => self.apply_tempo_film(action),
         }
     }
 }

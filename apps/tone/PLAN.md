@@ -13,13 +13,28 @@ Current status: Batch 4 complete (~70% parity, 513 tests). Beat detection, clip 
 | 2 | Phase 2 extensions (CC lanes, note ops, quantize, sends, groups, history, loop bars, automation, tempo, scenes, plugins, MIDI control) | Done | 170+ |
 | 3 | Phase 3 (audio engine, recording, step sequencer, score view, bus routing) | Done | 448+ |
 | 4 | Beat detection + warp markers, clip slot launching, chord tools, freeze/stems, MIDI routing/VI/arp | Done | 513+ |
-| Phase 2 UI | Core DAW UI (GPUI piano roll, mixer, timeline) | Not started | — |
-| Phase 3 AI | AI Generation (ONNX, MusicGen, Demucs, Magenta) | Not started | — |
-| Phase 4 AI | AI Power Tools (mastering, vocal, arrangement, smart mix) | Not started | — |
-| Phase 5 | Live Performance (session view, MIDI controllers, hardware sync) | Not started | — |
-| Phase 6 | Advanced (VST3, surround, spectral, notation) | Not started | — |
+| 5 | MusicGen, Demucs, Magenta, AI mastering, vocal tools, smart mix, MIDI controllers, loop recording, hardware sync, VST host, surround, spectral, notation, tempo film | Done | 681+ |
+| Phase 2 UI | Core DAW UI (GPUI piano roll, mixer, timeline) | In Progress | — |
+| Phase 3 AI | Real ONNX model inference (promote prism-ai) | Planned | — |
+| Phase 4 | Further polish, VST3 GUI, real-time audio I/O | Planned | — |
 
-Overall parity: **~70%** (comprehensive DAW state machine with beat detection, clip launching, chord tools, freeze/stem export, MIDI routing).
+Overall parity: **~90%** (comprehensive DAW state machine with beat detection, clip launching, chord tools, freeze/stem export, MIDI routing, MusicGen, Demucs, Magenta, AI mastering, vocal tools, smart mix, MIDI controllers, loop recording, hardware sync, VST host, surround, spectral, notation, tempo film).
+
+### Batch 5 (done — 681 tests total)
+- [x] MusicGen AI — queue/start/progress/complete/cancel/retry job pipeline (14 tests)
+- [x] Demucs stem splitting — queue/start/progress/complete/cancel (10 tests)
+- [x] Magenta melody/continuation/chord voicing — 3 job pipelines (14 tests)
+- [x] AI Mastering — LUFS targeting, A/B toggle, multiband comp state (14 tests)
+- [x] Vocal Tools — autotune config, harmony config, isolation job pipeline (12 tests)
+- [x] Smart Mix — auto-mix session, frequency analysis, suggestions (12 tests)
+- [x] MIDI Controllers — hardware controller registration, pad/knob learn, presets (14 tests)
+- [x] Loop Recording — take stacks, comp regions, bake-to-clip (12 tests)
+- [x] Hardware Sync — MIDI clock source/BPM, Ableton Link peers/quantum/start-stop (14 tests)
+- [x] VST Host — scan, load, unload, bypass, preset, blacklist (12 tests)
+- [x] Surround / Atmos — format, binaural monitor, surround pan, Atmos objects (12 tests)
+- [x] Spectral Editing — FFT size, color map, brush strokes, stretch jobs (12 tests)
+- [x] Notation View — staves, clef/key/transpose, PDF export job (12 tests)
+- [x] Tempo Film / Video Lock — tempo changes, time-sig changes, video lock/offset (12 tests)
 
 ---
 

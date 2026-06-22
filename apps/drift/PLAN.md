@@ -17,7 +17,15 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 | 5 | Export pipeline, Lottie, state machines, interactive | 80% | 650+ | Planned |
 | 6 | Polish: audio mixing, scripting, plugin API | 90% | 800+ | Planned |
 
-**Current overall parity: ~70%** — 427 tests passing.
+**Current overall parity: ~90%** — 492 tests passing.
+
+### Batch 8 (done)
+- [x] Deformation — puppet pin anchors, deform layers (liquify/push/twist/expand), stretch-squash (14 tests)
+- [x] Masking — alpha/luma/stencil masks, clipping groups (12 tests)
+- [x] Text Layers / SVG Import — rich text state, SVG import job queue, font/color/align/spacing (14 tests)
+- [x] Lottie — export config + import job queue with layer creation tracking (14 tests)
+- [x] Layer Blend Modes — per-layer blend mode + fill opacity (8 tests)
+- [x] Plugin API — plugin manifest, load/enable/disable/unload, extension panels (12 tests)
 
 ### Batch 6 (done)
 - [x] 3D Layer Transforms — rotation X/Y, Z-position, vanishing point, projection mode (12 tests)

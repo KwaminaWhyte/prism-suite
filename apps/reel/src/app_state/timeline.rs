@@ -425,6 +425,34 @@ impl WipeDir {
     }
 }
 
+/// Direction a slide transition moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlideDirection { Left, Right, Up, Down }
+
+/// Direction a split transition opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SplitDirection { Horizontal, Vertical }
+
+/// Direction a swap transition swaps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwapDirection { Left, Right }
+
+/// Direction a spin transition rotates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpinDirection { Clockwise, CounterClockwise }
+
+/// Corner from which a page peel originates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PagePeelDirection { TopLeft, TopRight, BottomLeft, BottomRight }
+
+/// Direction a cube transition faces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CubeDirection { Left, Right, Up, Down }
+
+/// Film-grain dissolve pattern.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilmPattern { Grain, Burn, Dissolve }
+
 /// Kind of a transition applied at a cut.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TransitionKind {
@@ -437,6 +465,22 @@ pub enum TransitionKind {
     ClockWipe,
     DiagonalWipe,
     PixelDissolve,
+    // --- Batch 5 (new) ---
+    Slide(SlideDirection),
+    Split { direction: SplitDirection, flip: bool },
+    Swap(SwapDirection),
+    Zoom { grow: bool },
+    SpinAway(SpinDirection),
+    PagePeel { direction: PagePeelDirection, softness: f32 },
+    PageTurn { reverse: bool },
+    Cube { direction: CubeDirection, lighting: bool },
+    Film(FilmPattern),
+    Luma { invert: bool },
+    DipToBlack,
+    DipToWhite,
+    AdditiveDissolve,
+    NonAdditiveDissolve,
+    RandomInvert,
 }
 
 impl TransitionKind {
@@ -452,6 +496,22 @@ impl TransitionKind {
             TransitionKind::ClockWipe => "Clock Wipe",
             TransitionKind::DiagonalWipe => "Diagonal Wipe",
             TransitionKind::PixelDissolve => "Pixel Dissolve",
+            // --- Batch 5 (new) ---
+            TransitionKind::Slide(_) => "Slide",
+            TransitionKind::Split { .. } => "Split",
+            TransitionKind::Swap(_) => "Swap",
+            TransitionKind::Zoom { .. } => "Zoom",
+            TransitionKind::SpinAway(_) => "Spin Away",
+            TransitionKind::PagePeel { .. } => "Page Peel",
+            TransitionKind::PageTurn { .. } => "Page Turn",
+            TransitionKind::Cube { .. } => "Cube",
+            TransitionKind::Film(_) => "Film",
+            TransitionKind::Luma { .. } => "Luma",
+            TransitionKind::DipToBlack => "Dip to Black",
+            TransitionKind::DipToWhite => "Dip to White",
+            TransitionKind::AdditiveDissolve => "Additive Dissolve",
+            TransitionKind::NonAdditiveDissolve => "Non-Additive Dissolve",
+            TransitionKind::RandomInvert => "Random Invert",
         }
     }
 }
@@ -495,6 +555,37 @@ impl Transition {
             TransitionKind::FilmDissolve => {
                 let film_p = p.powf(1.0 / 2.2);
                 (1.0 - film_p, film_p, None)
+            }
+            // --- Batch 5 (new): simple dissolve-style transitions ---
+            TransitionKind::AdditiveDissolve
+            | TransitionKind::NonAdditiveDissolve
+            | TransitionKind::Luma { .. }
+            | TransitionKind::Film(_) => {
+                (1.0 - p, p, None)
+            }
+            // Dip-to-black: fade out then fade in through black
+            TransitionKind::DipToBlack => {
+                let black = [0.0f32, 0.0, 0.0, 1.0];
+                if p < 0.5 { (1.0, 0.0, Some((black, p * 2.0))) }
+                else { (0.0, 1.0, Some((black, (1.0 - p) * 2.0))) }
+            }
+            // Dip-to-white: fade out then fade in through white
+            TransitionKind::DipToWhite => {
+                let white = [1.0f32, 1.0, 1.0, 1.0];
+                if p < 0.5 { (1.0, 0.0, Some((white, p * 2.0))) }
+                else { (0.0, 1.0, Some((white, (1.0 - p) * 2.0))) }
+            }
+            // Spatial / motion transitions: hard cut at 50%
+            TransitionKind::Slide(_)
+            | TransitionKind::Split { .. }
+            | TransitionKind::Swap(_)
+            | TransitionKind::Zoom { .. }
+            | TransitionKind::SpinAway(_)
+            | TransitionKind::PagePeel { .. }
+            | TransitionKind::PageTurn { .. }
+            | TransitionKind::Cube { .. }
+            | TransitionKind::RandomInvert => {
+                if p < 0.5 { (1.0, 0.0, None) } else { (0.0, 1.0, None) }
             }
         }
     }

@@ -47,6 +47,8 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// Batch 8 domains
+pub mod ai_motion_ext;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +80,7 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use ai_motion_ext::{AiExtJobStatus, MotionSmoothJob, EaseSuggestion, EaseSuggestJob, InbetweenJob, ExpressionTransferJob, MotionFromVideoJob, DftExportStatus, CharacterPackExport};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -461,6 +464,24 @@ pub enum Action {
     AddSyncGroup { name: String, layer_ids: Vec<usize> },
     RemoveSyncGroup { group_id: usize },
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
+    // AI Motion Extensions (Batch 8)
+    QueueMotionSmooth { layer_id: usize, property: String, strength: f32 },
+    CompleteMotionSmooth { job_id: usize },
+    CancelMotionSmooth { job_id: usize },
+    QueueEaseSuggest { layer_id: usize },
+    CompleteEaseSuggest { job_id: usize, suggestions: Vec<EaseSuggestion> },
+    QueueInbetween { layer_id: usize, from_frame: usize, to_frame: usize, frames_to_fill: usize },
+    CompleteInbetween { job_id: usize },
+    CancelInbetween { job_id: usize },
+    QueueExpressionTransfer { rig_layer_id: usize, reference_image_path: String },
+    CompleteExpressionTransfer { job_id: usize },
+    QueueMotionFromVideo { video_path: String, target_rig_layer_id: usize, fps: f32 },
+    UpdateMotionFromVideoProgress { job_id: usize, keyframes_created: usize },
+    CompleteMotionFromVideo { job_id: usize, keyframes_created: usize },
+    StartCharPackExport { rig_layer_id: usize, output_path: String, include_audio: bool },
+    CompleteCharPackExport { export_id: usize },
+    CancelCharPackExport { export_id: usize },
+
     // Tool selection
     SetActiveTool(DriftTool),
 }
@@ -647,6 +668,20 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // Batch 8: AI Motion Extensions
+    pub motion_smooth_jobs: Vec<MotionSmoothJob>,
+    pub next_ms_job_id: usize,
+    pub ease_suggest_jobs: Vec<EaseSuggestJob>,
+    pub next_ease_job_id: usize,
+    pub inbetween_jobs: Vec<InbetweenJob>,
+    pub next_inbetween_id: usize,
+    pub expr_transfer_jobs: Vec<ExpressionTransferJob>,
+    pub next_expr_transfer_id: usize,
+    pub mfv_jobs: Vec<MotionFromVideoJob>,
+    pub next_mfv_id: usize,
+    pub char_pack_exports: Vec<CharacterPackExport>,
+    pub next_char_pack_id: usize,
 }
 
 impl App {
@@ -781,6 +816,19 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // Batch 8: AI Motion Extensions
+            motion_smooth_jobs: Vec::new(),
+            next_ms_job_id: 1,
+            ease_suggest_jobs: Vec::new(),
+            next_ease_job_id: 1,
+            inbetween_jobs: Vec::new(),
+            next_inbetween_id: 1,
+            expr_transfer_jobs: Vec::new(),
+            next_expr_transfer_id: 1,
+            mfv_jobs: Vec::new(),
+            next_mfv_id: 1,
+            char_pack_exports: Vec::new(),
+            next_char_pack_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1108,6 +1156,24 @@ impl App {
             | Action::AddSyncGroup { .. }
             | Action::RemoveSyncGroup { .. }
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
+            // AI Motion Extensions (Batch 8)
+            Action::QueueMotionSmooth { .. }
+            | Action::CompleteMotionSmooth { .. }
+            | Action::CancelMotionSmooth { .. }
+            | Action::QueueEaseSuggest { .. }
+            | Action::CompleteEaseSuggest { .. }
+            | Action::QueueInbetween { .. }
+            | Action::CompleteInbetween { .. }
+            | Action::CancelInbetween { .. }
+            | Action::QueueExpressionTransfer { .. }
+            | Action::CompleteExpressionTransfer { .. }
+            | Action::QueueMotionFromVideo { .. }
+            | Action::UpdateMotionFromVideoProgress { .. }
+            | Action::CompleteMotionFromVideo { .. }
+            | Action::StartCharPackExport { .. }
+            | Action::CompleteCharPackExport { .. }
+            | Action::CancelCharPackExport { .. } => self.apply_ai_motion_ext(&action),
+
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
         }

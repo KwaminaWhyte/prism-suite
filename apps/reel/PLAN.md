@@ -449,6 +449,47 @@ Then editing tools (Ph2), then transitions/color/audio/export.
 
 ---
 
+## Child Windows & Secondary UI
+
+Reel uses GPUI's `cx.open_window(...)` for all secondary windows. The welcome screen is already implemented as a floating child window wired to dispatch `NewSequence`, `OpenFile`, and recent-project actions. The windows below are the remaining secondary UI surface needed to reach parity with Premiere Pro's dialog and workspace model.
+
+### Welcome / Home Screen (already implemented)
+- **Kind:** `WindowKind::Floating` (900×560 px)
+- **Phase:** done — shown on launch when no project is open; recent projects list, New Sequence, and Open buttons; dismissed on project load.
+
+### Sequence Settings
+- **Kind:** `WindowKind::Floating` (560×440 px)
+- **Phase:** Phase 2 / Batch 3 (already partially done as an overlay; promote to a true child window)
+- Sequence name, resolution presets (1080p/4K/vertical) + custom width/height, frame rate (dropdown + custom), pixel aspect ratio, field order, audio sample rate, working color space. Opened from Sequence ▸ Sequence Settings… and during new-sequence creation. Replaces the current inline floating overlay (`Action::ToggleSequenceSettings`) with a proper OS-level child window that persists position and can coexist with the main workspace.
+
+### Export / Render Queue
+- **Kind:** `WindowKind::Floating` (800×560 px)
+- **Phase:** Phase 7 (Export & render) — currently a side panel; promote to a dedicated child window for the full Media-Encoder-style queue
+- Per-job rows showing composition name, output format, progress bar, and status (Queued / Rendering / Done / Failed). Add to Queue (Ctrl+M), format preset selector (YouTube 1080p/4K, Twitter/X, Vimeo, ProRes 422, GIF, MP3 — already in `ExportPresetB5`), Remove, and Start Queue buttons. Wraps the existing `render_queue` module's `RenderQueue` state. Opening it from File ▸ Export Video… auto-enqueues the current sequence and brings this window forward.
+
+### Preferences
+- **Kind:** `WindowKind::Floating` (800×600 px)
+- **Phase:** Phase 10 (Reliability, performance & ease-of-use)
+- Tabs: General (auto-save interval, undo levels, default frame rate), Playback (hardware decode, playback resolution, dropped-frame threshold), Media (scratch disk, media cache folder, optimized media path), Audio Hardware (device, buffer size, sample rate), Capture (device, format, scratch), Collaboration (future). Persisted to `~/.config/prism/reel_prefs.json`.
+
+### Title / Motion Graphics Editor
+- **Kind:** `WindowKind::Floating` (960×640 px)
+- **Phase:** Phase 6 (Titles, graphics, captions)
+- Essential-Graphics-style editor for creating and editing title clips and `.mogrt` templates. Left sidebar: text / shape / image tool palette. Center: canvas preview with snap/guides. Right: property inspector (font, size, color, alignment, motion presets). Opened by double-clicking a Title clip on the timeline. Shares state with the main app via `Model<App>` so edits are live-previewed in the program monitor.
+
+### Command Palette
+- **Kind:** `WindowKind::PopUp` (560×400 px)
+- **Phase:** Phase 10 (Prefs / shortcuts / workspaces)
+- Keyboard-driven command launcher (Cmd+Shift+P). Fuzzy-search over all registered actions (trim tools, effect adds, workspace switches, sequence settings, export presets). Arrow keys to navigate, Enter to execute. Dismissed on Escape or focus loss. Each result row shows the command name, its current keyboard shortcut (if any), and a category badge. Implemented as a `WindowKind::PopUp` so it floats above all Reel windows including any floating panels.
+
+### Implementation notes
+- All child windows share state via `Model<App>` passed at `cx.open_window(...)` time; no duplicated state.
+- The Sequence Settings and Export windows remember their last position in `AppPrefs.window_positions: HashMap<String, (f32,f32)>`.
+- `WindowKind::PopUp` (Command Palette) is opened with `appears_transparent: false`, no traffic-light buttons, and `is_movable: false`; it is centered on the main window using `Bounds::centered(Some(main_window_handle), ...)`.
+- Title bar for Floating windows: `TitlebarOptions { title: Some("Sequence Settings".into()), appears_transparent: false, traffic_light_position: None }`.
+
+---
+
 ## 8. UI/UX & workspace
 
 A pro NLE lives or dies by its workspace ergonomics — panel management, monitoring,

@@ -156,18 +156,23 @@ Use cases for child windows in each app:
 - **Script editor**: floating code/expression editor (Pulse expressions, Reel effects)
 - **Progress window**: async operations (AI generation, render queue, export)
 
-Pattern for a welcome window in GPUI:
+**MANDATORY: every child window must use `WindowKind::Floating`.** This makes the window float above ALL other windows regardless of which app is active — it stays on top even when the user clicks into another app. Never open a child window with the default `WindowKind::Normal`.
+
+Pattern for any child window in GPUI:
 ```rust
 cx.open_window(
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(
             Bounds::centered(None, size(px(900.0), px(580.0)), cx)
         )),
+        kind: WindowKind::Floating,   // REQUIRED — keeps window on top always
         ..Default::default()
     },
-    |win, cx| cx.new(|cx| WelcomeView::new(cx)),
+    |win, cx| cx.new(|cx| ChildView::new(cx)),
 )
 ```
+
+The only exception is the main editor window itself, which uses the default `WindowKind::Normal`.
 
 ## Conventions
 

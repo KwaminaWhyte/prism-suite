@@ -861,6 +861,15 @@ pub enum Action {
     SetExportTwoPassB5(bool),
     SetExportHardwareEncodeB5(bool),
 
+    // --- Welcome screen actions -----------------------------------------------
+    /// Create a new project with a given resolution and frame rate. Dispatched
+    /// from the welcome screen preset cards. Resets the project to defaults and
+    /// sets the composition dimensions / frame rate.
+    NewProject { width: u32, height: u32, frame_rate: f64 },
+    /// Open an existing project via a file picker dialog. Dispatched from the
+    /// welcome screen "Open Project..." button. Stub — I/O in a later wave.
+    OpenFile,
+
     // --- Batch 5 (new): Sequences B5 -----------------------------------------
     NewSequenceB5 { name: String, width: u32, height: u32, frame_rate: f64 },
     DuplicateSequenceB5 { sequence_id: usize },
@@ -1619,6 +1628,29 @@ impl App {
             | Action::UpdateSequenceSettingsB5 { .. }
             | Action::NestSequenceB5 { .. } => {
                 self.apply_batch5(action);
+            }
+
+            // --- Welcome screen actions ---------------------------------------
+            Action::NewProject { width, height, frame_rate } => {
+                // Reset to a blank project and apply the chosen preset dimensions.
+                let (w, h, fr) = (*width, *height, *frame_rate);
+                self.project = Project::new();
+                self.host.comp_w = w;
+                self.host.comp_h = h;
+                self.time = 0.0;
+                // Delegate to NewSequenceB5 so the active sequence also picks up
+                // the resolution and frame-rate.
+                let fr_copy = fr;
+                self.apply(Action::NewSequenceB5 {
+                    name: format!("{}x{} {:.2}fps", w, h, fr_copy),
+                    width: w,
+                    height: h,
+                    frame_rate: fr_copy,
+                });
+            }
+            Action::OpenFile => {
+                // Stub: actual file-picker I/O is wired in a later wave.
+                log::info!("reel: OpenFile requested from welcome screen");
             }
 
             // --- Timeline domain (catch-all for remaining actions) ------------

@@ -21,10 +21,21 @@ use app_state::{Action, App, DriftTool, DriftOnnxModel, Fill, Stroke, StrokeCap,
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
-    WindowBounds, WindowOptions,
+    WindowBounds, WindowKind, WindowOptions,
 };
 use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, font_size};
+
+/// Which inspector numeric field is being edited inline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InspectorField {
+    PositionX,
+    PositionY,
+    ScaleX,
+    ScaleY,
+    Rotation,
+    Opacity,
+}
 
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route their
 /// mutations back through `app.apply` inside `cx.listener` callbacks.
@@ -32,6 +43,12 @@ pub struct Drift {
     pub app: App,
     focus: FocusHandle,
     pub editing_prompt: bool,
+    /// Inspector field currently being typed into (None = not editing).
+    pub editing_field: Option<InspectorField>,
+    /// Keystroke buffer for the inspector field being edited.
+    pub field_buffer: String,
+    /// Currently selected vector path id (None = nothing selected).
+    pub selected_path_id: Option<usize>,
     model_downloads: Vec<model_manager::ModelDownloadHandle>,
     /// Drives the real-time animation tick; present only while playing.
     /// Dropping it cancels the background timer.
@@ -118,6 +135,7 @@ fn fill_to_rgba(fill: &Fill, fallback: gpui::Rgba) -> gpui::Rgba {
 }
 
 /// Build the GPUI div elements for all vector paths belonging to a visible layer.
+/// Returns `(path_id, div)` tuples so callers can attach selection click-handlers.
 fn render_vector_paths(
     paths: &[VectorPath],
     layer_id: usize,
@@ -126,11 +144,12 @@ fn render_vector_paths(
     opacity: f32,
     layer_color: gpui::Rgba,
     scale: f32,
-) -> Vec<gpui::Div> {
+) -> Vec<(usize, gpui::Div)> {
     paths
         .iter()
         .filter(|p| p.layer_id == layer_id)
         .map(|path| {
+            let path_id = path.id;
             let fill_color = fill_to_rgba(&path.fill, gpui::rgba(
                 ((layer_color.r * 255.0) as u32) << 24
                 | ((layer_color.g * 255.0) as u32) << 16
@@ -143,7 +162,7 @@ fn render_vector_paths(
                 | ((path.stroke.b * 255.0) as u32) << 8
                 | 0xff,
             );
-            if let Some((rx, ry, rw, rh)) = path.as_rect() {
+            let shape_div = if let Some((rx, ry, rw, rh)) = path.as_rect() {
                 div()
                     .absolute()
                     .left(px((rx + tx) * scale))
@@ -180,7 +199,8 @@ fn render_vector_paths(
                     .border_1()
                     .border_color(stroke_color)
                     .opacity(opacity)
-            }
+            };
+            (path_id, shape_div)
         })
         .collect()
 }
@@ -190,10 +210,40 @@ impl Drift {
         let ks = &ev.keystroke;
         let m = &ks.modifiers;
 
+        // Inspector field editing — intercept all input first
+        if self.editing_field.is_some() {
+            match ks.key.as_str() {
+                "escape" => {
+                    self.editing_field = None;
+                    self.field_buffer.clear();
+                    cx.notify();
+                }
+                "enter" => {
+                    self.apply_field_edit(cx);
+                }
+                "backspace" => {
+                    self.field_buffer.pop();
+                    cx.notify();
+                }
+                k if k.len() == 1 => {
+                    let ch = k.chars().next().unwrap_or('\0');
+                    if ch.is_ascii_digit()
+                        || ch == '.'
+                        || (ch == '-' && self.field_buffer.is_empty())
+                    {
+                        self.field_buffer.push(ch);
+                        cx.notify();
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // If typing into the AI prompt textarea, intercept all keys
         if self.editing_prompt {
             match ks.key.as_str() {
-                "escape" | "return" => {
+                "escape" | "enter" => {
                     self.editing_prompt = false;
                     cx.notify();
                 }
@@ -315,6 +365,39 @@ impl Drift {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Apply the buffered text as a numeric value to the currently edited inspector field.
+    fn apply_field_edit(&mut self, cx: &mut Context<Self>) {
+        if let Some(field) = self.editing_field.take() {
+            let val = self.field_buffer.parse::<f32>().unwrap_or(0.0);
+            self.field_buffer.clear();
+            if let Some(id) = self.app.active_layer {
+                let t = self.app.transforms.get(&id).cloned()
+                    .unwrap_or_else(LayerTransform::new);
+                match field {
+                    InspectorField::PositionX => self.app.apply(Action::SetLayerPosition {
+                        id, x: val, y: t.y,
+                    }),
+                    InspectorField::PositionY => self.app.apply(Action::SetLayerPosition {
+                        id, x: t.x, y: val,
+                    }),
+                    InspectorField::ScaleX => self.app.apply(Action::SetLayerScale {
+                        id, x: val.max(0.001), y: t.scale_y,
+                    }),
+                    InspectorField::ScaleY => self.app.apply(Action::SetLayerScale {
+                        id, x: t.scale_x, y: val.max(0.001),
+                    }),
+                    InspectorField::Rotation => self.app.apply(Action::SetLayerRotation {
+                        id, degrees: val,
+                    }),
+                    InspectorField::Opacity => self.app.apply(Action::SetLayerOpacity {
+                        id, opacity: (val / 100.0).clamp(0.0, 1.0),
+                    }),
+                }
+            }
+            cx.notify();
         }
     }
 }
@@ -473,9 +556,17 @@ impl Render for Drift {
 
         // ── Build shape divs for all visible layers ───────────────────────────
         let stage_scale = 0.5_f32;
-        let mut shape_divs: Vec<gpui::Div> = Vec::new();
+        // Compute the stage's window-relative top-left so click events (which
+        // carry window-relative coordinates) can be correctly mapped to canvas
+        // coordinates.  Layout: 240px left panel | flex canvas area | 260px AI
+        // panel; toolbar = 44px buttons + 22px hint bar = 66px total.
+        let vp_w = f32::from(window.viewport_size().width);
+        let canvas_area_w = (vp_w - 240.0 - 260.0).max(0.0);
+        let stage_origin_x = 240.0 + ((canvas_area_w - stage_w) * 0.5).max(0.0);
+        let stage_origin_y = 66.0_f32; // toolbar(44) + hint-bar(22)
+        let mut raw_shapes: Vec<(usize, gpui::Div)> = Vec::new();
         for (layer_id, _is_active, tx, ty, opacity, layer_color, _name, _has_shapes) in &visible_layers {
-            let mut layer_shapes = render_vector_paths(
+            raw_shapes.extend(render_vector_paths(
                 &self.app.vector_paths,
                 *layer_id,
                 *tx,
@@ -483,9 +574,24 @@ impl Render for Drift {
                 *opacity,
                 *layer_color,
                 stage_scale,
-            );
-            shape_divs.append(&mut layer_shapes);
+            ));
         }
+        // Attach selection highlight and per-shape click handler.
+        let selected_path_id = self.selected_path_id;
+        let shape_divs: Vec<_> = raw_shapes.into_iter().map(|(path_id, d)| {
+            let is_selected = selected_path_id == Some(path_id);
+            // Give each shape a stable id so it can be interactive.
+            let d = d.id(("shape", path_id));
+            let d = if is_selected {
+                d.border_2().border_color(gpui::rgb(0xffffff))
+            } else {
+                d
+            };
+            d.on_click(cx.listener(move |this, _ev, _win, cx| {
+                this.selected_path_id = Some(path_id);
+                cx.notify();
+            }))
+        }).collect();
 
         // ── Rig bone dots for the active layer ───────────────────────────────
         let active_layer_id = self.app.active_layer;
@@ -514,9 +620,13 @@ impl Render for Drift {
 
         // ── Shape tool: hint label text ───────────────────────────────────────
         let active_tool = self.app.active_tool;
+        // Only show the placement hint when the active layer has no shapes yet.
+        let active_layer_has_shapes = self.app.active_layer
+            .map(|lid| self.app.vector_paths.iter().any(|p| p.layer_id == lid))
+            .unwrap_or(false);
         let shape_hint: Option<&str> = match active_tool {
-            DriftTool::Rect => Some("Click to place a Rectangle"),
-            DriftTool::Ellipse => Some("Click to place an Ellipse"),
+            DriftTool::Rect if !active_layer_has_shapes => Some("Click to place a Rectangle"),
+            DriftTool::Ellipse if !active_layer_has_shapes => Some("Click to place an Ellipse"),
             _ => None,
         };
 
@@ -556,7 +666,12 @@ impl Render for Drift {
                                     .min_h(px(0.0))
                                     .child(panels::render_layers(&self.app, cx)),
                             )
-                            .child(panels::render_inspector(&self.app, cx)),
+                            .child(panels::render_inspector(
+                                &self.app,
+                                self.editing_field.as_ref(),
+                                &self.field_buffer,
+                                cx,
+                            )),
                     )
                     // Center: Canvas area with optional rulers
                     .child(
@@ -757,8 +872,9 @@ impl Render for Drift {
                                                 // ev.position() is in stage-div pixels (0.5× scale).
                                                 // Multiply by 2 to get full-resolution canvas coords.
                                                 let pos = ev.position();
-                                                let canvas_x = f32::from(pos.x) * 2.0;
-                                                let canvas_y = f32::from(pos.y) * 2.0;
+                                                // Subtract stage window-origin then scale to canvas coords.
+                                                let canvas_x = (f32::from(pos.x) - stage_origin_x) / stage_scale;
+                                                let canvas_y = (f32::from(pos.y) - stage_origin_y) / stage_scale;
                                                 // Pick a fill color based on how many paths already exist
                                                 let n = this.app.vector_paths.len();
                                                 let (r, g, b) = match n % 6 {
@@ -799,13 +915,58 @@ impl Render for Drift {
                                                         cx.notify();
                                                     }
                                                     DriftTool::Move => {
-                                                        // Click-to-position: move the active layer
-                                                        // so its origin lands at the clicked point.
+                                                        // Offset the layer so its shapes' bbox center
+                                                        // lands at the clicked canvas position.
+                                                        let paths_on_layer: Vec<_> = this.app.vector_paths.iter()
+                                                            .filter(|p| p.layer_id == layer_id)
+                                                            .collect();
+                                                        let (new_tx, new_ty) = if paths_on_layer.is_empty() {
+                                                            (canvas_x, canvas_y)
+                                                        } else {
+                                                            let mut min_x = f32::MAX;
+                                                            let mut min_y = f32::MAX;
+                                                            let mut max_x = f32::MIN;
+                                                            let mut max_y = f32::MIN;
+                                                            for p in &paths_on_layer {
+                                                                let (bx, by, bw, bh) = p.bbox();
+                                                                min_x = min_x.min(bx);
+                                                                min_y = min_y.min(by);
+                                                                max_x = max_x.max(bx + bw);
+                                                                max_y = max_y.max(by + bh);
+                                                            }
+                                                            let shape_cx = (min_x + max_x) * 0.5;
+                                                            let shape_cy = (min_y + max_y) * 0.5;
+                                                            (canvas_x - shape_cx, canvas_y - shape_cy)
+                                                        };
                                                         this.app.apply(Action::SetLayerPosition {
                                                             id: layer_id,
-                                                            x: canvas_x,
-                                                            y: canvas_y,
+                                                            x: new_tx,
+                                                            y: new_ty,
                                                         });
+                                                        cx.notify();
+                                                    }
+                                                    DriftTool::Select => {
+                                                        // Hit-test all shapes; select the topmost hit.
+                                                        let mut found_path: Option<(usize, usize)> = None; // (path_id, layer_id)
+                                                        for path in this.app.vector_paths.iter().rev() {
+                                                            let ltx = this.app.transforms.get(&path.layer_id)
+                                                                .map(|t| t.x).unwrap_or(0.0);
+                                                            let lty = this.app.transforms.get(&path.layer_id)
+                                                                .map(|t| t.y).unwrap_or(0.0);
+                                                            let (bx, by, bw, bh) = path.bbox();
+                                                            if canvas_x >= bx + ltx && canvas_x <= bx + bw + ltx
+                                                                && canvas_y >= by + lty && canvas_y <= by + bh + lty
+                                                            {
+                                                                found_path = Some((path.id, path.layer_id));
+                                                                break;
+                                                            }
+                                                        }
+                                                        if let Some((pid, lid)) = found_path {
+                                                            this.selected_path_id = Some(pid);
+                                                            this.app.apply(Action::SetActiveLayer(lid));
+                                                        } else {
+                                                            this.selected_path_id = None;
+                                                        }
                                                         cx.notify();
                                                     }
                                                     _ => {}
@@ -861,7 +1022,7 @@ impl Render for Drift {
                     .child(panels::render_ai_panel(&self.app, self.editing_prompt, cx)),
             )
             // Bottom: Timeline
-            .child(panels::render_timeline(&self.app, cx))
+            .child(panels::render_timeline(&self.app, f32::from(window.viewport_size().width), cx))
     }
 }
 
@@ -879,7 +1040,7 @@ fn main() {
             .primary_display()
             .map(|d| d.bounds())
             .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
-        cx.open_window(
+        let main_handle = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
@@ -902,25 +1063,40 @@ fn main() {
                             });
                         }
                     }
-                    Drift { app, focus, editing_prompt: false, model_downloads: vec![], playback_task: None }
+                    Drift {
+                        app,
+                        focus,
+                        editing_prompt: false,
+                        editing_field: None,
+                        field_buffer: String::new(),
+                        selected_path_id: None,
+                        model_downloads: vec![],
+                        playback_task: None,
+                    }
                 })
             },
         )
         .expect("failed to open Drift window");
 
         // Open the welcome window second (900 × 560 px, centered) so it
-        // appears on top of the full-display editor window.
+        // appears on top of the full-display editor window. Pass a WeakEntity
+        // so buttons can dispatch Actions to Drift before closing.
+        let weak_main = main_handle
+            .entity(cx)
+            .expect("failed to get main entity")
+            .downgrade();
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(
                     Bounds::centered(None, size(px(900.0), px(560.0)), cx),
                 )),
+                kind: WindowKind::Floating,
                 ..Default::default()
             },
             |_win, cx| {
                 cx.new(|cx| {
                     let focus = cx.focus_handle();
-                    welcome::WelcomeView::new(focus)
+                    welcome::WelcomeView::new(focus, weak_main)
                 })
             },
         )

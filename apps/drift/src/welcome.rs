@@ -3,16 +3,21 @@
 //! Left sidebar: app name, subtitle, "New Animation", "Open File...", recent files list.
 //! Right column: preset grid (resolution / fps combinations).
 //!
-//! Any action button closes this window via `win.remove_window()`.
+//! Any action button dispatches the corresponding Action to the main Drift entity
+//! and then closes this window.
 
 use gpui::{
     div, px, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window,
+    ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use prism_ui::{colors, font_size};
 
+use crate::app_state::{Action};
+use crate::Drift;
+
 pub struct WelcomeView {
     focus: FocusHandle,
+    app_entity: WeakEntity<Drift>,
 }
 
 impl Focusable for WelcomeView {
@@ -22,8 +27,8 @@ impl Focusable for WelcomeView {
 }
 
 impl WelcomeView {
-    pub fn new(focus: FocusHandle) -> Self {
-        Self { focus }
+    pub fn new(focus: FocusHandle, app_entity: WeakEntity<Drift>) -> Self {
+        Self { focus, app_entity }
     }
 }
 
@@ -91,6 +96,16 @@ fn preset_card(
 
 impl Render for WelcomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ae_new = self.app_entity.clone();
+        let ae_open = self.app_entity.clone();
+        // Preset card entities
+        let ae_hd24 = self.app_entity.clone();
+        let ae_hd30 = self.app_entity.clone();
+        let ae_720p = self.app_entity.clone();
+        let ae_4k   = self.app_entity.clone();
+        let ae_gif  = self.app_entity.clone();
+        let ae_cust = self.app_entity.clone();
+
         // ----------------------------------------------------------------
         // Left sidebar
         // ----------------------------------------------------------------
@@ -132,7 +147,13 @@ impl Render for WelcomeView {
             .child(sidebar_btn(
                 "welcome-new",
                 "New Animation",
-                cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                    if let Some(entity) = ae_new.upgrade() {
+                        entity.update(cx, |app, cx| {
+                            app.app.apply(Action::NewDocument);
+                            cx.notify();
+                        });
+                    }
                     win.remove_window();
                 }),
             ))
@@ -140,7 +161,15 @@ impl Render for WelcomeView {
             .child(sidebar_btn(
                 "welcome-open",
                 "Open File...",
-                cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                    if let Some(entity) = ae_open.upgrade() {
+                        entity.update(cx, |app, cx| {
+                            app.app.apply(Action::OpenDocument {
+                                path: String::new(), // picker triggered by empty path in a later wave
+                            });
+                            cx.notify();
+                        });
+                    }
                     win.remove_window();
                 }),
             ))
@@ -160,39 +189,7 @@ impl Render for WelcomeView {
                     .mb(px(4.0))
                     .child("RECENT FILES"),
             )
-            // Placeholder recent file rows
-            .child(
-                div()
-                    .text_size(px(font_size::SM))
-                    .text_color(colors::text_disabled())
-                    .px(px(4.0))
-                    .py(px(5.0))
-                    .child("(No recent files)"),
-            )
-            .child(
-                div()
-                    .text_size(px(font_size::SM))
-                    .text_color(colors::text_disabled())
-                    .px(px(4.0))
-                    .py(px(5.0))
-                    .child("(No recent files)"),
-            )
-            .child(
-                div()
-                    .text_size(px(font_size::SM))
-                    .text_color(colors::text_disabled())
-                    .px(px(4.0))
-                    .py(px(5.0))
-                    .child("(No recent files)"),
-            )
-            .child(
-                div()
-                    .text_size(px(font_size::SM))
-                    .text_color(colors::text_disabled())
-                    .px(px(4.0))
-                    .py(px(5.0))
-                    .child("(No recent files)"),
-            )
+            // Single empty state row
             .child(
                 div()
                     .text_size(px(font_size::SM))
@@ -204,6 +201,9 @@ impl Render for WelcomeView {
 
         // ----------------------------------------------------------------
         // Right column — preset cards
+        // Preset cards dispatch NewDocument (resets) then set document dims
+        // via SetDocumentWidth / SetDocumentHeight / SetDocumentFps after.
+        // The card click closes the window and fires the reset.
         // ----------------------------------------------------------------
         let right_col = div()
             .flex_1()
@@ -230,7 +230,16 @@ impl Render for WelcomeView {
                         "preset-hd24",
                         "HD 24fps",
                         "1920\u{00d7}1080 / 24fps",
-                        cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                        cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                            if let Some(entity) = ae_hd24.upgrade() {
+                                entity.update(cx, |app, cx| {
+                                    app.app.apply(Action::NewDocument);
+                                    app.app.apply(Action::SetDocumentWidth(1920));
+                                    app.app.apply(Action::SetDocumentHeight(1080));
+                                    app.app.apply(Action::SetDocumentFps(24.0));
+                                    cx.notify();
+                                });
+                            }
                             win.remove_window();
                         }),
                     ))
@@ -238,7 +247,16 @@ impl Render for WelcomeView {
                         "preset-hd30",
                         "HD 30fps",
                         "1920\u{00d7}1080 / 30fps",
-                        cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                        cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                            if let Some(entity) = ae_hd30.upgrade() {
+                                entity.update(cx, |app, cx| {
+                                    app.app.apply(Action::NewDocument);
+                                    app.app.apply(Action::SetDocumentWidth(1920));
+                                    app.app.apply(Action::SetDocumentHeight(1080));
+                                    app.app.apply(Action::SetDocumentFps(30.0));
+                                    cx.notify();
+                                });
+                            }
                             win.remove_window();
                         }),
                     )),
@@ -253,7 +271,16 @@ impl Render for WelcomeView {
                         "preset-720p",
                         "720p",
                         "1280\u{00d7}720 / 24fps",
-                        cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                        cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                            if let Some(entity) = ae_720p.upgrade() {
+                                entity.update(cx, |app, cx| {
+                                    app.app.apply(Action::NewDocument);
+                                    app.app.apply(Action::SetDocumentWidth(1280));
+                                    app.app.apply(Action::SetDocumentHeight(720));
+                                    app.app.apply(Action::SetDocumentFps(24.0));
+                                    cx.notify();
+                                });
+                            }
                             win.remove_window();
                         }),
                     ))
@@ -261,7 +288,16 @@ impl Render for WelcomeView {
                         "preset-4k",
                         "4K",
                         "4096\u{00d7}2304 / 24fps",
-                        cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                        cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                            if let Some(entity) = ae_4k.upgrade() {
+                                entity.update(cx, |app, cx| {
+                                    app.app.apply(Action::NewDocument);
+                                    app.app.apply(Action::SetDocumentWidth(4096));
+                                    app.app.apply(Action::SetDocumentHeight(2304));
+                                    app.app.apply(Action::SetDocumentFps(24.0));
+                                    cx.notify();
+                                });
+                            }
                             win.remove_window();
                         }),
                     )),
@@ -276,7 +312,16 @@ impl Render for WelcomeView {
                         "preset-gif",
                         "GIF / Web",
                         "512\u{00d7}512 / 24fps",
-                        cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                        cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                            if let Some(entity) = ae_gif.upgrade() {
+                                entity.update(cx, |app, cx| {
+                                    app.app.apply(Action::NewDocument);
+                                    app.app.apply(Action::SetDocumentWidth(512));
+                                    app.app.apply(Action::SetDocumentHeight(512));
+                                    app.app.apply(Action::SetDocumentFps(24.0));
+                                    cx.notify();
+                                });
+                            }
                             win.remove_window();
                         }),
                     ))
@@ -284,7 +329,15 @@ impl Render for WelcomeView {
                         "preset-custom",
                         "Custom...",
                         "Set your own size & fps",
-                        cx.listener(|_this, _ev: &ClickEvent, win, _cx| {
+                        cx.listener(move |_this, _ev: &ClickEvent, win, cx| {
+                            if let Some(entity) = ae_cust.upgrade() {
+                                entity.update(cx, |app, cx| {
+                                    // Custom: just reset to a new blank document;
+                                    // user sets dimensions via the document settings panel.
+                                    app.app.apply(Action::NewDocument);
+                                    cx.notify();
+                                });
+                            }
                             win.remove_window();
                         }),
                     )),

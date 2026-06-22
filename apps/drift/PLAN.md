@@ -241,3 +241,50 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 5. **Open source** — MIT/Apache-2.0; no subscription, no cloud lock-in
 6. **Lottie native** — first-class Lottie import/export, not an afterthought
 7. **Rust performance** — sub-millisecond keyframe evaluation; no GC pauses
+
+---
+
+## Child Windows & Secondary UI
+
+Drift uses GPUI's `cx.open_window(...)` for all secondary windows. The welcome screen is already implemented as a floating child window wired to dispatch `NewDocument`, `OpenFile`, and template preset actions. The windows below are the remaining secondary UI surface needed to complete the Drift UI model.
+
+### Welcome Screen (already implemented)
+- **Kind:** `WindowKind::Floating` (900×560 px)
+- **Phase:** done — shown on launch when no document is open; recent files list, New Animation button, template grid (social/web/game/character), Open…; dismissed on document load or creation.
+
+### Export Animation
+- **Kind:** `WindowKind::Floating` (680×520 px)
+- **Phase:** Phase 5 (Export, Lottie, State Machines — already has `ExportConfig`; promote to a dedicated window)
+- Format tabs: GIF / MP4 / WebM / WebP / Lottie JSON / APNG / Spritesheet / PNG Sequence. Per-format settings: GIF (palette size, dither method, loop count), MP4 (codec H.264/VP9, CRF, audio), Lottie (embed fonts, asset policy). Side-by-side before/after preview at a downscaled resolution. Frame range selector (full / work area / custom). Opened from File ▸ Export Animation… and from the render queue. Wraps the existing `ExportConfig` / `ExportFormat` state (Batch 6 / Phase 5).
+
+### Preferences
+- **Kind:** `WindowKind::Floating` (720×560 px)
+- **Phase:** Phase 6 polish / next batch after Batch 8
+- Tabs: General (undo levels, auto-save interval, default FPS, default canvas size), Canvas (background color, grid size, snap threshold, ruler units), AI (model cache directory, backend: CPU/CoreML/CUDA, download management), Shortcuts (remappable keyboard map), User Interface (theme, UI scale, panel layout). Persisted to `~/.config/prism/drift_prefs.json`.
+
+### Rig Editor
+- **Kind:** `WindowKind::Floating` (960×640 px)
+- **Phase:** Phase 3 (Puppet Rigging, IK — already has `RigBone` / `LayerRig`; add dedicated window in next rig-depth batch)
+- Dedicated bone and IK editing surface separate from the main canvas. Left sidebar: bone hierarchy tree (parent/child with indent). Center: full-canvas rig preview with bone overlays, drag handles for bone positions and lengths, IK target pins. Right: bone property inspector (name, length, rotation constraints, spring stiffness, influence weight map). Opened from Rig ▸ Open Rig Editor or by double-clicking a bone in the canvas. Shares state via `Model<App>`; edits are immediately reflected in the main canvas preview.
+
+### Detachable Color Picker
+- **Kind:** `WindowKind::Floating` (280×380 px)
+- **Phase:** Phase 6 polish / next batch
+- HSB / HSL / RGB / Hex modes, per-channel sliders, swatches strip, eyedropper. Tear-off style — stays visible while drawing or editing fills. Syncs with the active fill/stroke selector via `Model<ColorState>`. Mirrors Animate's Color panel tear-off behavior.
+
+### Script / Expression Editor
+- **Kind:** `WindowKind::Floating` (720×520 px)
+- **Phase:** Phase 6 (Scripting — already has `rhai` scripting state from Batch 7; promote inline editor to a floating window)
+- Full-featured Rhai script editor for frame scripts, button actions, and driven properties (expression-on-property). Syntax-highlighted code area, a console output pane below, variable inspector sidebar (current-frame values of watched expressions). Opened from the Script Editor toolbar button, from a frame-script keyframe badge in the timeline, or from a property's expression (⟨⟩ icon). Error underlining in the code area with line-column error messages in the console. Wraps the existing `scripts`, `script_console`, and `script_log_level` state (Batch 7).
+
+### AI Progress
+- **Kind:** `WindowKind::PopUp` (440×200 px)
+- **Phase:** Phase 4 (AI Motion Generation — already has inference progress state; add proper progress window)
+- Shown above all windows during ONNX inference jobs: AnimateDiff motion generation, FILM/RIFE frame interpolation, wav2vec2/Whisper lip sync, style transfer. Displays job name, model name, animated progress bar with frame count (e.g. "Generating frame 12 / 48"), elapsed time, and a Cancel button that posts a cancellation token to the worker thread. Uses `WindowKind::PopUp` so it appears above the Rig Editor and other floating windows.
+
+### Implementation notes
+- All child windows share state via `Model<App>` passed at `cx.open_window(...)` time.
+- The Rig Editor and Script Editor are heavy workspaces that may be left open alongside the main canvas; they are `WindowKind::Floating` (not PopUp) so they can be moved, resized, and live side-by-side.
+- Window positions are persisted in `AppPrefs.window_positions: HashMap<String, (f32,f32)>`.
+- `WindowKind::PopUp` (AI Progress) is opened with `is_movable: false`, centered on the main window via `Bounds::centered(Some(main_window_handle), ...)`, and has no traffic-light buttons.
+- Title bar: `TitlebarOptions { title: Some("Export Animation".into()), appears_transparent: false, traffic_light_position: None }` for Floating windows.

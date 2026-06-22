@@ -864,4 +864,12 @@ pub enum Action {
     InvalidateWaveform { clip_id: usize },
     SetWaveformPeaks { clip_id: usize, peaks: Vec<WaveformPeak>, sample_rate: u32, pixels_per_second: f32 },
     ClearWaveformCache,
+
+    // ── Welcome screen actions ────────────────────────────────────────────────
+    /// Create a new blank project (resets all state). Dispatched from the
+    /// welcome screen "New Project" button and template cards.
+    NewProject,
+    /// Open an existing project via a file picker. Dispatched from the welcome
+    /// screen "Open Project..." button. Stub — I/O wired in a later wave.
+    OpenFile,
 }

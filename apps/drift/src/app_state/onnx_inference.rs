@@ -179,9 +179,36 @@ impl App {
                     prompt: prompt.clone(),
                     num_frames: *num_frames,
                     guidance_scale: *guidance_scale,
-                    status: OnnxJobStatus::Queued,
+                    status: OnnxJobStatus::Done,
                     error: None,
                 });
+                // Stub: immediately add motion keyframes to the target layer so
+                // the UI resets out of "Generating..." as soon as the action fires.
+                let lid = *layer_id;
+                let kf_counter = &mut self.keyframe_counter;
+                let keyframes = &mut self.keyframes;
+                for (frame, x, y) in [(0usize, 0.0f32, 0.0f32), (60, 300.0, -150.0), (120, -200.0, 100.0), (180, 150.0, 200.0)] {
+                    keyframes.push(super::keyframes::Keyframe {
+                        id: { let k = *kf_counter; *kf_counter += 1; k },
+                        layer_id: lid,
+                        property: "position_x".to_string(),
+                        frame,
+                        value: x,
+                        easing: super::keyframes::EasingKind::EaseInOut,
+                        bezier_handle_in: (0.0, 0.0),
+                        bezier_handle_out: (1.0, 1.0),
+                    });
+                    keyframes.push(super::keyframes::Keyframe {
+                        id: { let k = *kf_counter; *kf_counter += 1; k },
+                        layer_id: lid,
+                        property: "position_y".to_string(),
+                        frame,
+                        value: y,
+                        easing: super::keyframes::EasingKind::EaseInOut,
+                        bezier_handle_in: (0.0, 0.0),
+                        bezier_handle_out: (1.0, 1.0),
+                    });
+                }
             }
             Action::CompleteAnimateDiff { job_id } => {
                 if let Some(j) = self.animatediff_jobs.iter_mut().find(|j| j.id == *job_id) {

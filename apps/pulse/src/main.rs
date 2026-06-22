@@ -36,12 +36,11 @@ use app_state::{Action, App};
 use gpui::{
     div, px, rgb, size, AppContext, Bounds, Context, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, RenderImage,
-    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowOptions,
+    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use gpui::prelude::FluentBuilder;
 
 use panels::preview_panel;
-use panels::welcome;
 use panels::{DOCK_W, STRIP_W, TIMELINE_H, TOOLBAR_H};
 
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route their
@@ -170,7 +169,6 @@ impl Render for Pulse {
         let comp_settings = panels::comp_settings::render(app, cx);
         let timeline = panels::timeline::render(app, cx);
 
-        let show_welcome = self.app.welcome_visible;
         div()
             .track_focus(&self.focus)
             .key_context("Pulse")
@@ -279,8 +277,6 @@ impl Render for Pulse {
                     .border_color(prism_ui::colors::surface_border())
                     .child(timeline),
             )
-            // Welcome screen overlay — floats above all chrome when visible.
-            .when(show_welcome, |d| d.child(welcome::render(&self.app, cx)))
     }
 }
 
@@ -335,7 +331,7 @@ fn main() {
         let bounds = cx.primary_display()
             .map(|d| d.bounds())
             .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
-        cx.open_window(
+        let main_handle = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
@@ -354,6 +350,28 @@ fn main() {
             },
         )
         .expect("failed to open window");
+
+        let weak_pulse = main_handle
+            .entity(cx)
+            .expect("failed to get main entity")
+            .downgrade();
+
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(
+                    Bounds::centered(None, size(px(900.0), px(560.0)), cx),
+                )),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |window, cx| {
+                let focus = cx.focus_handle();
+                window.focus(&focus);
+                cx.new(|_cx| panels::welcome::WelcomeView::new(focus, weak_pulse))
+            },
+        )
+        .expect("failed to open Pulse welcome window");
+
         cx.activate(true);
     });
 }

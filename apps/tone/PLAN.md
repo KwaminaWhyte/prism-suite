@@ -242,3 +242,50 @@ Goal: pro-level features matching Logic Pro.
 | Session/clip launcher | No | Yes (Phase 5) |
 | AI mastering | Limited | Yes (Phase 4) |
 | Vocal harmoniser | No | Yes (Phase 4) |
+
+---
+
+## Child Windows & Secondary UI
+
+Tone uses GPUI's `cx.open_window(...)` for all secondary windows. The welcome screen is already a floating child window wired to dispatch `NewProject`, `OpenFile`, and template preset actions. The windows below are the remaining secondary UI surface needed to reach parity with Logic Pro / GarageBand's multi-window model.
+
+### Welcome / Home Screen (already implemented)
+- **Kind:** `WindowKind::Floating` (900×560 px)
+- **Phase:** done — shown on launch when no project is open; recent projects list, New Project (with BPM / time-sig / key defaults), template grid (Electronic / Hip-Hop / Acoustic / Film Score), Open…; dismissed on project load.
+
+### Detachable Piano Roll
+- **Kind:** `WindowKind::Floating` (1100×600 px)
+- **Phase:** Phase 2 (Core DAW — Piano Roll Canvas)
+- The piano roll is the primary MIDI editing surface. When detached it becomes a full floating window: note grid with horizontal-time / vertical-pitch axes, velocity lane below, MIDI CC lane drawer, zoom controls, quantize toolbar (1/4 / 1/8 / 1/16 / triplets / swing), selection/pencil/eraser tools, chord-highlight overlay, and scale-assist mask. Opened by double-clicking a MIDI clip on the timeline or from Window ▸ Piano Roll. Syncs bidirectionally with the timeline clip via `Model<App>` — edits in the piano roll immediately reflect in the timeline view and vice versa. Logic Pro / Ableton both support a detached piano roll as a separate OS window; this matches that pattern.
+
+### Detachable Mixer
+- **Kind:** `WindowKind::Floating` (900×360 px)
+- **Phase:** Phase 2 (Core DAW — Mixer UI)
+- Full floating mixer window with one channel strip per track plus master: fader, pan knob, mute/solo/arm buttons, 3-band EQ curve visualizer, compressor gain-reduction meter, insert-slot list with drag reorder, send-level knobs to bus tracks. Opened from Window ▸ Mixer (Cmd+2). Stays open alongside the timeline so producers can mix while arranging, mirroring Logic Pro's separate Mixer window. Shares state via `Model<App>`.
+
+### VST Plugin GUI Windows
+- **Kind:** `WindowKind::Floating` (plugin-defined size, default 640×400 px)
+- **Phase:** Phase 6 (Advanced — Plugin System VST3/AU)
+- One child window per loaded VST3/AU plugin instance whose GUI is activated. Plugin GUIs are embedded inside a Tone-hosted OS window (the plugin draws into a native view; Tone wraps it in a `WindowKind::Floating` GPUI window with a thin title bar showing the plugin name and a bypass toggle). Multiple plugin windows can be open simultaneously — one per instance. Each window remembers its position in `AppPrefs.plugin_window_positions: HashMap<PluginInstanceId, (f32,f32)>`. Matches Logic Pro's floating plugin window model.
+
+### Export / Bounce
+- **Kind:** `WindowKind::Floating` (640×480 px)
+- **Phase:** Phase 2 / early Phase 3 (the bounce config already exists in `BounceConfig`)
+- Promote the existing `BounceConfig` (WAV/MP3/FLAC/OGG/Stems, normalize, dither, path) from a data struct to a proper Export window. Format tabs: Stereo Mix / Stems / MIDI. Stereo Mix: format selector, bit depth, sample rate, normalize toggle, dither type, loudness target (LUFS for streaming presets: Spotify -14 / YouTube -14 / CD -9), output path. Stems: per-track toggle list (which tracks to include), same format options. MIDI: clip selector, SMF format (0/1). Opened from File ▸ Bounce Project to Disk… (Cmd+B). Matches Logic Pro's Bounce dialog.
+
+### Preferences
+- **Kind:** `WindowKind::Floating` (720×560 px)
+- **Phase:** Phase 2 polish / Phase 4
+- Tabs: General (undo levels, auto-save interval, default BPM/time-sig/key, metronome volume), Audio (device, buffer size, sample rate, latency display, ASIO/CoreAudio), MIDI (controller devices, clock source, program-change behavior), Plug-ins (VST/AU scan paths, blacklist management, scan on startup), AI (model cache directory, backend CPU/CoreML/CUDA, bandwidth cap for model downloads), User Interface (theme, waveform color, UI scale). Persisted to `~/.config/prism/tone_prefs.json`.
+
+### AI Progress
+- **Kind:** `WindowKind::PopUp` (440×200 px)
+- **Phase:** Phase 3 (AI Generation) and Phase 4 (AI Power Tools)
+- Shown above all windows during ONNX inference: MusicGen text-to-track generation, Demucs stem separation, Magenta melody/continuation, AI Mastering pipeline, vocal isolation/autotune. Displays job name (e.g. "MusicGen: generating 30 s"), animated progress bar, elapsed time, and a Cancel button that sends a cancellation token to the worker thread. Uses `WindowKind::PopUp` so it appears above open plugin windows and the floating mixer.
+
+### Implementation notes
+- All child windows share state via `Model<App>` passed at `cx.open_window(...)` time — the Piano Roll and Mixer windows read the same `Project` / `Tracks` state the timeline panel reads.
+- Piano Roll and Mixer are "workspace windows" — they persist across document sessions and their open/closed states are saved in `AppPrefs.workspace: WorkspaceLayout { piano_roll_open, mixer_open, piano_roll_pos, mixer_pos }`.
+- VST plugin windows are managed by a `PluginWindowRegistry` that maps `PluginInstanceId → WindowHandle` and closes a plugin's window when the plugin is unloaded.
+- `WindowKind::PopUp` (AI Progress) is centered on the main window via `Bounds::centered(Some(main_window_handle), ...)`, has `is_movable: false`, and no traffic-light buttons.
+- Title bar for Floating windows: `TitlebarOptions { title: Some("Piano Roll".into()), appears_transparent: false, traffic_light_position: None }`.

@@ -212,6 +212,12 @@ pub enum Action {
     ClearSelection,
 
     // --- File I/O ---
+    /// Create a new blank document (resets canvas to defaults). Dispatched from
+    /// the welcome screen "New Document" button and template cards.
+    NewDocument,
+    /// Open a file via a picker dialog. Dispatched from the welcome screen
+    /// "Open File…" button. Delegates to OpenImage internally.
+    OpenFile,
     /// Open a real image file: show an `rfd` picker, load it through `prism_io`
     /// into a fresh single-layer document, and upload it to the engine. Replaces
     /// the current `Document`. Re-composites — marks host dirty.
@@ -1996,6 +2002,17 @@ impl App {
             | Action::SetSkyForegroundLighting(_) | Action::SetSkyOutputNewLayers(_)
             | Action::ApplySkyReplace | Action::ToggleSkyReplacePanel
             => self.apply_ai(action),
+
+            // welcome screen actions — dispatched from the welcome window buttons
+            Action::NewDocument => {
+                // Stub: mark host dirty so the canvas repaints with the current
+                // (blank) document. Full new-document dialog is a later wave.
+                self.host.mark_dirty();
+            }
+            Action::OpenFile => {
+                // Delegate to the existing OpenImage picker flow.
+                self.apply(Action::OpenImage);
+            }
 
             // export
             Action::OpenImage | Action::ExportImage | Action::OpenEXR | Action::ExportEXR

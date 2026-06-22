@@ -529,6 +529,25 @@ impl App {
             Action::InvalidateWaveform { .. }
             | Action::SetWaveformPeaks { .. }
             | Action::ClearWaveformCache => self.apply_waveform_cache(&action),
+
+            // ── Welcome screen actions ────────────────────────────────────────
+            Action::NewProject => {
+                // Reset to a blank project: clear tracks, clips, MIDI notes,
+                // mixer channels, and transport state.
+                self.tracks.clear();
+                self.clips.clear();
+                self.midi_notes.clear();
+                self.mixer_channels.clear();
+                self.playhead_beat = 0.0;
+                self.playing = false;
+                self.project = super::ToneProject::new();
+                self.undo_stack.clear();
+                self.redo_stack.clear();
+            }
+            Action::OpenFile => {
+                // Stub: actual file-picker I/O wired in a later wave.
+                log::info!("tone: OpenFile requested from welcome screen");
+            }
         }
     }
 }

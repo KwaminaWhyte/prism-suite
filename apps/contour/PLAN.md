@@ -37,3 +37,40 @@
 ## Batch 1–6 — Foundation
 
 Core document model, path/anchor editing, boolean operations, Pathfinder, pen tool, type-on-path, pattern fills, variable-width stroke, opacity, layers, symbols, gradient editor, align/distribute, the full live-shape engine.
+
+---
+
+## Child Windows & Secondary UI
+
+Contour has no child windows at all in the current implementation. All secondary UI is delivered as floating egui panels inside the single OS window. The items below define the full secondary-window surface needed to reach parity with Illustrator's dialog and palette model. Because Contour uses **eframe/egui** (not GPUI), secondary windows are implemented as `egui::Window::new("name").show(ctx, |ui| …)` floating panels within the same OS window rather than true OS-level child windows — unless Contour is migrated to GPUI in a future phase, at which point `cx.open_window(...)` applies.
+
+### Welcome Screen
+- **Kind:** `WindowKind::Floating` equivalent — egui floating panel (900×560 px) shown on launch when no document is open
+- **Phase:** earliest unimplemented phase — add to Batch 11 or the next available batch
+- Recent files list, New Document button (triggers Document Setup), template thumbnail grid (A4/Letter/Web 1920/Social), Open… button. Dismissed when a document is created or opened. Matches Illustrator's startup panel.
+
+### Document Setup
+- **Kind:** `WindowKind::Floating` equivalent — egui floating panel (520×400 px)
+- **Phase:** Batch 11 / next batch
+- Artboard dimensions (width, height, units: px/mm/in/pt), orientation toggle, color mode (RGB/CMYK), raster effects resolution (72/150/300 ppi), bleed fields. Opens on File ▸ Document Setup… and from the Welcome Screen "New" flow.
+
+### Export Window
+- **Kind:** `WindowKind::Floating` equivalent — egui floating panel (640×480 px)
+- **Phase:** Batch 11 / next batch
+- Format tabs: SVG / PDF / PNG / EPS. Per-format options (SVG: embed/link images, CSS properties; PDF: standard, flatten transparency; PNG: resolution, anti-alias; EPS: version). Asset export panel for multiple-artboard / multiple-scale export. Opened from File ▸ Export As… and File ▸ Export for Screens….
+
+### Color Picker
+- **Kind:** `WindowKind::Floating` equivalent — egui floating panel (280×360 px)
+- **Phase:** Batch 11 / next batch
+- HSB, HSL, RGB, Hex, CMYK modes; color swatches; eyedropper. Tear-off style — stays visible while editing paths. Syncs with the fill/stroke selector in the toolbar. Mirrors Illustrator's Color panel.
+
+### Preferences
+- **Kind:** `WindowKind::Floating` equivalent — egui floating panel (720×560 px)
+- **Phase:** Batch 12 or later polish phase
+- Tabs: General (undo levels, scale strokes/effects, double-click to isolate), Selection & Anchor Display (tolerance, snap radius), Type (glyph options, missing-font substitute), Units & Increments (ruler units, nudge amounts), Guides & Grid (color, style, spacing), Plug-ins & Scratch Disks, User Interface (UI brightness, canvas color). Persisted to `~/.config/prism/contour_prefs.json`.
+
+### Implementation notes
+- Until Contour is migrated to GPUI, all windows are `egui::Window` floating panels with `collapsible(false)`, `resizable(true)`, and a fixed default `Pos2` computed from the screen center.
+- The Welcome Screen panel is shown only when `app.document.is_none()` and dismissed by setting an `app.welcome_dismissed` flag.
+- Each panel's open/closed state is tracked in `AppState` (e.g. `show_export_window: bool`, `show_document_setup: bool`) and toggled via menu actions.
+- When Contour eventually migrates to GPUI, each panel above maps 1:1 to a `WindowKind::Floating` `cx.open_window(...)` call with the sizes listed above.

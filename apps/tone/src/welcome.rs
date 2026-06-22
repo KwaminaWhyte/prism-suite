@@ -1,10 +1,15 @@
 //! Welcome screen — shown on first launch before a project is opened.
+//!
+//! Buttons dispatch Actions to the main Tone entity and then close the window.
 
 use gpui::{
-    div, px, Context, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Window,
+    div, px, Context, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement,
+    Render, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use prism_ui::{colors, font_size};
+
+use crate::app_state::Action;
+use crate::Tone;
 
 static TEMPLATES: &[(&str, &str)] = &[
     ("Electronic", "128 BPM"),
@@ -15,17 +20,30 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("Custom...", ""),
 ];
 
-pub struct WelcomeView;
+pub struct WelcomeView {
+    focus: FocusHandle,
+    app_entity: WeakEntity<Tone>,
+}
 
 impl WelcomeView {
-    pub fn new() -> Self {
-        Self
+    pub fn new(focus: FocusHandle, app_entity: WeakEntity<Tone>) -> Self {
+        Self { focus, app_entity }
+    }
+}
+
+impl Focusable for WelcomeView {
+    fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
+        self.focus.clone()
     }
 }
 
 impl Render for WelcomeView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let ae_new = self.app_entity.clone();
+        let ae_open = self.app_entity.clone();
+
         div()
+            .track_focus(&self.focus)
             .size_full()
             .flex()
             .flex_row()
@@ -82,6 +100,15 @@ impl Render for WelcomeView {
                             .text_color(gpui::rgb(0xffffff))
                             .cursor_pointer()
                             .mb_2()
+                            .on_click(cx.listener(move |_this, _ev, win, cx| {
+                                if let Some(entity) = ae_new.upgrade() {
+                                    entity.update(cx, |app, cx| {
+                                        app.app.apply(Action::NewProject);
+                                        cx.notify();
+                                    });
+                                }
+                                win.remove_window();
+                            }))
                             .child("New Project"),
                     )
                     // Open Project button
@@ -99,6 +126,15 @@ impl Render for WelcomeView {
                             .text_color(colors::text_primary())
                             .cursor_pointer()
                             .mb_6()
+                            .on_click(cx.listener(move |_this, _ev, win, cx| {
+                                if let Some(entity) = ae_open.upgrade() {
+                                    entity.update(cx, |app, cx| {
+                                        app.app.apply(Action::OpenFile);
+                                        cx.notify();
+                                    });
+                                }
+                                win.remove_window();
+                            }))
                             .child("Open Project..."),
                     )
                     // Separator
@@ -149,6 +185,7 @@ impl Render for WelcomeView {
                             .flex_wrap()
                             .gap_3()
                             .children(TEMPLATES.iter().enumerate().map(|(i, (name, bpm))| {
+                                let ae = self.app_entity.clone();
                                 let label = if bpm.is_empty() {
                                     name.to_string()
                                 } else {
@@ -167,6 +204,15 @@ impl Render for WelcomeView {
                                     .items_center()
                                     .justify_center()
                                     .cursor_pointer()
+                                    .on_click(cx.listener(move |_this, _ev, win, cx| {
+                                        if let Some(entity) = ae.upgrade() {
+                                            entity.update(cx, |app, cx| {
+                                                app.app.apply(Action::NewProject);
+                                                cx.notify();
+                                            });
+                                        }
+                                        win.remove_window();
+                                    }))
                                     .child(
                                         div()
                                             .text_size(px(font_size::SM))

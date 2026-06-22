@@ -11,7 +11,11 @@ use gpui::{div, px, relative, Context, InteractiveElement, IntoElement, ParentEl
     SharedString, StatefulInteractiveElement, Styled};
 use prism_ui::{colors, font_size};
 
-pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
+pub fn render_timeline(app: &App, viewport_width: f32, cx: &mut Context<Drift>) -> impl IntoElement {
+    // Name column is 240 px; the track/ruler content takes the rest.
+    // We receive viewport_width from the caller so ruler ticks and keyframe dots
+    // share the same coordinate space.
+    let track_w = (viewport_width - 240.0).max(1.0);
     let total = app.document.duration_frames;
     let current = app.current_frame;
     let fps = app.document.fps as usize;
@@ -121,55 +125,57 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
         .child({
             let step = fps.max(1);
             let max_ticks = total / step + 1;
-            // Playhead indicator: absolute div at the current frame position.
-            // The ruler content starts at x=240 (name-column offset).
-            // We approximate the track area width as the full element minus that.
-            let playhead_pct = current as f32 / total.max(1) as f32;
+            let denom = total.max(1) as f32;
+            // Pre-compute pixel offsets (within the flex_1 content area) so GPUI
+            // never has to resolve relative() fractions — px() is unambiguous.
+            let playhead_px = (current as f32 / denom) * track_w;
             div()
                 .id("frame-ruler")
                 .w_full()
                 .h(px(20.0))
-                .relative()
                 .bg(colors::surface_bg())
                 .border_b_1()
                 .border_color(colors::surface_border())
                 .flex()
                 .items_center()
-                .px(px(240.0)) // offset for layer name column
                 .cursor_pointer()
-                // Playhead line
+                // 240 px name-column spacer — mirrors track row layout
+                .child(div().w(px(240.0)).flex_shrink_0())
+                // Ruler content area — same effective width as keyframe dot tracks
                 .child(
                     div()
-                        .absolute()
-                        .top(px(0.0))
-                        .bottom(px(0.0))
-                        .left(relative(playhead_pct))
-                        .w(px(1.5))
-                        .bg(gpui::rgba(0xff6b6bff)),
-                )
-                // Tick marks
-                .children((0..=max_ticks.min(60)).map(|i| {
-                    let f = i * step;
-                    div()
                         .flex_1()
-                        .text_size(px(8.0))
-                        .text_color(colors::text_disabled())
-                        .child(format!("{f}"))
-                }))
-                // Click-to-seek: click on the ruler to jump to that frame
+                        .h_full()
+                        .relative()
+                        // Playhead line at exact pixel position
+                        .child(
+                            div()
+                                .absolute()
+                                .top(px(0.0))
+                                .bottom(px(0.0))
+                                .left(px(playhead_px))
+                                .w(px(1.5))
+                                .bg(gpui::rgba(0xff6b6bff)),
+                        )
+                        // Tick labels at exact pixel positions — 1:1 with keyframe dots
+                        .children((0..=max_ticks.min(60)).map(|i| {
+                            let f = i * step;
+                            let x = (f as f32 / denom) * track_w;
+                            div()
+                                .absolute()
+                                .left(px(x))
+                                .top(px(3.0))
+                                .text_size(px(8.0))
+                                .text_color(colors::text_disabled())
+                                .child(format!("{f}"))
+                        })),
+                )
+                // Click-to-seek — track_w matches the flex_1 content area exactly
                 .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, _win, cx| {
                     let pos = ev.position();
                     let click_x = f32::from(pos.x);
-                    // Subtract the 240px name-column padding; what remains is
-                    // position within the scrollable track region.
                     let track_x = (click_x - 240.0).max(0.0);
-                    // We don't have exact element width here, so we use an
-                    // empirical ruler track width.  The window is ~1370px wide
-                    // minus 240px name column and ~10px padding = ~1120px.
-                    // Using 1120.0 as a good-enough constant; worst-case it's
-                    // slightly off at non-standard window widths.
-                    let ruler_track_w = 1120.0_f32;
-                    let fraction = (track_x / ruler_track_w).clamp(0.0, 1.0);
+                    let fraction = (track_x / track_w).clamp(0.0, 1.0);
                     let new_frame = (fraction * total as f32) as usize;
                     this.app.apply(Action::SetCurrentFrame(new_frame));
                     cx.notify();

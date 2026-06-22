@@ -1,13 +1,15 @@
-//! Property Inspector panel — shows the active layer's transform values.
+//! Property Inspector panel — shows and edits the active layer's transform values.
 //!
-//! Displays position (x/y), scale (x/y), rotation, and opacity for the
-//! currently selected layer.  If no layer is selected, shows a prompt.
-//! Inspector panel — shows fill color swatch and layer properties for the
-//! active layer.  Rendered below the AI panel or as a separate section.
+//! Each numeric row is clickable: clicking enters an edit mode where keystrokes
+//! accumulate in `Drift::field_buffer`.  Press Enter to apply, Escape to cancel.
 
 use crate::app_state::App;
-use crate::Drift;
-use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement, Styled};
+use crate::{Drift, InspectorField};
+use gpui::{
+    div, px, Context, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled,
+};
+use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, font_size};
 
 /// Color swatch colors keyed by layer index (matches the main canvas palette).
@@ -22,7 +24,12 @@ fn layer_color_hex(idx: usize) -> (u32, &'static str) {
     }
 }
 
-pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement {
+pub fn render_inspector(
+    app: &App,
+    editing_field: Option<&InspectorField>,
+    field_buffer: &str,
+    cx: &mut Context<Drift>,
+) -> impl IntoElement {
     // Resolve the active layer index (for color lookup).
     let active_layer_idx = app
         .active_layer
@@ -57,8 +64,8 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
                         .child("INSPECTOR"),
                 ),
         )
-        // Body (includes Layer name row, Position, Scale, Rotation, Opacity)
-        .child(inspector_body(app))
+        // Body (layer name, transforms)
+        .child(inspector_body(app, editing_field, field_buffer, cx))
         // Fill Color row
         .child(
             div()
@@ -78,7 +85,6 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
                         .flex()
                         .items_center()
                         .gap_2()
-                        // Color swatch
                         .child(
                             div()
                                 .w(px(20.0))
@@ -88,7 +94,6 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
                                 .border_color(colors::surface_border())
                                 .bg(gpui::rgb(swatch_color)),
                         )
-                        // Hex display
                         .child(
                             div()
                                 .text_size(px(font_size::XS))
@@ -97,7 +102,7 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
                         ),
                 ),
         )
-        // Copy hex hint
+        // Edit hint
         .child(
             div()
                 .px_3()
@@ -106,14 +111,18 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
                     div()
                         .text_size(px(font_size::XS))
                         .text_color(colors::text_disabled())
-                        .child("Copy Hex"),
+                        .child("Click a value to edit · Enter to apply"),
                 ),
         )
 }
 
-fn inspector_body(app: &App) -> impl IntoElement {
+fn inspector_body(
+    app: &App,
+    editing_field: Option<&InspectorField>,
+    field_buffer: &str,
+    cx: &mut Context<Drift>,
+) -> impl IntoElement {
     if let Some(layer_id) = app.active_layer {
-        // Try to find the layer name for the header.
         let layer_name = app
             .layers
             .iter()
@@ -132,30 +141,61 @@ fn inspector_body(app: &App) -> impl IntoElement {
             .px_3()
             .py_2()
             .gap_1()
-            // Layer name line
-            .child(prop_row(
-                "Layer",
-                layer_name,
+            // Layer name (read-only)
+            .child(prop_row("Layer", layer_name))
+            // Position X — editable
+            .child(editable_row(
+                "Pos X",
+                format!("{x:.1}"),
+                InspectorField::PositionX,
+                editing_field == Some(&InspectorField::PositionX),
+                field_buffer,
+                cx,
             ))
-            // Position
-            .child(prop_row(
-                "Position",
-                format!("X: {x:.1}  Y: {y:.1}"),
+            // Position Y — editable
+            .child(editable_row(
+                "Pos Y",
+                format!("{y:.1}"),
+                InspectorField::PositionY,
+                editing_field == Some(&InspectorField::PositionY),
+                field_buffer,
+                cx,
             ))
-            // Scale
-            .child(prop_row(
-                "Scale",
-                format!("X: {sx:.2}  Y: {sy:.2}"),
+            // Scale X — editable
+            .child(editable_row(
+                "Scale X",
+                format!("{sx:.2}"),
+                InspectorField::ScaleX,
+                editing_field == Some(&InspectorField::ScaleX),
+                field_buffer,
+                cx,
             ))
-            // Rotation
-            .child(prop_row(
+            // Scale Y — editable
+            .child(editable_row(
+                "Scale Y",
+                format!("{sy:.2}"),
+                InspectorField::ScaleY,
+                editing_field == Some(&InspectorField::ScaleY),
+                field_buffer,
+                cx,
+            ))
+            // Rotation — editable
+            .child(editable_row(
                 "Rotation",
                 format!("{rot:.1}°"),
+                InspectorField::Rotation,
+                editing_field == Some(&InspectorField::Rotation),
+                field_buffer,
+                cx,
             ))
-            // Opacity — displayed as 0–100 %
-            .child(prop_row(
+            // Opacity — editable (displayed as 0–100 %)
+            .child(editable_row(
                 "Opacity",
                 format!("{:.0}%", opacity * 100.0),
+                InspectorField::Opacity,
+                editing_field == Some(&InspectorField::Opacity),
+                field_buffer,
+                cx,
             ))
     } else {
         div()
@@ -172,7 +212,7 @@ fn inspector_body(app: &App) -> impl IntoElement {
     }
 }
 
-/// A single labeled value row.
+/// A read-only label + value row (used for non-numeric fields like layer name).
 fn prop_row(label: &'static str, value: String) -> impl IntoElement {
     div()
         .w_full()
@@ -191,5 +231,68 @@ fn prop_row(label: &'static str, value: String) -> impl IntoElement {
                 .text_size(px(font_size::XS))
                 .text_color(colors::text_primary())
                 .child(value),
+        )
+}
+
+/// An editable label + value row.  Click to enter edit mode; text is highlighted
+/// in amber and shows a blinking-style `|` cursor.  Press Enter/Esc in `on_key`
+/// to commit or cancel (handled in `Drift::on_key`).
+fn editable_row(
+    label: &'static str,
+    display_value: String,
+    field: InspectorField,
+    is_editing: bool,
+    buffer: &str,
+    cx: &mut Context<Drift>,
+) -> impl IntoElement {
+    let shown = if is_editing {
+        format!("{buffer}|")
+    } else {
+        display_value
+    };
+
+    div()
+        .w_full()
+        .h(px(20.0))
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(
+            div()
+                .text_size(px(font_size::XS))
+                .text_color(colors::text_secondary())
+                .child(label),
+        )
+        .child(
+            div()
+                .id(SharedString::from(format!("insp-{label}")))
+                .text_size(px(font_size::XS))
+                .text_color(if is_editing {
+                    gpui::rgb(0xfbbf24) // amber
+                } else {
+                    colors::text_primary()
+                })
+                .when(is_editing, |el| el.bg(gpui::rgba(0xfbbf2422)))
+                .px(px(4.0))
+                .rounded(px(2.0))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                    // Pre-fill the buffer with the current value.
+                    let pre = this.app.active_layer
+                        .and_then(|lid| this.app.transforms.get(&lid))
+                        .map(|t| match field {
+                            InspectorField::PositionX => format!("{:.1}", t.x),
+                            InspectorField::PositionY => format!("{:.1}", t.y),
+                            InspectorField::ScaleX    => format!("{:.2}", t.scale_x),
+                            InspectorField::ScaleY    => format!("{:.2}", t.scale_y),
+                            InspectorField::Rotation  => format!("{:.1}", t.rotation),
+                            InspectorField::Opacity   => format!("{:.0}", t.opacity * 100.0),
+                        })
+                        .unwrap_or_default();
+                    this.editing_field = Some(field);
+                    this.field_buffer = pre;
+                    cx.notify();
+                }))
+                .child(shown),
         )
 }

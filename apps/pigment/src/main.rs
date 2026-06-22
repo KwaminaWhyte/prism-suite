@@ -39,7 +39,7 @@ use gpui::{
     canvas, deferred, div, img, px, rgb, rgba, size, AppContext, Application, Bounds, Context,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
     ParentElement, Pixels, Point, Render, RenderImage, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowOptions,
+    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use prism_ui::{colors, font_size};
 
@@ -795,27 +795,15 @@ fn main() {
 
     gpui::Application::new().with_assets(PrismAssets).run(|cx: &mut gpui::App| {
         prism_ui::init(cx);
-        // Open the welcome screen as a separate OS-level window. It closes
-        // itself when the user clicks "New Document" or "Open File…".
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(
-                    Bounds::centered(None, size(px(900.0), px(580.0)), cx),
-                )),
-                ..Default::default()
-            },
-            |win, cx| {
-                let focus = cx.focus_handle();
-                win.focus(&focus);
-                cx.new(|_cx| welcome::WelcomeView::new(focus))
-            },
-        )
-        .expect("failed to open welcome window");
 
+        // Open the main editor window first so we can capture a WeakEntity to
+        // pass into the welcome screen. The welcome window is opened second so
+        // it appears on top of the editor (Floating kind ensures z-ordering).
         let bounds = cx.primary_display()
             .map(|d| d.bounds())
             .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
-        cx.open_window(
+
+        let main_entity = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
@@ -869,6 +857,30 @@ fn main() {
             },
         )
         .expect("failed to open window");
+
+        // Open the welcome screen as a Floating OS-level window so it sits on
+        // top of the editor. Pass a WeakEntity so its buttons can dispatch
+        // Actions to the main Pigment view before closing themselves.
+        let weak_main = main_entity
+            .entity(cx)
+            .expect("failed to get main entity")
+            .downgrade();
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(
+                    Bounds::centered(None, size(px(900.0), px(580.0)), cx),
+                )),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| welcome::WelcomeView::new(focus, weak_main))
+            },
+        )
+        .expect("failed to open welcome window");
+
         cx.activate(true);
     });
 }

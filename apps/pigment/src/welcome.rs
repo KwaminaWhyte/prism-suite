@@ -1,21 +1,26 @@
 //! Welcome screen — a secondary OS-level window shown on launch when no
 //! document is open. Mirrors Photoshop's Home Screen in spirit: app identity on
 //! the left, template cards on the right. Closes itself when the user clicks
-//! "New Document" or "Open File…".
+//! "New Document" or "Open File…" and dispatches the corresponding Action to
+//! the main Pigment entity.
 
 use gpui::{
-    div, px, Focusable, FocusHandle, IntoElement, ParentElement, Render, Styled, Window,
-    Context, InteractiveElement, StatefulInteractiveElement,
+    div, px, ClickEvent, Focusable, FocusHandle, IntoElement, ParentElement, Render, Styled,
+    Window, Context, InteractiveElement, StatefulInteractiveElement, WeakEntity,
 };
 use prism_ui::{colors, font_size};
 
+use crate::app_state::Action;
+use crate::Pigment;
+
 pub struct WelcomeView {
     pub focus: FocusHandle,
+    app_entity: WeakEntity<Pigment>,
 }
 
 impl WelcomeView {
-    pub fn new(focus: FocusHandle) -> Self {
-        Self { focus }
+    pub fn new(focus: FocusHandle, app_entity: WeakEntity<Pigment>) -> Self {
+        Self { focus, app_entity }
     }
 }
 
@@ -27,8 +32,13 @@ impl Focusable for WelcomeView {
 
 // ── template card ─────────────────────────────────────────────────────────────
 
-fn template_card(name: &'static str) -> impl IntoElement {
+fn template_card(
+    id: &'static str,
+    name: &'static str,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
     div()
+        .id(id)
         .w(px(180.0))
         .h(px(120.0))
         .rounded_md()
@@ -40,6 +50,7 @@ fn template_card(name: &'static str) -> impl IntoElement {
         .justify_center()
         .cursor_pointer()
         .hover(|s| s.border_color(colors::accent()))
+        .on_click(on_click)
         .child(
             div()
                 .text_size(px(font_size::SM))
@@ -52,6 +63,16 @@ fn template_card(name: &'static str) -> impl IntoElement {
 
 impl Render for WelcomeView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let app_entity = self.app_entity.clone();
+        let app_entity2 = self.app_entity.clone();
+        // Template card entities
+        let ae_t1 = self.app_entity.clone();
+        let ae_t2 = self.app_entity.clone();
+        let ae_t3 = self.app_entity.clone();
+        let ae_t4 = self.app_entity.clone();
+        let ae_t5 = self.app_entity.clone();
+        let ae_t6 = self.app_entity.clone();
+
         div()
             .track_focus(&self.focus)
             .size_full()
@@ -111,7 +132,13 @@ impl Render for WelcomeView {
                             .text_color(colors::text_primary())
                             .cursor_pointer()
                             .hover(|s| s.bg(colors::accent_hover()))
-                            .on_click(cx.listener(|_this, _ev, win, cx| {
+                            .on_click(cx.listener(move |_this, _ev, win, cx| {
+                                if let Some(entity) = app_entity.upgrade() {
+                                    entity.update(cx, |app, cx| {
+                                        app.app.apply(Action::NewDocument);
+                                        cx.notify();
+                                    });
+                                }
                                 win.remove_window();
                             }))
                             .child("New Document"),
@@ -129,7 +156,13 @@ impl Render for WelcomeView {
                             .text_color(colors::text_secondary())
                             .cursor_pointer()
                             .hover(|s| s.bg(colors::surface_border()))
-                            .on_click(cx.listener(|_this, _ev, win, cx| {
+                            .on_click(cx.listener(move |_this, _ev, win, cx| {
+                                if let Some(entity) = app_entity2.upgrade() {
+                                    entity.update(cx, |app, cx| {
+                                        app.app.apply(Action::OpenFile);
+                                        cx.notify();
+                                    });
+                                }
                                 win.remove_window();
                             }))
                             .child("Open File…"),
@@ -151,7 +184,7 @@ impl Render for WelcomeView {
                             .mb_1()
                             .child("RECENT FILES"),
                     )
-                    // Five placeholder recent-file rows (empty state message)
+                    // Empty state message
                     .child(
                         div()
                             .flex()
@@ -197,9 +230,27 @@ impl Render for WelcomeView {
                                     .flex()
                                     .flex_row()
                                     .gap_3()
-                                    .child(template_card("Photo Editing"))
-                                    .child(template_card("Illustration"))
-                                    .child(template_card("Web Design")),
+                                    .child(template_card("tmpl-photo", "Photo Editing",
+                                        cx.listener(move |_this, _ev, win, cx| {
+                                            if let Some(e) = ae_t1.upgrade() {
+                                                e.update(cx, |app, cx| { app.app.apply(Action::NewDocument); cx.notify(); });
+                                            }
+                                            win.remove_window();
+                                        })))
+                                    .child(template_card("tmpl-illus", "Illustration",
+                                        cx.listener(move |_this, _ev, win, cx| {
+                                            if let Some(e) = ae_t2.upgrade() {
+                                                e.update(cx, |app, cx| { app.app.apply(Action::NewDocument); cx.notify(); });
+                                            }
+                                            win.remove_window();
+                                        })))
+                                    .child(template_card("tmpl-web", "Web Design",
+                                        cx.listener(move |_this, _ev, win, cx| {
+                                            if let Some(e) = ae_t3.upgrade() {
+                                                e.update(cx, |app, cx| { app.app.apply(Action::NewDocument); cx.notify(); });
+                                            }
+                                            win.remove_window();
+                                        }))),
                             )
                             // Row 2
                             .child(
@@ -207,9 +258,27 @@ impl Render for WelcomeView {
                                     .flex()
                                     .flex_row()
                                     .gap_3()
-                                    .child(template_card("Print"))
-                                    .child(template_card("Social Media"))
-                                    .child(template_card("Custom Size")),
+                                    .child(template_card("tmpl-print", "Print",
+                                        cx.listener(move |_this, _ev, win, cx| {
+                                            if let Some(e) = ae_t4.upgrade() {
+                                                e.update(cx, |app, cx| { app.app.apply(Action::NewDocument); cx.notify(); });
+                                            }
+                                            win.remove_window();
+                                        })))
+                                    .child(template_card("tmpl-social", "Social Media",
+                                        cx.listener(move |_this, _ev, win, cx| {
+                                            if let Some(e) = ae_t5.upgrade() {
+                                                e.update(cx, |app, cx| { app.app.apply(Action::NewDocument); cx.notify(); });
+                                            }
+                                            win.remove_window();
+                                        })))
+                                    .child(template_card("tmpl-custom", "Custom Size",
+                                        cx.listener(move |_this, _ev, win, cx| {
+                                            if let Some(e) = ae_t6.upgrade() {
+                                                e.update(cx, |app, cx| { app.app.apply(Action::NewDocument); cx.notify(); });
+                                            }
+                                            win.remove_window();
+                                        }))),
                             ),
                     ),
             )

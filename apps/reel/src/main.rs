@@ -38,7 +38,7 @@ use app_state::App;
 use gpui::{
     div, img, px, size, AppContext, Application, Bounds, Context, FocusHandle,
     InteractiveElement, IntoElement, ParentElement, Render, RenderImage,
-    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowOptions,
+    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use prism_ui::colors;
 
@@ -487,22 +487,10 @@ fn main() {
             let bounds = cx.primary_display()
                 .map(|d| d.bounds())
                 .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(
-                        Bounds::centered(None, size(px(900.0), px(560.0)), cx),
-                    )),
-                    ..Default::default()
-                },
-                |win, cx| {
-                    let focus: FocusHandle = cx.focus_handle();
-                    win.focus(&focus);
-                    cx.new(|_cx| welcome::WelcomeView::new(focus))
-                },
-            )
-            .expect("failed to open welcome window");
 
-            cx.open_window(
+            // Open the main editor window first to capture a WeakEntity for the
+            // welcome screen buttons.
+            let main_handle = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     ..Default::default()
@@ -510,6 +498,30 @@ fn main() {
                 |_window, cx| cx.new(|_cx| Reel::new()),
             )
             .expect("failed to open window");
+
+            // Open the welcome window second (Floating) so it sits on top.
+            // Pass a WeakEntity so its buttons can dispatch Actions to the main
+            // Reel view before closing themselves.
+            let weak_main = main_handle
+                .entity(cx)
+                .expect("failed to get main entity")
+                .downgrade();
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(
+                        Bounds::centered(None, size(px(900.0), px(560.0)), cx),
+                    )),
+                    kind: WindowKind::Floating,
+                    ..Default::default()
+                },
+                |win, cx| {
+                    let focus: FocusHandle = cx.focus_handle();
+                    win.focus(&focus);
+                    cx.new(|_cx| welcome::WelcomeView::new(focus, weak_main))
+                },
+            )
+            .expect("failed to open welcome window");
+
             cx.activate(true);
         });
 }

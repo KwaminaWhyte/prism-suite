@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/kwamina/Desktop/solo/prism-suite merge worktree-agent-a2e575e11d72ff6ee --no-ff -m \"feat\\(contour\\): Batch 10 — variable fonts, char/para panels, blend tool, 3D extrude/revolve, PDF export \\(~77% parity, 712 tests\\)\")",
+      "Bash(rm -rf /Users/kwamina/Desktop/solo/prism-suite/.claude/worktrees/agent-a2e575e11d72ff6ee)",
+      "Bash(git -C /Users/kwamina/Desktop/solo/prism-suite worktree prune)",
+      "Bash(git -C /Users/kwamina/Desktop/solo/prism-suite branch -D worktree-agent-a2e575e11d72ff6ee)"
+    ]
+  }
+}

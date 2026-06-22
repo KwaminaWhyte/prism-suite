@@ -44,6 +44,7 @@ mod workspace;
 mod app_state;
 mod canvas_host;
 mod panels;
+mod welcome;
 
 use prism_ui::{colors as ui_colors, PrismAssets};
 
@@ -57,7 +58,7 @@ use gpui::{
     canvas, div, img, px, rgb, rgba, size, AppContext, Application, Bounds, Context, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Pixels,
     Point, Render, RenderImage, StatefulInteractiveElement, Styled, Window,
-    WindowBounds, WindowOptions,
+    WindowBounds, WindowKind, WindowOptions,
 };
 
 use panels::{DOCK_W, STRIP_W, TOOLBAR_H};
@@ -1254,7 +1255,7 @@ fn main() {
         let bounds = cx.primary_display()
             .map(|d| d.bounds())
             .unwrap_or_else(|| Bounds::centered(None, size(px(1600.0), px(1000.0)), cx));
-        cx.open_window(
+        let main_handle = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
@@ -1276,6 +1277,28 @@ fn main() {
             },
         )
         .expect("failed to open window");
+
+        let weak_contour = main_handle
+            .entity(cx)
+            .expect("failed to get main entity")
+            .downgrade();
+
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(
+                    Bounds::centered(None, size(px(900.0), px(560.0)), cx),
+                )),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |window, cx| {
+                let focus = cx.focus_handle();
+                window.focus(&focus);
+                cx.new(|_cx| welcome::WelcomeView::new(focus, weak_contour))
+            },
+        )
+        .expect("failed to open Contour welcome window");
+
         cx.activate(true);
     });
 }

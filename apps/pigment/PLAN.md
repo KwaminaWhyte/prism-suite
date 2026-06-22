@@ -522,3 +522,43 @@ Gallery and the top-bar Filter menu; 9 unit tests.
 - [ ] RAW import with libraw (upgrade stub once libraw/rawler dep available)
 
 *Parity score: 87/90 items ≈ 96.7% (3 remaining)*
+
+---
+
+## Child Windows & Secondary UI
+
+Pigment uses GPUI's `cx.open_window(...)` for all secondary windows. The welcome screen is already a floating child window wired to dispatch `NewDocument`, `OpenFile`, and preset actions. The windows below are the remaining secondary UI surface needed to reach parity with Photoshop's dialog and palette model.
+
+### Welcome / New Document (already implemented)
+- **Kind:** `WindowKind::Floating` (900×580 px)
+- **Phase:** done — welcome screen launched on startup when no document is open; template cards dispatch canvas-size presets; closes on New or Open Recent.
+
+### Export As / Save for Web
+- **Kind:** `WindowKind::Floating` (680×520 px)
+- **Phase:** 9 (Pro color, RAW & interchange)
+- Format tabs: PNG / JPEG / WebP / AVIF / GIF. Per-format quality slider, size preview (before/after byte count), multiple-scale export (@1x/@2x/@3x), metadata-strip toggle, color-profile embed. Opened from File ▸ Export As… and File ▸ Save for Web…. Feeds the better-than-baseline encoders (`mozjpeg`, `webp`, `ravif`, `oxipng`) already in the stack.
+
+### Preferences
+- **Kind:** `WindowKind::Floating` (800×600 px)
+- **Phase:** 12 (Reliability, performance & ease-of-use)
+- Tabbed: Performance (scratch disk, VRAM budget, history states), Color Profiles (working space, rendering intent, proof setup), Interface (UI scale, theme, HiDPI), Cursors (brush preview style, crosshair), Keyboard Shortcuts (searchable remap table), File Handling (autosave interval, recent-file count). Persisted to `~/.config/prism/pigment_prefs.json` (already started in Batch 1 with `AppPrefs`).
+
+### Detachable Color Picker
+- **Kind:** `WindowKind::Floating` (280×400 px)
+- **Phase:** 12 (ease-of-use polish)
+- Mirrors Photoshop's tear-off Color panel. HSB/HSL/RGB/Hex/CMYK modes, color swatches strip, eyedropper button. Stays on top of the canvas while painting; position persisted per workspace. Shares state with the main color picker via `Model<ColorState>`.
+
+### Progress / AI Generation
+- **Kind:** `WindowKind::PopUp` (440×200 px)
+- **Phase:** 10 (AI / neural tools) and 11 (batch processing)
+- Shown modally above all windows during: AI generation (Generative Fill, Select Subject, Super-Resolution), batch export runs, and Filter Gallery rendering on large documents. Displays operation name, animated progress bar, elapsed/remaining time estimate, and a Cancel button that posts a cancellation token to the worker thread.
+
+### Filter Gallery (already a panel; promote to window in Phase 8)
+- **Kind:** `WindowKind::Floating` (960×640 px)
+- **Phase:** 8 (Filters & distort galleries) — currently a docked panel; promote to a dedicated floating window with a larger live preview canvas and category sidebar, matching Photoshop's Filter Gallery window.
+
+### Implementation notes
+- All windows share state via `Model<App>` / `Entity<T>` passed at open time — no duplicated state.
+- `WindowKind::PopUp` windows (Progress) are opened with `appears_transparent: false` and no traffic-light buttons; they block interaction with the parent via a semaphore flag on `App`.
+- Title bar: set `TitlebarOptions { title: Some("Export As".into()), appears_transparent: false, traffic_light_position: None }` on Floating windows; PopUp windows use `appears_transparent: true` with a custom close button.
+- Positions are persisted in `AppPrefs.window_positions: HashMap<String, (f32,f32)>` so windows reopen where the user left them.

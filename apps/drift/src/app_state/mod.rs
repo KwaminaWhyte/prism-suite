@@ -79,6 +79,19 @@ pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpola
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
 
+// ── Tool enum ─────────────────────────────────────────────────────────────────
+
+/// The currently active drawing/selection tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriftTool {
+    Select,
+    Move,
+    Pen,
+    Rect,
+    Ellipse,
+    Lasso,
+}
+
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 /// Every mutation the UI can request. Apply via [`App::apply`].
@@ -448,12 +461,17 @@ pub enum Action {
     AddSyncGroup { name: String, layer_ids: Vec<usize> },
     RemoveSyncGroup { group_id: usize },
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
+    // Tool selection
+    SetActiveTool(DriftTool),
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
 /// Shared application state. All mutation goes through [`App::apply`].
 pub struct App {
+    // Active tool
+    pub active_tool: DriftTool,
+
     // Document
     pub document: DriftDocument,
 
@@ -636,6 +654,7 @@ impl App {
         let doc = DriftDocument::new();
         let out = doc.duration_frames;
         let mut app = Self {
+            active_tool: DriftTool::Select,
             document: doc,
             grid: GridConfig::new(),
             rulers: RulerConfig::new(),
@@ -1089,6 +1108,8 @@ impl App {
             | Action::AddSyncGroup { .. }
             | Action::RemoveSyncGroup { .. }
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
+            // Tool selection
+            Action::SetActiveTool(t) => self.active_tool = *t,
         }
     }
 }

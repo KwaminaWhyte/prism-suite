@@ -23,6 +23,8 @@ mod smart_objects;
 mod ai;
 mod layer_3d;
 mod export;
+mod shapes;
+mod tests_shapes;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
@@ -35,6 +37,7 @@ pub use self::selections::{VanishingToolMode, VanishingPlane, Artboard, ApplyIma
 pub use self::filters::{Filter, SmartSharpenMode, ToneMapMethod, NeuralFilter, NeuralFilterKind};
 pub use self::layers::{AdjKind, Shadow, Glow, Bevel, LayerStyle, DropShadowFx, OuterGlowFx, BevelStyle, BevelTechnique, BevelEmbossFx, LayerEffects};
 pub use self::export::{PrintLayout, SmartFilter, ExportFormat, ExportPreset, MatchColorConfig, CameraRawConfig, HdrToneMappingMethod, HdrMergeConfig};
+pub use self::shapes::{ExtendedShapeKind, ExtendedShapeLayer, LineCap, LineJoin, BooleanOp, PsdEncoding, PsdExportConfig, SatinEffect, ColorOverlay, GradientOverlay, PatternOverlay, GradientOverlayStyle, ContourType, BevelDirection, StyleKind};
 use self::selections::AlphaChannel;
 pub use self::selections::BlendIf;
 
@@ -967,6 +970,84 @@ pub enum Action {
     Set3DExtrudeDepth { layer_id: usize, depth: f32 },
     /// Flatten a 3-D layer back to a raster layer (removes it from the 3-D list).
     Flatten3DLayer { layer_id: usize },
+
+    // ---- Batch 8: Extended Shape Primitives ------------------------------------
+    /// Add a polygon shape layer.
+    AddPolygonLayer { sides: u32, radius: f32, corner_radius: f32, color: [u8; 4] },
+    /// Add a star shape layer.
+    AddStarLayer { points: u32, inner_radius: f32, outer_radius: f32, color: [u8; 4] },
+    /// Add a line shape layer.
+    AddLineLayer { x1: f32, y1: f32, x2: f32, y2: f32, width: f32, color: [u8; 4] },
+    /// Add a rounded rectangle shape layer.
+    AddRoundedRectLayer { width: f32, height: f32, corner_radius: f32, color: [u8; 4] },
+    /// Add a triangle shape layer.
+    AddTriangleLayer { base: f32, height: f32, rotation: f32, color: [u8; 4] },
+    /// Set the number of sides on a polygon shape layer.
+    SetShapeSides { layer_id: usize, sides: u32 },
+    /// Set the corner radius on a polygon or rounded-rect shape layer.
+    SetShapeCornerRadius { layer_id: usize, radius: f32 },
+    /// Set the number of points on a star shape layer.
+    SetStarPoints { layer_id: usize, points: u32 },
+    /// Set the inner radius on a star shape layer.
+    SetStarInnerRadius { layer_id: usize, inner_radius: f32 },
+    /// Set the stroke width on a line shape layer.
+    SetLineWidth { layer_id: usize, width: f32 },
+    /// Set the line cap style.
+    SetLineCap { layer_id: usize, cap: crate::app_state::shapes::LineCap },
+    /// Set the line join style.
+    SetLineJoin { layer_id: usize, join: crate::app_state::shapes::LineJoin },
+    /// Set the stroke color and width on any shape layer.
+    SetShapeStroke { layer_id: usize, color: [u8; 4], width: f32 },
+    /// Set the fill color on any shape layer.
+    SetShapeFill { layer_id: usize, color: [u8; 4] },
+
+    // ---- Batch 8: Boolean Shape Operations ------------------------------------
+    /// Apply a boolean operation across selected shape layers.
+    BooleanShapeOp { layer_ids: Vec<usize>, op: crate::app_state::shapes::BooleanOp },
+    /// Convert a shape's stroke outline to a filled shape.
+    ExpandStroke { layer_id: usize },
+    /// Rasterize selected vector/text/generated layers into one pixel layer.
+    FlattenToPixels { layer_ids: Vec<usize> },
+
+    // ---- Batch 8: Clipping Masks (extended) -----------------------------------
+    /// Set or clear the clipping mask flag on a layer.
+    SetClippingMask { layer_id: prism_core::LayerId, clipped: bool },
+    /// Convenience: set clipped = true.
+    CreateClippingMask { layer_id: prism_core::LayerId },
+    /// Convenience: set clipped = false.
+    ReleaseClippingMask { layer_id: prism_core::LayerId },
+
+    // ---- Batch 8: Extended Layer Styles ---------------------------------------
+    /// Set or clear the Satin effect on a layer.
+    SetSatinEffect { layer_id: usize, config: crate::app_state::shapes::SatinEffect },
+    /// Set or clear the extended Color Overlay on a layer.
+    SetExtendedColorOverlay { layer_id: usize, config: crate::app_state::shapes::ColorOverlay },
+    /// Set or clear the Gradient Overlay on a layer.
+    SetGradientOverlay { layer_id: usize, config: crate::app_state::shapes::GradientOverlay },
+    /// Set or clear the Pattern Overlay on a layer.
+    SetPatternOverlay { layer_id: usize, config: crate::app_state::shapes::PatternOverlay },
+    /// Set the blend mode for a specific style kind on a layer.
+    SetLayerStyleBlendMode { layer_id: usize, style: crate::app_state::shapes::StyleKind, blend_mode: String },
+    /// Set the opacity for a specific style kind on a layer.
+    SetLayerStyleOpacity { layer_id: usize, style: crate::app_state::shapes::StyleKind, opacity: u8 },
+    /// Copy all extended layer styles from a layer to the style clipboard.
+    CopyLayerStylesExt { from_layer_id: usize },
+    /// Paste extended styles from the clipboard to given layers.
+    PasteLayerStylesExt { to_layer_ids: Vec<usize> },
+    /// Clear all extended layer styles from a layer.
+    ClearLayerStylesExt { layer_id: usize },
+
+    // ---- Batch 8: PSD Export Config -------------------------------------------
+    /// Set the PSD export output path.
+    SetPsdExportPath(String),
+    /// Set maximize-compatibility flag for PSD export.
+    SetPsdMaximizeCompatibility(bool),
+    /// Set the PSD encoding method.
+    SetPsdEncoding(crate::app_state::shapes::PsdEncoding),
+    /// Set whether to embed the color profile in PSD export.
+    SetPsdEmbedColorProfile(bool),
+    /// Trigger PSD export (stub — records last export path).
+    ExportAsPsd { path: String },
 }
 
 
@@ -1447,6 +1528,34 @@ pub struct App {
     pub layer_3d_props: Vec<Layer3DProps>,
     /// The layer_id of the currently active 3-D layer (None = none).
     pub active_3d_layer: Option<usize>,
+
+    // ---- Batch 8: Extended Shape Primitives ------------------------------------
+    /// Extended shape layer definitions keyed by raw LayerId usize.
+    pub extended_shapes: std::collections::HashMap<usize, crate::app_state::shapes::ExtendedShapeLayer>,
+
+    // ---- Batch 8: Extended Layer Styles ----------------------------------------
+    /// Per-layer Satin effects keyed by raw layer id (usize).
+    pub satin_effects: std::collections::HashMap<usize, crate::app_state::shapes::SatinEffect>,
+    /// Per-layer extended Color Overlay keyed by raw layer id (usize).
+    pub color_overlays: std::collections::HashMap<usize, crate::app_state::shapes::ColorOverlay>,
+    /// Per-layer Gradient Overlay keyed by raw layer id (usize).
+    pub gradient_overlays: std::collections::HashMap<usize, crate::app_state::shapes::GradientOverlay>,
+    /// Per-layer Pattern Overlay keyed by raw layer id (usize).
+    pub pattern_overlays: std::collections::HashMap<usize, crate::app_state::shapes::PatternOverlay>,
+    /// Clipboard for copy/paste of extended Satin effect.
+    pub style_clipboard_satin: Option<crate::app_state::shapes::SatinEffect>,
+    /// Clipboard for copy/paste of extended Color Overlay.
+    pub style_clipboard_color_overlay: Option<crate::app_state::shapes::ColorOverlay>,
+    /// Clipboard for copy/paste of extended Gradient Overlay.
+    pub style_clipboard_gradient_overlay: Option<crate::app_state::shapes::GradientOverlay>,
+    /// Clipboard for copy/paste of extended Pattern Overlay.
+    pub style_clipboard_pattern_overlay: Option<crate::app_state::shapes::PatternOverlay>,
+
+    // ---- Batch 8: PSD Export Config -------------------------------------------
+    /// Configuration for the next PSD export.
+    pub psd_export_config: crate::app_state::shapes::PsdExportConfig,
+    /// Path of the last successful PSD export (stub).
+    pub last_psd_export_path: Option<String>,
 }
 
 // ---- Batch 6: Select Subject ------------------------------------------------
@@ -1710,6 +1819,20 @@ impl App {
             // New Feature: Basic3DLayer
             layer_3d_props: Vec::new(),
             active_3d_layer: None,
+            // Batch 8: Extended shapes
+            extended_shapes: std::collections::HashMap::new(),
+            // Batch 8: Extended layer styles
+            satin_effects: std::collections::HashMap::new(),
+            color_overlays: std::collections::HashMap::new(),
+            gradient_overlays: std::collections::HashMap::new(),
+            pattern_overlays: std::collections::HashMap::new(),
+            style_clipboard_satin: None,
+            style_clipboard_color_overlay: None,
+            style_clipboard_gradient_overlay: None,
+            style_clipboard_pattern_overlay: None,
+            // Batch 8: PSD export config
+            psd_export_config: crate::app_state::shapes::PsdExportConfig::default(),
+            last_psd_export_path: None,
         }
     }
 
@@ -1908,6 +2031,23 @@ impl App {
             | Action::SetMatchColorLuminance(_) | Action::SetMatchColorIntensity(_)
             | Action::SetMatchColorFade2(_) | Action::SetMatchColorNeutralize(_) | Action::ApplyMatchColor
             => self.apply_export(action),
+
+            // shapes (batch 8)
+            Action::AddPolygonLayer { .. } | Action::AddStarLayer { .. } | Action::AddLineLayer { .. }
+            | Action::AddRoundedRectLayer { .. } | Action::AddTriangleLayer { .. }
+            | Action::SetShapeSides { .. } | Action::SetShapeCornerRadius { .. }
+            | Action::SetStarPoints { .. } | Action::SetStarInnerRadius { .. }
+            | Action::SetLineWidth { .. } | Action::SetLineCap { .. } | Action::SetLineJoin { .. }
+            | Action::SetShapeStroke { .. } | Action::SetShapeFill { .. }
+            | Action::BooleanShapeOp { .. } | Action::ExpandStroke { .. } | Action::FlattenToPixels { .. }
+            | Action::SetClippingMask { .. } | Action::CreateClippingMask { .. } | Action::ReleaseClippingMask { .. }
+            | Action::SetSatinEffect { .. } | Action::SetExtendedColorOverlay { .. }
+            | Action::SetGradientOverlay { .. } | Action::SetPatternOverlay { .. }
+            | Action::SetLayerStyleBlendMode { .. } | Action::SetLayerStyleOpacity { .. }
+            | Action::CopyLayerStylesExt { .. } | Action::PasteLayerStylesExt { .. } | Action::ClearLayerStylesExt { .. }
+            | Action::SetPsdExportPath(_) | Action::SetPsdMaximizeCompatibility(_) | Action::SetPsdEncoding(_)
+            | Action::SetPsdEmbedColorProfile(_) | Action::ExportAsPsd { .. }
+            => self.apply_shapes(action),
 
             _ => {}
         }

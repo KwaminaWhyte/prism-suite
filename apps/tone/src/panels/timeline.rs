@@ -22,31 +22,97 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
         .border_color(colors::surface_border())
         .flex()
         .flex_col()
-        // Bar ruler
+        // Bar ruler + track-add buttons
         .child(
             div()
                 .w_full()
-                .h(px(20.0))
+                .h(px(24.0))
                 .bg(colors::surface_bg())
                 .border_b_1()
                 .border_color(colors::surface_border())
                 .flex()
                 .items_center()
-                .pl(px(LABEL_W))
-                .children((1..=32u32).map(|bar| {
+                // Label column: [A] [M] add-track buttons
+                .child(
+                    div()
+                        .w(px(LABEL_W))
+                        .h_full()
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .px_2()
+                        .border_r_1()
+                        .border_color(colors::surface_border())
+                        .child(
+                            div()
+                                .text_size(px(font_size::XS))
+                                .text_color(colors::text_disabled())
+                                .flex_1()
+                                .child("TRACKS"),
+                        )
+                        .child(
+                            div()
+                                .id("add-audio")
+                                .w(px(18.0))
+                                .h(px(18.0))
+                                .bg(colors::surface_overlay())
+                                .rounded(px(2.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(7.0))
+                                .text_color(colors::text_secondary())
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _ev, _win, cx| {
+                                    this.app.apply(Action::AddTrack(TrackKind::Audio));
+                                    cx.notify();
+                                }))
+                                .child("A"),
+                        )
+                        .child(
+                            div()
+                                .id("add-midi")
+                                .w(px(18.0))
+                                .h(px(18.0))
+                                .bg(colors::surface_overlay())
+                                .rounded(px(2.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(7.0))
+                                .text_color(colors::text_secondary())
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _ev, _win, cx| {
+                                    this.app.apply(Action::AddTrack(TrackKind::Midi));
+                                    cx.notify();
+                                }))
+                                .child("M"),
+                        ),
+                )
+                // Bar numbers
+                .child(
                     div()
                         .flex_1()
                         .h_full()
-                        .border_l_1()
-                        .border_color(colors::surface_border())
                         .flex()
                         .items_end()
                         .pb(px(2.0))
-                        .pl_1()
-                        .text_size(px(8.0))
-                        .text_color(colors::text_disabled())
-                        .child(format!("{bar}"))
-                })),
+                        .children((1..=32u32).map(|bar| {
+                            div()
+                                .flex_1()
+                                .h_full()
+                                .border_l_1()
+                                .border_color(colors::surface_border())
+                                .flex()
+                                .items_end()
+                                .pb(px(2.0))
+                                .pl_1()
+                                .text_size(px(8.0))
+                                .text_color(colors::text_disabled())
+                                .child(format!("{bar}"))
+                        })),
+                ),
         )
         // Track lanes
         .child(

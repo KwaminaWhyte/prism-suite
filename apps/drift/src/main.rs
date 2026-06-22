@@ -96,9 +96,10 @@ impl Render for Drift {
         let stage_h = self.app.document.height as f32 * 0.5;
 
         // ── Checkerboard tile parameters ─────────────────────────────────────
-        let tile = 16.0_f32;
-        let checker_cols = ((stage_w / tile).ceil() as usize).min(20);
-        let checker_rows = ((stage_h / tile).ceil() as usize).min(15);
+        // 32px tiles → 30×17 max cells at 0.5× scale — covers full canvas
+        let tile = 32.0_f32;
+        let checker_cols = (stage_w / tile).ceil() as usize;
+        let checker_rows = (stage_h / tile).ceil() as usize;
 
         // Build checkerboard cells (capped at 20×15 = 300 but we min them too).
         let mut checker_cells: Vec<gpui::Div> = Vec::with_capacity(checker_cols * checker_rows);
@@ -518,21 +519,8 @@ impl Render for Drift {
                             ),
                     )
                     )
-                    // Right: AI panel + Inspector (stacked in a column)
-                    .child(
-                        div()
-                            .id("right-panel")
-                            .w(px(260.0))
-                            .h_full()
-                            .bg(colors::surface_raised())
-                            .border_l_1()
-                            .border_color(colors::surface_border())
-                            .flex()
-                            .flex_col()
-                            .overflow_y_scroll()
-                            .child(panels::render_ai_panel(&self.app, cx))
-                            .child(panels::render_inspector(&self.app, cx)),
-                    ),
+                    // Right: AI panel only — inspector lives in the left column
+                    .child(panels::render_ai_panel(&self.app, cx)),
             )
             // Bottom: Timeline
             .child(panels::render_timeline(&self.app, cx))

@@ -147,46 +147,99 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
 
                             div()
                                 .w_full()
-                                .h(px(40.0))
+                                .h(px(52.0))
                                 .flex()
                                 .items_center()
                                 .border_b_1()
                                 .border_color(colors::surface_border())
-                                // Track label cell
+                                // Track label cell: kind badge + name + M/S buttons
                                 .child(
                                     div()
                                         .w(px(LABEL_W))
                                         .h_full()
                                         .px_2()
                                         .flex()
-                                        .items_center()
+                                        .flex_col()
+                                        .justify_center()
                                         .gap_1()
                                         .border_r_1()
                                         .border_color(colors::surface_border())
                                         .flex_shrink_0()
                                         .overflow_hidden()
-                                        // Kind badge
+                                        // Top row: kind badge + track name
                                         .child(
                                             div()
-                                                .px(px(3.0))
-                                                .h(px(12.0))
-                                                .bg(colors::surface_overlay())
-                                                .rounded(px(2.0))
                                                 .flex()
                                                 .items_center()
-                                                .text_size(px(7.0))
-                                                .text_color(colors::text_disabled())
-                                                .flex_shrink_0()
-                                                .child(kind_badge),
+                                                .gap_1()
+                                                .child(
+                                                    div()
+                                                        .px(px(3.0))
+                                                        .h(px(12.0))
+                                                        .bg(colors::surface_overlay())
+                                                        .rounded(px(2.0))
+                                                        .flex()
+                                                        .items_center()
+                                                        .text_size(px(7.0))
+                                                        .text_color(colors::text_disabled())
+                                                        .flex_shrink_0()
+                                                        .child(kind_badge),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .text_size(px(font_size::XS))
+                                                        .text_color(colors::text_secondary())
+                                                        .overflow_hidden()
+                                                        .child(track_name),
+                                                ),
                                         )
-                                        // Track name
+                                        // Bottom row: M / S buttons
                                         .child(
                                             div()
-                                                .flex_1()
-                                                .text_size(px(font_size::XS))
-                                                .text_color(colors::text_secondary())
-                                                .overflow_hidden()
-                                                .child(track_name),
+                                                .flex()
+                                                .items_center()
+                                                .gap_1()
+                                                .child(
+                                                    div()
+                                                        .id(("arr-mute", lane_idx))
+                                                        .w(px(20.0))
+                                                        .h(px(14.0))
+                                                        .bg(if track.muted { colors::accent() } else { colors::surface_bg() })
+                                                        .rounded(px(2.0))
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_size(px(7.0))
+                                                        .text_color(if track.muted { gpui::rgb(0xffffff) } else { colors::text_disabled() })
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                            let m = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.muted).unwrap_or(false);
+                                                            this.app.apply(Action::SetTrackMute { id: track_id, muted: !m });
+                                                            cx.notify();
+                                                        }))
+                                                        .child("M"),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id(("arr-solo", lane_idx))
+                                                        .w(px(20.0))
+                                                        .h(px(14.0))
+                                                        .bg(if track.solo { gpui::rgb(0xf1c40f) } else { colors::surface_bg() })
+                                                        .rounded(px(2.0))
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_size(px(7.0))
+                                                        .text_color(if track.solo { gpui::rgb(0x000000) } else { colors::text_disabled() })
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                            let s = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.solo).unwrap_or(false);
+                                                            this.app.apply(Action::SetTrackSolo { id: track_id, solo: !s });
+                                                            cx.notify();
+                                                        }))
+                                                        .child("S"),
+                                                ),
                                         ),
                                 )
                                 // Clip lane — click empty area to add clip; click clip block to open piano roll
@@ -263,6 +316,22 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                 )
                         })
                         .collect::<Vec<_>>(),
-                ),
+                )
+                // Empty state — shown when only Master track exists
+                .when(app.tracks.iter().all(|t| matches!(t.kind, TrackKind::Master)), |d| {
+                    d.child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .text_size(px(font_size::SM))
+                                    .text_color(colors::text_disabled())
+                                    .child("Click A or M above to add a track"),
+                            ),
+                    )
+                }),
         )
 }

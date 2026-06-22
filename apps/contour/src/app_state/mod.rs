@@ -58,6 +58,8 @@ mod tests_batch7;
 mod tests_core2;
 mod apply_waves;
 mod apply_waves2;
+mod apply_batch10;
+mod tests_batch10;
 pub(super) mod helpers;
 use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d};
 pub(super) mod helpers_geo;
@@ -1236,6 +1238,120 @@ pub enum Action {
     ReorderArtboards(Vec<usize>),
     /// Duplicate an Artboard (offset x += width + 20, new id, name "Copy of …").
     DuplicateArtboardEx(usize),
+
+    // =========================================================
+    // Batch 10 (new): Variable Fonts & OpenType
+    // =========================================================
+    /// Set one variable-font axis value for `shape_id` (adds or replaces the axis entry).
+    SetVariableAxis { shape_id: usize, axis_tag: String, value: f32 },
+    /// Remove all variable-font axis overrides for `shape_id`.
+    ResetVariableAxes { shape_id: usize },
+    /// Toggle a named OpenType feature for `shape_id`.
+    /// Feature names: "ligatures", "disc_lig", "hist_lig", "calt", "smcp",
+    /// "c2sc", "ordn", "frac", "zero", "tnum", "pnum", "sups", "subs".
+    SetOpenTypeFeature { shape_id: usize, feature: String, enabled: bool },
+    /// Set the stylistic-set number (1–20, or None to clear) for `shape_id`.
+    SetStylisticSet { shape_id: usize, set: Option<u8> },
+    /// Enable all-small-caps for `shape_id`.
+    ApplyAllSmallCaps { shape_id: usize },
+
+    // =========================================================
+    // Batch 10 (new): Character & Paragraph Panel
+    // =========================================================
+    /// Set letter-tracking (em units) for `shape_id`.
+    SetCharacterTracking { shape_id: usize, tracking: f32 },
+    /// Set kerning mode for `shape_id`.
+    SetCharacterKerning { shape_id: usize, mode: KerningMode },
+    /// Set baseline shift (points) for `shape_id`.
+    SetBaselineShift { shape_id: usize, shift: f32 },
+    /// Set horizontal scale (%, clamped 1–1000) for `shape_id`.
+    SetHorizontalScale { shape_id: usize, scale: f32 },
+    /// Set vertical scale (%, clamped 1–1000) for `shape_id`.
+    SetVerticalScale { shape_id: usize, scale: f32 },
+    /// Toggle underline for `shape_id`.
+    SetUnderline { shape_id: usize, underline: bool },
+    /// Toggle strikethrough for `shape_id`.
+    SetStrikethrough { shape_id: usize, strikethrough: bool },
+    /// Set paragraph alignment for `shape_id`.
+    SetParagraphAlignment { shape_id: usize, alignment: ParaAlignment },
+    /// Set paragraph spacing-before and spacing-after (points) for `shape_id`.
+    SetParagraphSpacing { shape_id: usize, before: f32, after: f32 },
+    /// Set first-line indent (points) for `shape_id`.
+    SetFirstLineIndent { shape_id: usize, indent: f32 },
+    /// Toggle hyphenation for `shape_id`.
+    SetHyphenation { shape_id: usize, enabled: bool },
+    /// Add a tab stop (in points) for `shape_id`.
+    AddTabStop { shape_id: usize, position: f32 },
+    /// Remove a tab stop (by position) for `shape_id`.
+    RemoveTabStop { shape_id: usize, position: f32 },
+
+    // =========================================================
+    // Batch 10 (new): Blend Tool (blend objects)
+    // =========================================================
+    /// Create a blend object between shapes `shape_id_a` and `shape_id_b`.
+    MakeBlend { shape_id_a: usize, shape_id_b: usize, spacing: BlendSpacing },
+    /// Release a blend object (remove the blend, keep source shapes).
+    ReleaseBlend { blend_id: usize },
+    /// Expand a blend object into independent intermediate shapes.
+    ExpandBlend { blend_id: usize },
+    /// Set the spacing/steps for a blend.
+    SetBlendSpacing { blend_id: usize, spacing: BlendSpacing },
+    /// Set the orientation for a blend.
+    SetBlendOrientation { blend_id: usize, orientation: BlendOrientation },
+    /// Replace the spine of a blend with `path_id`.
+    ReplaceBlendSpine { blend_id: usize, path_id: usize },
+    /// Reverse the order of shapes in a blend.
+    ReverseBlend { blend_id: usize },
+    /// Reverse the direction of the blend spine.
+    ReverseBlendSpine { blend_id: usize },
+
+    // =========================================================
+    // Batch 10 (new): 3D Effects (Extrude & Bevel, Revolve)
+    // =========================================================
+    /// Apply a 3D Extrude & Bevel effect to `shape_id`.
+    Apply3DExtrude { shape_id: usize, config: Extrude3D },
+    /// Update specific parameters of an existing 3D extrude on `shape_id`.
+    Update3DExtrude {
+        shape_id: usize,
+        depth: Option<f32>,
+        rotate_x: Option<f32>,
+        rotate_y: Option<f32>,
+        rotate_z: Option<f32>,
+    },
+    /// Remove any 3D effect (extrude or revolve) from `shape_id`.
+    Remove3DEffect { shape_id: usize },
+    /// Apply a 3D Revolve effect to `shape_id`.
+    Apply3DRevolve { shape_id: usize, config: Revolve3D },
+    /// Update specific parameters of an existing 3D revolve on `shape_id`.
+    Update3DRevolve { shape_id: usize, angle: Option<f32>, offset: Option<f32> },
+    /// Set the lighting parameters for the 3D effect on `shape_id`.
+    Set3DLighting { shape_id: usize, intensity: f32, ambient: f32 },
+    /// Set the perspective (0–160 degrees) for the 3D extrude on `shape_id`.
+    Set3DPerspective { shape_id: usize, degrees: f32 },
+
+    // =========================================================
+    // Batch 10 (new): PDF Export State
+    // =========================================================
+    /// Set the PDF standard compliance level.
+    SetPdfStandard(PdfStandard),
+    /// Set the Acrobat compatibility level.
+    SetPdfCompatibility(PdfCompatibility),
+    /// Toggle font embedding.
+    SetPdfEmbedFonts(bool),
+    /// Toggle transparency flattening.
+    SetPdfFlattenTransparency(bool),
+    /// Set the output colour space.
+    SetPdfColorSpace(PdfColorSpace),
+    /// Set bleed extents (points, all 4 sides).
+    SetPdfBleed { top: f32, bottom: f32, left: f32, right: f32 },
+    /// Set printer's marks.
+    SetPdfMarks(PdfMarks),
+    /// Set user and owner passwords.
+    SetPdfPassword { user: String, owner: String },
+    /// Set permissions flags.
+    SetPdfPermissions { printing: bool, editing: bool, copying: bool },
+    /// Export the document as PDF to `path` (stub: records path in status).
+    ExportAsPdf { path: String },
 }
 
 /// The single shared application state. Owns the host + document and the panel-
@@ -1594,6 +1710,34 @@ pub struct App {
     pub active_artboard_ex: Option<usize>,
     /// Counter for assigning stable artboard ids.
     pub artboard_counter: usize,
+
+    // --- Batch 10 (new): Variable Fonts & OpenType ---
+    /// Per-shape variable-font axis values (shape_id → list of axis values).
+    pub variable_axis_values: std::collections::HashMap<usize, Vec<VariableAxisValue>>,
+    /// Per-shape OpenType feature flags (shape_id → feature set).
+    pub opentype_features: std::collections::HashMap<usize, OpenTypeFeatures>,
+
+    // --- Batch 10 (new): Character & Paragraph Panel ---
+    /// Per-shape character style (tracking, kerning, baseline, scale, decoration).
+    pub char_styles: std::collections::HashMap<usize, CharacterStyle>,
+    /// Per-shape paragraph style (alignment, spacing, indent, hyphenation, tabs).
+    pub para_styles: std::collections::HashMap<usize, ParagraphStyle>,
+
+    // --- Batch 10 (new): Blend Tool ---
+    /// All blend objects in the document.
+    pub blends: Vec<BlendObject>,
+    /// Counter for assigning stable blend ids.
+    pub next_blend_id: usize,
+
+    // --- Batch 10 (new): 3D Effects ---
+    /// Per-shape 3D Extrude & Bevel configurations.
+    pub extrude_3d: std::collections::HashMap<usize, Extrude3D>,
+    /// Per-shape 3D Revolve configurations.
+    pub revolve_3d: std::collections::HashMap<usize, Revolve3D>,
+
+    // --- Batch 10 (new): PDF Export State ---
+    /// Detailed PDF export configuration.
+    pub pdf_export_config: PdfExportConfig,
 }
 
 impl App {
@@ -1768,6 +1912,16 @@ impl App {
             artboards_ex: Vec::new(),
             active_artboard_ex: None,
             artboard_counter: 0,
+            // Batch 10 (new)
+            variable_axis_values: std::collections::HashMap::new(),
+            opentype_features: std::collections::HashMap::new(),
+            char_styles: std::collections::HashMap::new(),
+            para_styles: std::collections::HashMap::new(),
+            blends: Vec::new(),
+            next_blend_id: 0,
+            extrude_3d: std::collections::HashMap::new(),
+            revolve_3d: std::collections::HashMap::new(),
+            pdf_export_config: PdfExportConfig::default(),
         }
     }
 
@@ -2235,7 +2389,7 @@ impl App {
                 }
             }
 
-            a => self.apply_waves(a),
+            a => self.apply_batch10(a),
         }
     }
 }

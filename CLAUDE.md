@@ -12,8 +12,6 @@ Open-source creative suite: six desktop apps in Rust, each targeting ≥85–90%
 | **Contour** | Illustrator | CPU vector editor | ~77% |
 | **Pulse** | After Effects | CPU compositor / motion | ~72% |
 | **Reel** | Premiere Pro | NLE / video editor | ~62% |
-| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~90% |
-| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~90% |
 | **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~100% |
 | **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~100% |
 
@@ -29,8 +27,8 @@ prism-suite/
     contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 712+ tests)
     pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 849+ tests)
     reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 228+ tests)
-    drift/                 # [[bin]] — Drift (GPUI host + animation engine + AI stubs, 492+ tests)
-    tone/                  # [[bin]] — Tone (GPUI host + DAW engine + AI stubs, 681+ tests)
+    drift/                 # [[bin]] — Drift (GPUI host + animation engine + AI stubs, 635+ tests)
+    tone/                  # [[bin]] — Tone (GPUI host + DAW engine + AI stubs, 703+ tests)
   shared/
     prism-core/           # doc model, blend modes, adjustments, curves, shapes, histogram
     prism-canvas/         # wgpu GPU compositor: composite/display/dab/filter/selection passes
@@ -69,8 +67,8 @@ cargo test -p pigment          # 291: filters, lens, perspective, smart-object, 
 cargo test -p contour          # 712: document, path, boolean ops, graph, trace, image-trace, perspective-grid, artboards, variable fonts, blend, 3D, PDF
 cargo test -p pulse            # 849: compositor, keyframes, render, rotobrush, puppet-pin, camera-tracker, text-animator, mogrt, CC effects, motion paths, audio buses
 cargo test -p reel             # 228: timeline, effects, lumetri, captions, audio-mixer, titles, project-manager, media-browser, transitions, export presets
-cargo test -p drift            # 492: layers, keyframes, rig, IK/springs, scenes, frame-labels, library, swap-sets, vector, state-machine, 3D, camera, mocap, scripting, beat sync, deformation, masking, text, lottie, blend modes, plugins
-cargo test -p tone             # 681: tracks, clips, piano-roll, mixer, AI stubs, undo/redo, MIDI ops, clip ops, track groups, automation, tempo map, step sequencer, chord tools, freeze, MusicGen, Demucs, Magenta, AI mastering, vocal, VST, surround, spectral, notation, tempo film
+cargo test -p drift            # 635: layers, keyframes, rig, IK/springs, scenes, frame-labels, library, swap-sets, vector, state-machine, 3D, camera, mocap, scripting, beat sync, deformation, masking, text, lottie, blend modes, plugins, drawing tools, nested timelines, ONNX stubs, audio ops
+cargo test -p tone             # 703: tracks, clips, piano-roll, mixer, AI stubs, undo/redo, MIDI ops, clip ops, track groups, automation, tempo map, step sequencer, chord tools, freeze, MusicGen, Demucs, Magenta, AI mastering, vocal, VST, surround, spectral, notation, tempo film, waveform cache
 
 # Subset by name
 cargo test flood_fill

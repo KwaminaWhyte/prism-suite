@@ -47,6 +47,10 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// Batch 8 domains
+pub mod deformation;
+pub mod masking;
+pub mod text_layer;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +82,9 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use deformation::{DeformKind, PinAnchor, DeformLayer, StretchSquash};
+pub use masking::{MaskKind, LayerMask, ClippingGroup};
+pub use text_layer::{TextAlign, TextStyle, DriftTextLayer, SvgImportStatus, SvgImportJob};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -463,6 +470,40 @@ pub enum Action {
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
     // Tool selection
     SetActiveTool(DriftTool),
+
+    // --- deformation ---
+    AddPinAnchor { layer_id: usize, x: f32, y: f32 },
+    RemovePinAnchor { anchor_id: usize },
+    MovePinAnchor { anchor_id: usize, x: f32, y: f32 },
+    LockPinAnchor { anchor_id: usize, locked: bool },
+    AddDeformLayer { layer_id: usize, kind: DeformKind },
+    RemoveDeformLayer { deform_id: usize },
+    SetDeformStrength { deform_id: usize, strength: f32 },
+    ToggleDeform { deform_id: usize },
+    SetStretchSquash { layer_id: usize, stretch: f32, squash: f32 },
+    ToggleStretchSquash { layer_id: usize },
+
+    // --- masking ---
+    AddLayerMask { layer_id: usize, mask_source_id: usize, kind: MaskKind },
+    RemoveLayerMask { mask_id: usize },
+    SetMaskKind { mask_id: usize, kind: MaskKind },
+    ToggleMask { mask_id: usize },
+    CreateClippingGroup { base_layer_id: usize },
+    AddToClippingGroup { group_id: usize, layer_id: usize },
+    RemoveFromClippingGroup { group_id: usize, layer_id: usize },
+    DissolveClippingGroup { group_id: usize },
+
+    // --- text_layer ---
+    AddTextLayer { layer_id: usize, content: String, font_family: String, font_size: f32 },
+    RemoveTextLayer { text_id: usize },
+    SetTextContent { text_id: usize, content: String },
+    SetTextFont { text_id: usize, family: String, size: f32 },
+    SetTextColor { text_id: usize, color: u32 },
+    SetTextAlign { text_id: usize, align: TextAlign },
+    SetTextStyle { text_id: usize, style: TextStyle },
+    SetTextSpacing { text_id: usize, line_height: f32, letter_spacing: f32 },
+    QueueSvgImport { path: String, layer_id: usize },
+    CompleteSvgImport { job_id: usize },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -647,6 +688,25 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // Batch 8 — Deformation
+    pub pin_anchors: Vec<PinAnchor>,
+    pub deform_layers: Vec<DeformLayer>,
+    pub stretch_squash: Vec<StretchSquash>,
+    pub next_anchor_id: usize,
+    pub next_deform_id: usize,
+
+    // Batch 8 — Masking
+    pub layer_masks: Vec<LayerMask>,
+    pub clipping_groups: Vec<ClippingGroup>,
+    pub next_mask_id: usize,
+    pub next_clip_group_id: usize,
+
+    // Batch 8 — Text Layers / SVG Import
+    pub text_layers: Vec<DriftTextLayer>,
+    pub svg_import_jobs: Vec<SvgImportJob>,
+    pub next_text_layer_id: usize,
+    pub next_svg_job_id: usize,
 }
 
 impl App {
@@ -781,6 +841,22 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // Batch 8 — Deformation
+            pin_anchors: vec![],
+            deform_layers: vec![],
+            stretch_squash: vec![],
+            next_anchor_id: 1,
+            next_deform_id: 1,
+            // Batch 8 — Masking
+            layer_masks: vec![],
+            clipping_groups: vec![],
+            next_mask_id: 1,
+            next_clip_group_id: 1,
+            // Batch 8 — Text Layers / SVG Import
+            text_layers: vec![],
+            svg_import_jobs: vec![],
+            next_text_layer_id: 1,
+            next_svg_job_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1110,6 +1186,40 @@ impl App {
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
+
+            // Deformation (Batch 8)
+            Action::AddPinAnchor { .. }
+            | Action::RemovePinAnchor { .. }
+            | Action::MovePinAnchor { .. }
+            | Action::LockPinAnchor { .. }
+            | Action::AddDeformLayer { .. }
+            | Action::RemoveDeformLayer { .. }
+            | Action::SetDeformStrength { .. }
+            | Action::ToggleDeform { .. }
+            | Action::SetStretchSquash { .. }
+            | Action::ToggleStretchSquash { .. } => self.apply_deformation(action),
+
+            // Masking (Batch 8)
+            Action::AddLayerMask { .. }
+            | Action::RemoveLayerMask { .. }
+            | Action::SetMaskKind { .. }
+            | Action::ToggleMask { .. }
+            | Action::CreateClippingGroup { .. }
+            | Action::AddToClippingGroup { .. }
+            | Action::RemoveFromClippingGroup { .. }
+            | Action::DissolveClippingGroup { .. } => self.apply_masking(action),
+
+            // Text Layers / SVG Import (Batch 8)
+            Action::AddTextLayer { .. }
+            | Action::RemoveTextLayer { .. }
+            | Action::SetTextContent { .. }
+            | Action::SetTextFont { .. }
+            | Action::SetTextColor { .. }
+            | Action::SetTextAlign { .. }
+            | Action::SetTextStyle { .. }
+            | Action::SetTextSpacing { .. }
+            | Action::QueueSvgImport { .. }
+            | Action::CompleteSvgImport { .. } => self.apply_text_layer(action),
         }
     }
 }

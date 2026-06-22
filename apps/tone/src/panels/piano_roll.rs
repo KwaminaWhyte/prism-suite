@@ -153,8 +153,9 @@ pub fn render_piano_roll(app: &App, cx: &mut Context<Tone>) -> impl IntoElement 
                                 .map(|(note_id, _, start_beat, duration_beats)| {
                                     let left = (start_beat / VISIBLE_BEATS).clamp(0.0, 1.0);
                                     let width = (duration_beats / VISIBLE_BEATS).max(0.02);
-                                    let _ = note_id; // used for key below
+                                    let nid = *note_id;
                                     div()
+                                        .id(("note-block", nid))
                                         .absolute()
                                         .left(gpui::relative(left))
                                         .w(gpui::relative(width))
@@ -162,6 +163,11 @@ pub fn render_piano_roll(app: &App, cx: &mut Context<Tone>) -> impl IntoElement 
                                         .bottom(px(1.0))
                                         .bg(colors::accent())
                                         .rounded(px(1.0))
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                            this.app.apply(Action::DeleteMidiNote(nid));
+                                            cx.notify();
+                                        }))
                                 })
                                 .collect();
 

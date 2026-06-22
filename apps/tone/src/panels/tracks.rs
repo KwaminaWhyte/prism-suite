@@ -113,7 +113,7 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                             div()
                                 .id(("track-row", idx))
                                 .w_full()
-                                .h(px(52.0))
+                                .h(px(56.0))
                                 .px_2()
                                 .py_1()
                                 .flex()
@@ -265,6 +265,65 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                 .text_size(px(7.0))
                                                 .text_color(colors::text_disabled())
                                                 .child(vol_display),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(("vol-down", idx))
+                                                .w(px(14.0))
+                                                .h(px(14.0))
+                                                .bg(colors::surface_overlay())
+                                                .rounded(px(2.0))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_size(px(8.0))
+                                                .text_color(colors::text_primary())
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                    let v = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.volume).unwrap_or(1.0);
+                                                    this.app.apply(Action::SetTrackVolume { id: track_id, volume: (v - 0.1).max(0.0) });
+                                                    cx.notify();
+                                                }))
+                                                .child("\u{2212}"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(("vol-up", idx))
+                                                .w(px(14.0))
+                                                .h(px(14.0))
+                                                .bg(colors::surface_overlay())
+                                                .rounded(px(2.0))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_size(px(8.0))
+                                                .text_color(colors::text_primary())
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                    let v = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.volume).unwrap_or(1.0);
+                                                    this.app.apply(Action::SetTrackVolume { id: track_id, volume: (v + 0.1).min(2.0) });
+                                                    cx.notify();
+                                                }))
+                                                .child("+"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id(("del-track", idx))
+                                                .w(px(20.0))
+                                                .h(px(14.0))
+                                                .bg(colors::surface_overlay())
+                                                .rounded(px(2.0))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_size(px(7.0))
+                                                .text_color(colors::text_disabled())
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                    this.app.apply(Action::DeleteTrack(track_id));
+                                                    cx.notify();
+                                                }))
+                                                .child("\u{00d7}"),
                                         ),
                                 )
                         })

@@ -14,6 +14,7 @@ const LABEL_W: f32 = 220.0;
 const VISIBLE_BARS: f32 = 32.0;
 
 pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
+    let playhead_pct = (app.playhead_beat / VISIBLE_BARS).clamp(0.0, 1.0);
     div()
         .w_full()
         .h_full()
@@ -24,9 +25,6 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
         .flex_col()
         // Bar ruler + track-add buttons
         .child(
-        // Bar ruler
-        .child({
-            let playhead_pct = (app.playhead_beat / VISIBLE_BARS).clamp(0.0, 1.0);
             div()
                 .w_full()
                 .h(px(24.0))
@@ -35,6 +33,7 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                 .border_color(colors::surface_border())
                 .flex()
                 .items_center()
+                .relative()
                 // Label column: [A] [M] add-track buttons
                 .child(
                     div()
@@ -95,9 +94,6 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                 )
                 // Bar numbers
                 .child(
-                .relative()
-                .pl(px(LABEL_W))
-                .children((1..=32u32).map(|bar| {
                     div()
                         .flex_1()
                         .h_full()
@@ -118,14 +114,8 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                 .text_color(colors::text_disabled())
                                 .child(format!("{bar}"))
                         })),
-                ),
-        )
-                        .pl_1()
-                        .text_size(px(8.0))
-                        .text_color(colors::text_disabled())
-                        .child(format!("{bar}"))
-                }))
-                // Playhead line
+                )
+                // Playhead indicator line
                 .child(
                     div()
                         .absolute()
@@ -134,8 +124,8 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                         .bottom(px(0.0))
                         .w(px(2.0))
                         .bg(colors::accent()),
-                )
-        })
+                ),
+        )
         // Track lanes
         .child(
             div()
@@ -174,7 +164,7 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                 .items_center()
                                 .border_b_1()
                                 .border_color(colors::surface_border())
-                                // Track label cell: kind badge + name + M/S buttons
+                                // Track label cell: kind badge + name + M/S/del buttons
                                 .child(
                                     div()
                                         .w(px(LABEL_W))
@@ -184,8 +174,6 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                         .flex_col()
                                         .justify_center()
                                         .gap_1()
-                                        .items_center()
-                                        .justify_between()
                                         .border_r_1()
                                         .border_color(colors::surface_border())
                                         .flex_shrink_0()
@@ -218,7 +206,7 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                         .child(track_name),
                                                 ),
                                         )
-                                        // Bottom row: M / S buttons
+                                        // Bottom row: M / S / delete buttons
                                         .child(
                                             div()
                                                 .flex()
@@ -263,31 +251,26 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                             cx.notify();
                                                         }))
                                                         .child("S"),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id(("del-track", lane_idx))
+                                                        .w(px(20.0))
+                                                        .h(px(14.0))
+                                                        .bg(colors::surface_overlay())
+                                                        .rounded(px(2.0))
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_size(px(7.0))
+                                                        .text_color(colors::text_disabled())
+                                                        .cursor_pointer()
+                                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                            this.app.apply(Action::DeleteTrack(track_id));
+                                                            cx.notify();
+                                                        }))
+                                                        .child("\u{00d7}"),
                                                 ),
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .overflow_hidden()
-                                                .child(track_name),
-                                        )
-                                        .child(
-                                            div()
-                                                .id(("del-track", lane_idx))
-                                                .w(px(20.0))
-                                                .h(px(14.0))
-                                                .bg(colors::surface_overlay())
-                                                .rounded(px(2.0))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_size(px(7.0))
-                                                .text_color(colors::text_disabled())
-                                                .cursor_pointer()
-                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
-                                                    this.app.apply(Action::DeleteTrack(track_id));
-                                                    cx.notify();
-                                                }))
-                                                .child("\u{00d7}"),
                                         ),
                                 )
                                 // Clip lane — click empty area to add clip; click clip block to open piano roll

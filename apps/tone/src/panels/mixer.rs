@@ -87,12 +87,58 @@ pub fn render_mixer(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                         .rounded(px(2.0)),
                                 ),
                         )
-                        // Volume label
+                        // Volume label + +/- buttons
                         .child(
                             div()
                                 .text_size(px(7.0))
                                 .text_color(colors::text_disabled())
                                 .child(format!("VOL:{:.0}%", volume * 100.0)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(2.0))
+                                .child(
+                                    div()
+                                        .id(("vol-down", i))
+                                        .w(px(14.0))
+                                        .h(px(14.0))
+                                        .bg(colors::surface_overlay())
+                                        .rounded(px(2.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_size(px(9.0))
+                                        .text_color(colors::text_primary())
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                            let v = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.volume).unwrap_or(1.0);
+                                            this.app.apply(Action::SetTrackVolume { id: track_id, volume: (v - 0.1).max(0.0) });
+                                            cx.notify();
+                                        }))
+                                        .child("−"),
+                                )
+                                .child(
+                                    div()
+                                        .id(("vol-up", i))
+                                        .w(px(14.0))
+                                        .h(px(14.0))
+                                        .bg(colors::surface_overlay())
+                                        .rounded(px(2.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_size(px(9.0))
+                                        .text_color(colors::text_primary())
+                                        .cursor_pointer()
+                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                            let v = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.volume).unwrap_or(1.0);
+                                            this.app.apply(Action::SetTrackVolume { id: track_id, volume: (v + 0.1).min(2.0) });
+                                            cx.notify();
+                                        }))
+                                        .child("+"),
+                                ),
                         )
                         // Mute button
                         .child(

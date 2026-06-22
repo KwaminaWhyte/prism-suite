@@ -1,7 +1,7 @@
 # Tone — Phased Roadmap to 90% GarageBand/Logic Pro Parity + AI Supremacy
 
 Target: surpass GarageBand/Logic Pro on AI features while matching them on DAW essentials.
-Current status: Phase 1 scaffold (0%).
+Current status: Batch 4 complete (~70% parity). Chord tools implemented: scale lock, progression builder, AI suggestions.
 
 ---
 

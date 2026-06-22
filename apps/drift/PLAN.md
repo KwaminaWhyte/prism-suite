@@ -17,7 +17,7 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 | 5 | Export pipeline, Lottie, state machines, interactive | 80% | 650+ | Planned |
 | 6 | Polish: audio mixing, scripting, plugin API | 90% | 800+ | Planned |
 
-**Current overall parity: ~30%** — 221 tests passing.
+**Current overall parity: ~40%** — 286 tests passing.
 
 ---
 
@@ -90,12 +90,12 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 - [x] `AutoRigLayer` — 8-bone humanoid scaffold (hip, torso, neck, head, l/r arm, l/r leg)
 - [x] Manual bone add/delete/move/rotate
 - [x] IK target pinning (bone_id, target_x, target_y)
-- [ ] Bone influence weights on bitmap layer pixels
-- [ ] Mesh warp — freeform mesh on Bitmap layers with vertex control
+- [x] Bone influence weights on bitmap layer pixels
+- [x] Mesh warp — freeform mesh on Bitmap layers with vertex control
 - [ ] Pin tool — anchor mesh regions
 - [x] Spring dynamics on bones — secondary motion from parent movement
 - [ ] Webcam input → facial landmark capture → drive rig (Character Animator parity)
-- [ ] Lip sync from audio — phoneme-driven mouth shape blend
+- [x] Lip sync from audio — phoneme-driven mouth shape blend (data model + audio track)
 - [ ] Eye/brow tracking from webcam
 - [ ] Deformation layer — bend, skew, warp, puppet pin
 - [x] Swap sets — alternate artwork sets per body part (open/closed mouth, blink)

@@ -65,6 +65,7 @@ pub mod nested_timeline;
 pub mod onnx_inference;
 // Batch 8: Lottie builder, media export queue, JS runtime, web publish, CRDT
 pub mod export_web;
+pub mod audio_ops;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -113,6 +114,7 @@ pub use export_web::{
     JsRuntimeConfig, WebPublishJob, WebPublishStatus,
     WsLivePreviewConfig, CollabSession, CollabStatus,
 };
+pub use audio_ops::{AudioClipOps, WaveformPeakEntry, MultiTrackMixConfig, RhaiRuntimeConfig, As3ImportStatus, As3ImportJob, AudioSyncMarker};
 
 // Tool enum and Action enum live in their own file.
 pub mod action;
@@ -539,6 +541,25 @@ pub enum Action {
     StartCollabSession { room_id: String },
     CollabSessionConnected { peer_count: usize },
     StopCollabSession,
+    // Audio Ops (Batch 8 — A): per-clip trim, fade, pan, volume
+    SetAudioClipTrim { layer_id: usize, trim_start: usize, trim_end: usize },
+    SetAudioFade { layer_id: usize, fade_in: usize, fade_out: usize },
+    SetAudioPan { layer_id: usize, pan: f32 },
+    SetAudioClipVolume { layer_id: usize, volume: f32 },
+    // Audio Ops (Batch 8 — B): waveform peaks
+    SetWaveformPeaks { layer_id: usize, peaks: Vec<(f32, f32)>, sample_rate: u32 },
+    InvalidateWaveformPeaks { layer_id: usize },
+    // Audio Ops (Batch 8 — C): multi-track mix config
+    SetMultiTrackMix { enabled: bool, normalize: bool, master_gain: f32 },
+    // Audio Ops (Batch 8 — D): Rhai scripting runtime
+    SetRhaiRuntime { enabled: bool, max_ops: u64, debug: bool },
+    // Audio Ops (Batch 8 — E): audio sync markers (frame-based)
+    AddAudioSyncMarker { frame: usize, label: String, color: u32 },
+    RemoveAudioSyncMarker { id: usize },
+    // Audio Ops (Batch 8 — F): AS3 importer stub
+    StartAs3Import { source_path: String },
+    CompleteAs3Import { job_id: usize, scripts_found: usize, symbols_found: usize },
+    FailAs3Import { job_id: usize, error: String },
 
     // Tool selection
     SetActiveTool(DriftTool),
@@ -882,6 +903,19 @@ pub struct App {
 
     // Batch 8: CRDT collaboration session
     pub collab_session: CollabSession,
+    // Batch 8 — A/B: Audio clip ops + waveform peaks
+    pub audio_clip_ops: Vec<AudioClipOps>,
+    pub waveform_peaks: Vec<WaveformPeakEntry>,
+    // Batch 8 — C: Multi-track mix config
+    pub mix_config: MultiTrackMixConfig,
+    // Batch 8 — D: Rhai runtime config
+    pub rhai_runtime: RhaiRuntimeConfig,
+    // Batch 8 — E: Audio sync markers (frame-based)
+    pub audio_sync_markers: Vec<AudioSyncMarker>,
+    pub next_sync_marker_id: usize,
+    // Batch 8 — F: AS3 importer jobs
+    pub as3_jobs: Vec<As3ImportJob>,
+    pub next_as3_job_id: usize,
 }
 
 impl App {
@@ -1102,6 +1136,15 @@ impl App {
             next_web_publish_id: 1,
             ws_live_preview: WsLivePreviewConfig::default(),
             collab_session: CollabSession::default(),
+            // Batch 8: Audio ops, waveform peaks, mix config, Rhai runtime, sync markers, AS3
+            audio_clip_ops: Vec::new(),
+            waveform_peaks: Vec::new(),
+            mix_config: MultiTrackMixConfig::default(),
+            rhai_runtime: RhaiRuntimeConfig::default(),
+            audio_sync_markers: Vec::new(),
+            next_sync_marker_id: 0,
+            as3_jobs: Vec::new(),
+            next_as3_job_id: 0,
         };
         app.seed_easing_curves();
         app
@@ -1547,6 +1590,20 @@ impl App {
             | Action::StartCollabSession { .. }
             | Action::CollabSessionConnected { .. }
             | Action::StopCollabSession => self.apply_export_web(&action),
+            // Audio Ops (Batch 8)
+            Action::SetAudioClipTrim { .. }
+            | Action::SetAudioFade { .. }
+            | Action::SetAudioPan { .. }
+            | Action::SetAudioClipVolume { .. }
+            | Action::SetWaveformPeaks { .. }
+            | Action::InvalidateWaveformPeaks { .. }
+            | Action::SetMultiTrackMix { .. }
+            | Action::SetRhaiRuntime { .. }
+            | Action::AddAudioSyncMarker { .. }
+            | Action::RemoveAudioSyncMarker { .. }
+            | Action::StartAs3Import { .. }
+            | Action::CompleteAs3Import { .. }
+            | Action::FailAs3Import { .. } => self.apply_audio_ops(action),
 
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,

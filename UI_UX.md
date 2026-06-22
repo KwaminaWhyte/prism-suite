@@ -84,12 +84,12 @@ All state mutation routes through `App::apply(Action)`. Panels are pure render f
 
 ## Per-app UI gaps (see each app's PLAN.md)
 
-- **Pigment** — Dodge/Burn/Smudge/Crop; layer styles; clipping masks; color picker wheel; PSD I/O; dockable workspaces. See [PLAN.md](apps/pigment/PLAN.md).
-- **Contour** — Gradient fill rendering; shape builder geometry; character/paragraph panels; PDF export; graphic styles. See [PLAN.md](apps/contour/PLAN.md).
-- **Pulse** — RAM preview; parenting; 3D camera; more AE effects; full expression language. See [PLAN.md](apps/pulse/PLAN.md).
-- **Reel** — Source/program dual viewer; audio playback output; snap; Lumetri Scopes; ProRes export. See [PLAN.md](apps/reel/PLAN.md).
-- **Drift** — GPUI timeline panel; layers panel; canvas with checkerboard + rulers; vector drawing tools (pen/shapes); tweening UI; onion skinning. See [PLAN.md](apps/drift/PLAN.md).
-- **Tone** — GPUI piano roll canvas; mixer channel strips with faders/knobs/meters; waveform thumbnail clips on timeline; beat-grid ruler; quantize panel. See [PLAN.md](apps/tone/PLAN.md).
+- **Pigment** — Color picker wheel; dockable workspaces; RAW import UI. See [PLAN.md](apps/pigment/PLAN.md).
+- **Contour** — Gradient fill rendering; shape builder geometry; SVG animation export. See [PLAN.md](apps/contour/PLAN.md).
+- **Pulse** — Full expression language UI; OCIO config picker; Dynamic Link node editor. See [PLAN.md](apps/pulse/PLAN.md).
+- **Reel** — Audio playback output; source/program dual viewer; text-based editing panel. See [PLAN.md](apps/reel/PLAN.md).
+- **Drift** — Canvas with checkerboard + rulers; mesh warp grid editor; bone influence weight painting UI; easing curve editor; onion skinning toggle. See [PLAN.md](apps/drift/PLAN.md).
+- **Tone** — CPAL real-time audio playback; automation lane UI; tempo map editor; scene/session launch view; plugin window hosting. See [PLAN.md](apps/tone/PLAN.md).
 
 ---
 

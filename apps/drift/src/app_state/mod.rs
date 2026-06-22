@@ -47,6 +47,9 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// Batch 8 domains
+pub mod drawing_tools;
+pub mod nested_timeline;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +81,8 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use drawing_tools::{PenMode, PenToolState, PenBezierPoint, PencilStroke, GizmoHandle, SelectionGizmo};
+pub use nested_timeline::{NestedTimeline, NestedLayer, NestedKeyframe};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -463,6 +468,41 @@ pub enum Action {
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
     // Tool selection
     SetActiveTool(DriftTool),
+
+    // Drawing Tools — Pen (Batch 8)
+    PenAddPoint { x: f32, y: f32 },
+    PenSelectPoint { idx: usize },
+    PenMovePoint { idx: usize, x: f32, y: f32 },
+    PenSetHandle { idx: usize, in_x: f32, in_y: f32, out_x: f32, out_y: f32 },
+    PenClosePath,
+    PenCommitPath,
+    PenSetMode { mode: PenMode },
+
+    // Drawing Tools — Pencil (Batch 8)
+    PencilBeginStroke { layer_id: usize, color: u32, width: f32 },
+    PencilAddPoint { x: f32, y: f32 },
+    PencilCommitStroke,
+    PencilCancelStroke,
+
+    // Drawing Tools — Onion Skin fine-grained (Batch 8)
+    SetOnionSkinEnabled { enabled: bool },
+    SetOnionSkinFrames { prev: usize, next: usize },
+    SetOnionSkinOpacity { prev_opacity: f32, next_opacity: f32 },
+
+    // Drawing Tools — Selection Gizmo (Batch 8)
+    SetSelectionGizmo { layer_id: usize, x: f32, y: f32, w: f32, h: f32 },
+    ClearSelectionGizmo,
+    GizmoDragHandle { handle: GizmoHandle },
+    GizmoRelease,
+    GizmoRotate { delta_deg: f32 },
+
+    // Nested Timelines (Batch 8)
+    CreateNestedTimeline { symbol_id: usize, fps: f32, duration_frames: usize },
+    AddNestedLayer { timeline_id: usize, name: String },
+    AddNestedKeyframe { timeline_id: usize, frame: usize, property: String, value: f32 },
+    SetNestedFrame { timeline_id: usize, frame: usize },
+    SetNestedLoop { timeline_id: usize, loop_on: bool },
+    DeleteNestedTimeline { id: usize },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -647,6 +687,17 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // Batch 8 — Drawing Tools
+    pub pen_tool: PenToolState,
+    pub pencil_strokes: Vec<PencilStroke>,
+    pub next_pencil_id: usize,
+    pub active_pencil_stroke: Option<usize>,
+    pub selection_gizmo: Option<SelectionGizmo>,
+
+    // Batch 8 — Nested Timelines
+    pub nested_timelines: Vec<NestedTimeline>,
+    pub next_nested_timeline_id: usize,
 }
 
 impl App {
@@ -781,6 +832,15 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // Batch 8 — Drawing Tools
+            pen_tool: PenToolState::default(),
+            pencil_strokes: Vec::new(),
+            next_pencil_id: 1,
+            active_pencil_stroke: None,
+            selection_gizmo: None,
+            // Batch 8 — Nested Timelines
+            nested_timelines: Vec::new(),
+            next_nested_timeline_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1108,6 +1168,35 @@ impl App {
             | Action::AddSyncGroup { .. }
             | Action::RemoveSyncGroup { .. }
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
+            // Drawing Tools (Batch 8)
+            Action::PenAddPoint { .. }
+            | Action::PenSelectPoint { .. }
+            | Action::PenMovePoint { .. }
+            | Action::PenSetHandle { .. }
+            | Action::PenClosePath
+            | Action::PenCommitPath
+            | Action::PenSetMode { .. }
+            | Action::PencilBeginStroke { .. }
+            | Action::PencilAddPoint { .. }
+            | Action::PencilCommitStroke
+            | Action::PencilCancelStroke
+            | Action::SetOnionSkinEnabled { .. }
+            | Action::SetOnionSkinFrames { .. }
+            | Action::SetOnionSkinOpacity { .. }
+            | Action::SetSelectionGizmo { .. }
+            | Action::ClearSelectionGizmo
+            | Action::GizmoDragHandle { .. }
+            | Action::GizmoRelease
+            | Action::GizmoRotate { .. } => self.apply_drawing_tools(action),
+
+            // Nested Timelines (Batch 8)
+            Action::CreateNestedTimeline { .. }
+            | Action::AddNestedLayer { .. }
+            | Action::AddNestedKeyframe { .. }
+            | Action::SetNestedFrame { .. }
+            | Action::SetNestedLoop { .. }
+            | Action::DeleteNestedTimeline { .. } => self.apply_nested_timeline(action),
+
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
         }

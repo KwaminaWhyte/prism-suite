@@ -10,14 +10,6 @@ use crate::Drift;
 use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement, Styled};
 use prism_ui::{colors, font_size};
 
-pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement {
-    div()
-        .id("inspector-panel")
-        .w_full()
-        .flex()
-        .flex_col()
-        .border_t_1()
-        .border_color(colors::surface_border())
 /// Color swatch colors keyed by layer index (matches the main canvas palette).
 fn layer_color_hex(idx: usize) -> (u32, &'static str) {
     match idx % 6 {
@@ -73,6 +65,77 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
         )
         // Body
         .child(inspector_body(app))
+        // Active layer name
+        .child(
+            div()
+                .px_3()
+                .py(px(4.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_secondary())
+                        .child("Layer"),
+                )
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .child(active_layer_name),
+                ),
+        )
+        // Fill Color row
+        .child(
+            div()
+                .px_3()
+                .py(px(4.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_secondary())
+                        .child("Fill Color:"),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        // Color swatch
+                        .child(
+                            div()
+                                .w(px(20.0))
+                                .h(px(20.0))
+                                .rounded(px(2.0))
+                                .border_1()
+                                .border_color(colors::surface_border())
+                                .bg(gpui::rgb(swatch_color)),
+                        )
+                        // Hex display
+                        .child(
+                            div()
+                                .text_size(px(font_size::XS))
+                                .text_color(colors::text_primary())
+                                .child(hex_str),
+                        ),
+                ),
+        )
+        // Copy hex hint
+        .child(
+            div()
+                .px_3()
+                .py(px(2.0))
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_disabled())
+                        .child("Copy Hex"),
+                ),
+        )
 }
 
 fn inspector_body(app: &App) -> impl IntoElement {
@@ -155,75 +218,5 @@ fn prop_row(label: &'static str, value: String) -> impl IntoElement {
                 .text_size(px(font_size::XS))
                 .text_color(colors::text_primary())
                 .child(value),
-        // Active layer name
-        .child(
-            div()
-                .px_3()
-                .py(px(4.0))
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_secondary())
-                        .child("Layer"),
-                )
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_primary())
-                        .child(active_layer_name),
-                ),
-        )
-        // Fill Color row
-        .child(
-            div()
-                .px_3()
-                .py(px(4.0))
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_secondary())
-                        .child("Fill Color:"),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        // Color swatch
-                        .child(
-                            div()
-                                .w(px(20.0))
-                                .h(px(20.0))
-                                .rounded(px(2.0))
-                                .border_1()
-                                .border_color(colors::surface_border())
-                                .bg(gpui::rgb(swatch_color)),
-                        )
-                        // Hex display
-                        .child(
-                            div()
-                                .text_size(px(font_size::XS))
-                                .text_color(colors::text_primary())
-                                .child(hex_str),
-                        ),
-                ),
-        )
-        // Copy hex hint
-        .child(
-            div()
-                .px_3()
-                .py(px(2.0))
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_disabled())
-                        .child("Copy Hex"),
-                ),
         )
 }

@@ -9,8 +9,9 @@ use super::{
     StageRulerUnit, LabelColor, ScriptLanguage, ScriptTarget, ScriptEvent, LogLevel,
     CaptureSource, TrackedFeature, AiMotionModel, AiBackend, AiRequestStatus, AdvancedTweenKind,
     MarkerKind, LottieExportConfig, LayerBlend, PluginManifest, DeformKind, MaskKind,
-    TextAlign, TextStyle, Projection3D, RulerUnit,
+    TextAlign, TextStyle, Projection3D, RulerUnit, ExportConfig,
 };
+use super::ai_motion_ext::EaseSuggestion;
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -455,4 +456,49 @@ pub enum Action {
     SetTextSpacing { text_id: usize, line_height: f32, letter_spacing: f32 },
     QueueSvgImport { path: String, layer_id: usize },
     CompleteSvgImport { job_id: usize },
+
+    // History + document lifecycle
+    Undo,
+    Redo,
+    ClearHistory,
+    NewDocument,
+    SaveDocument { path: String },
+    OpenDocument { path: String },
+    MarkDirty,
+
+    // State machine eval (Batch 8)
+    InitSmRuntime { machine_id: usize },
+    TickSmRuntime { machine_id: usize },
+    TriggerSmInput { machine_id: usize, trigger: StateTransitionTrigger },
+    StopSmRuntime { machine_id: usize },
+    ResetSmRuntime { machine_id: usize },
+
+    // Export presets / render queue (Batch 8)
+    SaveExportPreset { name: String, config: ExportConfig },
+    DeleteExportPreset { preset_id: usize },
+    RenameExportPreset { preset_id: usize, name: String },
+    CreateRenderBatch,
+    AddJobToBatch { batch_id: usize, preset_id: usize, output_path: String },
+    StartRenderBatch { batch_id: usize },
+    UpdateBatchJobProgress { job_id: usize, progress: f32 },
+    CompleteBatchJob { job_id: usize },
+    CancelRenderBatch { batch_id: usize },
+
+    // AI Motion Extensions (Batch 8)
+    QueueMotionSmooth { layer_id: usize, property: String, strength: f32 },
+    CompleteMotionSmooth { job_id: usize },
+    CancelMotionSmooth { job_id: usize },
+    QueueEaseSuggest { layer_id: usize },
+    CompleteEaseSuggest { job_id: usize, suggestions: Vec<EaseSuggestion> },
+    QueueInbetween { layer_id: usize, from_frame: usize, to_frame: usize, frames_to_fill: usize },
+    CompleteInbetween { job_id: usize },
+    CancelInbetween { job_id: usize },
+    QueueExpressionTransfer { rig_layer_id: usize, reference_image_path: String },
+    CompleteExpressionTransfer { job_id: usize },
+    QueueMotionFromVideo { video_path: String, target_rig_layer_id: usize, fps: f32 },
+    UpdateMotionFromVideoProgress { job_id: usize, keyframes_created: usize },
+    CompleteMotionFromVideo { job_id: usize, keyframes_created: usize },
+    StartCharPackExport { rig_layer_id: usize, output_path: String, include_audio: bool },
+    CompleteCharPackExport { export_id: usize },
+    CancelCharPackExport { export_id: usize },
 }

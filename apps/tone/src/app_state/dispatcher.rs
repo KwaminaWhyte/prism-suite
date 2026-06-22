@@ -514,6 +514,21 @@ impl App {
             | Action::UnlinkVideo
             | Action::SetVideoOffset { .. }
             | Action::ToggleVideoPlaybackLink => self.apply_tempo_film(action),
+
+            // ── ONNX Model Management ─────────────────────────────────────────
+            Action::RegisterOnnxModel { .. }
+            | Action::StartModelDownload { .. }
+            | Action::UpdateModelDownload { .. }
+            | Action::CompleteModelDownload { .. }
+            | Action::RemoveOnnxModel { .. }
+            | Action::QueueOnnxInference { .. }
+            | Action::CompleteOnnxInference { .. }
+            | Action::FailOnnxInference { .. } => self.apply_onnx_runtime(&action),
+
+            // ── Waveform Peak Cache ───────────────────────────────────────────
+            Action::InvalidateWaveform { .. }
+            | Action::SetWaveformPeaks { .. }
+            | Action::ClearWaveformCache => self.apply_waveform_cache(&action),
         }
     }
 }

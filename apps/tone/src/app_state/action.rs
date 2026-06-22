@@ -13,6 +13,7 @@ use super::{
     ControllerPreset, MidiClockSource, VstPluginInfo, SurroundFormat, SurroundPan,
     SpectralTool, NotationClef, Clef, ChordQuality, StemDirection, QuantizeDisplay,
     AutomationParameter, AutomationMode,
+    OnnxModelKind, WaveformPeak,
 };
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
@@ -848,4 +849,19 @@ pub enum Action {
     UnlinkVideo,
     SetVideoOffset { frames: i32 },
     ToggleVideoPlaybackLink,
+
+    // ── ONNX Model Management (Batch 5) ──────────────────────────────────────
+    RegisterOnnxModel { kind: OnnxModelKind, name: String, url_hint: String, size_mb: u32 },
+    StartModelDownload { kind: OnnxModelKind },
+    UpdateModelDownload { kind: OnnxModelKind, progress: f32 },
+    CompleteModelDownload { kind: OnnxModelKind, local_path: String },
+    RemoveOnnxModel { kind: OnnxModelKind },
+    QueueOnnxInference { model_kind: OnnxModelKind, input_desc: String },
+    CompleteOnnxInference { job_id: usize },
+    FailOnnxInference { job_id: usize, error: String },
+
+    // ── Waveform Peak Cache (Batch 5) ─────────────────────────────────────────
+    InvalidateWaveform { clip_id: usize },
+    SetWaveformPeaks { clip_id: usize, peaks: Vec<WaveformPeak>, sample_rate: u32, pixels_per_second: f32 },
+    ClearWaveformCache,
 }

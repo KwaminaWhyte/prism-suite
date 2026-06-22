@@ -233,9 +233,6 @@ impl Render for Drift {
                             )
                             .child(panels::render_inspector(&self.app, cx)),
                     )
-                    // Center: Canvas area + stage status bar
-                    // Left: Layers panel
-                    .child(panels::render_layers(&self.app, cx))
                     // Center: Canvas area with optional rulers
                     .child(
                         div()
@@ -251,61 +248,60 @@ impl Render for Drift {
                                 div()
                                     .flex_1()
                                     .flex()
+                                    .flex_col()
                                     .items_center()
                                     .justify_center()
                                     .min_h(px(0.0))
-                            .items_center()
-                            .justify_center()
-                            // ── Horizontal ruler (above stage) ───────────────
-                            .when(show_rulers, |el| {
-                                el.child(
-                                    div()
-                                        .w(px(stage_w + 20.0))
-                                        .h(px(20.0))
-                                        .flex()
-                                        .flex_row()
-                                        .bg(gpui::rgb(0x1e1e2e))
-                                        .border_b_1()
-                                        .border_color(colors::surface_border())
-                                        // Corner spacer
-                                        .child(
+                                    // ── Horizontal ruler (above stage) ───────────────
+                                    .when(show_rulers, |el| {
+                                        el.child(
                                             div()
-                                                .w(px(20.0))
+                                                .w(px(stage_w + 20.0))
                                                 .h(px(20.0))
-                                                .bg(gpui::rgb(0x1e1e2e)),
-                                        )
-                                        // Tick marks
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .h_full()
-                                                .relative()
-                                                .children((0..h_tick_count).map(|i| {
-                                                    let pos = i as f32 * 50.0;
-                                                    let label = format!("{}", i * 50);
+                                                .flex()
+                                                .flex_row()
+                                                .bg(gpui::rgb(0x1e1e2e))
+                                                .border_b_1()
+                                                .border_color(colors::surface_border())
+                                                // Corner spacer
+                                                .child(
                                                     div()
-                                                        .absolute()
-                                                        .left(px(pos))
-                                                        .top(px(0.0))
-                                                        .w(px(1.0))
-                                                        .h(px(6.0))
-                                                        .bg(colors::text_disabled())
-                                                        // Label
-                                                        .child(
+                                                        .w(px(20.0))
+                                                        .h(px(20.0))
+                                                        .bg(gpui::rgb(0x1e1e2e)),
+                                                )
+                                                // Tick marks
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .h_full()
+                                                        .relative()
+                                                        .children((0..h_tick_count).map(|i| {
+                                                            let pos = i as f32 * 50.0;
+                                                            let label = format!("{}", i * 50);
                                                             div()
                                                                 .absolute()
-                                                                .left(px(2.0))
-                                                                .top(px(6.0))
-                                                                .text_size(px(8.0))
-                                                                .text_color(colors::text_disabled())
-                                                                .child(label),
-                                                        )
-                                                })),
-                                        ),
-                                )
-                            })
-                            // ── Stage row (vertical ruler + stage) ───────────
-                            .child(
+                                                                .left(px(pos))
+                                                                .top(px(0.0))
+                                                                .w(px(1.0))
+                                                                .h(px(6.0))
+                                                                .bg(colors::text_disabled())
+                                                                // Label
+                                                                .child(
+                                                                    div()
+                                                                        .absolute()
+                                                                        .left(px(2.0))
+                                                                        .top(px(6.0))
+                                                                        .text_size(px(8.0))
+                                                                        .text_color(colors::text_disabled())
+                                                                        .child(label),
+                                                                )
+                                                        })),
+                                                ),
+                                        )
+                                    })
+                                    // ── Stage row (vertical ruler + stage) ───────────
+                                    .child(
                                 div()
                                     .flex()
                                     .flex_row()
@@ -520,6 +516,7 @@ impl Render for Drift {
                                             )),
                                     ),
                             ),
+                    )
                     )
                     // Right: AI panel + Inspector (stacked in a column)
                     .child(

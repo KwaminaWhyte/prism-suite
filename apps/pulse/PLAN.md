@@ -1,6 +1,14 @@
 # Pulse — Open Source After Effects Alternative
 
-> **Status: ~55% parity (Batches 1–4 complete). Target ≥85%.**
+> **Status: ~72% parity (Batches 1–5 complete). Target ≥85%.**
+
+## Batch 5 — Completed (2026-06-22)
+
+- [x] **More Built-in Effects** — `Batch5Effect` enum with 26 variants (MotionBlur, RadialBlur, SmartBlur, Glow, GlowingEdges, CC effects, PosterizeTime, TimeDisplacement, SetChannels, Blend, Calculations, CellPattern, Checkerboard, CircleBurst, Gradient, Grid, Stroke). `Action::AddMotionBlurEffect/AddGlowEffect/AddCcRepeTileEffect/AddPosterizeTime/AddCellPattern/AddCheckerboard/AddGradientEffect/AddGridEffect/AddStrokeEffect/SetMotionBlur/RemoveBatch5Effect`.
+- [x] **Motion Paths** — `MotionPath { id, layer_id, points, closed, auto_orient, orient_smoothness }` + `MotionPathPoint { time_s, x, y, in_handle, out_handle, easing }` + `MotionEasing` enum. `App::sample_motion_path()` with per-easing interpolation. `Action::CreateMotionPath/AddMotionPathPoint/RemoveMotionPathPoint/SetMotionPathPoint/SetMotionPathEasing/SetAutoOrient/DeleteMotionPath`.
+- [x] **Shape Layer Groups** — `ShapeLayerGroup { id, name, transform, items }` + `ShapeGroupTransform` + `ShapeItemKind` enum (Rectangle, Ellipse, Star, Path, Merge, Trim, Twist, Repeater) + `MergeMode` + `TrimMultiple`. `Action::AddShapeGroup/AddShapeItemToGroup/RemoveShapeItemFromGroup/SetShapeGroupTransform/SetShapeStar/AddRepeaterToGroup/AddTrimPath/AddMergeShapes/DeleteShapeGroup`.
+- [x] **Audio Mixer Buses** — `AudioBus { id, name, volume, pan, muted, solo, sends, eq_*, compressor_* }` + `master_volume/master_pan` on App. `Action::AddAudioBus/RemoveAudioBus/SetBusVolume/SetBusPan/MuteBus/SoloBus/AddBusSend/RemoveBusSend/SetBusEq/SetBusCompressor/SetMasterVolume/SetMasterPan`.
+- 55 tests added → **849 total**
 
 ## Batch 4 — Completed (2026-06-20)
 

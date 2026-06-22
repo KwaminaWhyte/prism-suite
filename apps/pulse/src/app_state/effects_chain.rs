@@ -50,6 +50,90 @@ impl Default for EchoConfig {
     }
 }
 
+// --- Batch 5 effect enums ---
+
+#[derive(Clone, Debug)]
+pub enum RadialBlurKind { Spin, Zoom }
+
+#[derive(Clone, Debug)]
+pub enum SmartBlurMode { Normal, EdgeOnly, Overlay }
+
+#[derive(Clone, Debug)]
+pub enum GlowColors { Original, AAndB }
+
+#[derive(Clone, Debug)]
+pub enum GlowChannel { AlphaChannel, Luminance }
+
+#[derive(Clone, Debug)]
+pub enum TilingMode { Tile, StagedTile, Kaleidoscope }
+
+#[derive(Clone, Debug)]
+pub enum CylinderRenderMode { Full, Outside, Inside }
+
+#[derive(Clone, Debug)]
+pub enum ChannelSource { Red, Green, Blue, Alpha, Full, Luminance }
+
+#[derive(Clone, Debug)]
+pub enum CalcOperation {
+    Add, Subtract, Difference, Multiply, Screen, Overlay,
+    HardLight, SoftLight, Darken, Lighten, Exclusion,
+}
+
+#[derive(Clone, Debug)]
+pub enum CellPatternKind {
+    Bubbles, Crystals, HqCrystals, Mixed, Tubular, HqTubular,
+    Plates, HqPlates, Checkerboard, HexTiles,
+}
+
+#[derive(Clone, Debug)]
+pub enum OverflowMode { Clip, WrapAround, HardClamp }
+
+#[derive(Clone, Debug)]
+pub enum GradientEffectKind { Linear, Radial }
+
+#[derive(Clone, Debug)]
+pub enum StrokePath { AllMaskPaths, Reveal, Transparent }
+
+#[derive(Clone, Debug)]
+pub enum StrokeComposite { Over, In, Below }
+
+/// Batch 5 built-in effect applied to a layer (pure data, no GPU execution).
+#[derive(Clone, Debug)]
+pub enum Batch5Effect {
+    MotionBlur { angle: f32, distance: f32 },
+    RadialBlur { amount: f32, center_x: f32, center_y: f32, kind: RadialBlurKind },
+    SmartBlur { radius: f32, threshold: f32, mode: SmartBlurMode },
+    Glow { threshold: f32, radius: f32, intensity: f32, glow_colors: GlowColors, glow_channel: GlowChannel },
+    GlowingEdges { edge_width: u32, edge_brightness: u32, smoothness: u32 },
+    CcComposite { opacity: f32, composite_on_original: bool },
+    CcBendIt { start: (f32, f32), end: (f32, f32), bend: f32 },
+    CcRepeTile { expand_right: f32, expand_left: f32, expand_up: f32, expand_down: f32, tiling: TilingMode },
+    CcCylinder { radius: f32, rotation_x: f32, rotation_y: f32, render: CylinderRenderMode },
+    CcSphere { radius: f32, rotation_x: f32, rotation_y: f32, render: CylinderRenderMode },
+    CcPixelPolly { gravity: f32, force: f32, grid_spacing: u32 },
+    CcRainfall { drops: u32, speed: f32, wind: f32, spread: f32, color: String },
+    CcSnow { flakes: u32, speed: f32, wind: f32, size: f32 },
+    CcToner { highlights: String, shadows: String, balance: f32 },
+    PosterizeTime { frame_rate: f32 },
+    TimeDisplacement { max_displacement: f32, time_layer: Option<usize> },
+    SetChannels { red: ChannelSource, green: ChannelSource, blue: ChannelSource, alpha: ChannelSource },
+    Blend { layer_to_blend: Option<usize>, mode: String, opacity: f32, if_layer_absent: bool },
+    Calculations {
+        input_a_layer: Option<usize>,
+        input_a_channel: ChannelSource,
+        input_b_layer: Option<usize>,
+        input_b_channel: ChannelSource,
+        operation: CalcOperation,
+        opacity: f32,
+        preserve_transparency: bool,
+    },
+    CellPattern { pattern: CellPatternKind, size: f32, feather: f32, offset_x: f32, offset_y: f32, overflow: OverflowMode },
+    Checkerboard { anchor: (f32, f32), size: f32, feather: f32, color_a: String, color_b: String, width: f32 },
+    CircleBurst { center: (f32, f32), thickness: f32, soft: f32, color: String, start_radius: f32 },
+    Gradient { start: (f32, f32), end: (f32, f32), kind: GradientEffectKind, start_color: String, end_color: String },
+    Grid { anchor: (f32, f32), size: (f32, f32), border: f32, feather: f32, color: String, invert: bool },
+    Stroke { path: StrokePath, all_masks: bool, color: String, brush_size: f32, softness: f32, opacity: f32, composite: StrokeComposite },
+}
 
 impl App {
     pub(super) fn apply_effects_chain(&mut self, action: Action) {

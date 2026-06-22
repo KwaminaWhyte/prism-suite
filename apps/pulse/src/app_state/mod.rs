@@ -40,6 +40,11 @@ mod expressions;
 mod precomp;
 mod puppeting;
 mod text_anim;
+mod motion_paths;
+mod shape_groups;
+mod audio_mixer;
+mod apply_batch5;
+mod tests_batch5;
 
 pub use actions::Action;
 
@@ -51,11 +56,19 @@ pub use render::{BrainstormVariation, BrainstormState, PreRenderStatus, AudioVis
 pub use precomp::{MatteMode, TrackMatteConfig, PrecompConfig, PrecompInfo};
 pub use render::{RenderJobStatus, RenderFormat, RenderJob, OutputPreset, SubComp};
 pub use composition::{PendingCompSettings, IrisShape, DepthOfField, CollectFilesConfig, Layer3DConfig};
-pub use effects_chain::{MoGrtControl, MotionGraphicTemplate, EchoConfig};
+pub use effects_chain::{
+    MoGrtControl, MotionGraphicTemplate, EchoConfig,
+    RadialBlurKind, SmartBlurMode, GlowColors, GlowChannel, TilingMode, CylinderRenderMode,
+    ChannelSource, CalcOperation, CellPatternKind, OverflowMode, GradientEffectKind,
+    StrokePath, StrokeComposite, Batch5Effect,
+};
 pub use tracking::RotobrushStroke;
 pub use expressions::ExprLang;
 pub use keyframes::{GizmoDrag, WorkAreaHandle, KeyframeDrag, PreviewRect, GraphGrab};
 pub use crate::comp::Handle as GizmoHandle2;
+pub use motion_paths::{MotionPath, MotionPathPoint, MotionEasing};
+pub use shape_groups::{ShapeLayerGroup, ShapeGroupTransform, ShapeItemKind, MergeMode, TrimMultiple};
+pub use audio_mixer::AudioBus;
 
 const UNDO_LIMIT: usize = 64;
 
@@ -375,6 +388,23 @@ pub struct App {
     // --- Welcome screen ---
     /// Whether the welcome screen overlay is visible (shown on first launch).
     pub welcome_visible: bool,
+
+    // --- Batch 5 (New): More Built-in Effects ---
+    pub batch5_effects: HashMap<usize, Vec<Batch5Effect>>,
+
+    // --- Batch 5 (New): Motion Paths ---
+    pub motion_paths: Vec<MotionPath>,
+    pub next_motion_path_id: usize,
+
+    // --- Batch 5 (New): Shape Layer Groups ---
+    pub shape_groups: Vec<ShapeLayerGroup>,
+    pub next_shape_group_id: usize,
+
+    // --- Batch 5 (New): Audio Mixer ---
+    pub audio_buses: Vec<AudioBus>,
+    pub master_volume: f32,
+    pub master_pan: f32,
+    pub next_bus_id: usize,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -502,6 +532,15 @@ impl App {
             mogrt_counter: 0,
             essential_graphics_open: false,
             welcome_visible: true,
+            batch5_effects: HashMap::new(),
+            motion_paths: Vec::new(),
+            next_motion_path_id: 0,
+            shape_groups: Vec::new(),
+            next_shape_group_id: 0,
+            audio_buses: Vec::new(),
+            master_volume: 1.0,
+            master_pan: 0.0,
+            next_bus_id: 0,
         }
     }
 
@@ -849,6 +888,47 @@ impl App {
             | Action::SetMogrParamValue { .. }
             | Action::ExportMogrt { .. }
             | Action::DeleteMogrTemplate(_)) => self.apply_text_anim(a),
+
+            // --- Batch 5 new features ---
+            a @ (Action::AddMotionBlurEffect { .. }
+            | Action::AddGlowEffect { .. }
+            | Action::AddCcRepeTileEffect { .. }
+            | Action::AddPosterizeTime { .. }
+            | Action::AddCellPattern { .. }
+            | Action::AddCheckerboard { .. }
+            | Action::AddGradientEffect { .. }
+            | Action::AddGridEffect { .. }
+            | Action::AddStrokeEffect { .. }
+            | Action::SetMotionBlur { .. }
+            | Action::RemoveBatch5Effect { .. }
+            | Action::CreateMotionPath { .. }
+            | Action::AddMotionPathPoint { .. }
+            | Action::RemoveMotionPathPoint { .. }
+            | Action::SetMotionPathPoint { .. }
+            | Action::SetMotionPathEasing { .. }
+            | Action::SetAutoOrient { .. }
+            | Action::DeleteMotionPath { .. }
+            | Action::AddShapeGroup { .. }
+            | Action::AddShapeItemToGroup { .. }
+            | Action::RemoveShapeItemFromGroup { .. }
+            | Action::SetShapeGroupTransform { .. }
+            | Action::SetShapeStar { .. }
+            | Action::AddRepeaterToGroup { .. }
+            | Action::AddTrimPath { .. }
+            | Action::AddMergeShapes { .. }
+            | Action::DeleteShapeGroup { .. }
+            | Action::AddAudioBus { .. }
+            | Action::RemoveAudioBus { .. }
+            | Action::SetBusVolume { .. }
+            | Action::SetBusPan { .. }
+            | Action::MuteBus { .. }
+            | Action::SoloBus { .. }
+            | Action::AddBusSend { .. }
+            | Action::RemoveBusSend { .. }
+            | Action::SetBusEq { .. }
+            | Action::SetBusCompressor { .. }
+            | Action::SetMasterVolume(_)
+            | Action::SetMasterPan(_)) => self.apply_batch5(a),
 
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),

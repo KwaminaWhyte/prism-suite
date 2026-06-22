@@ -1,25 +1,25 @@
 # Tone — Phased Roadmap to 90% GarageBand/Logic Pro Parity + AI Supremacy
 
 Target: surpass GarageBand/Logic Pro on AI features while matching them on DAW essentials.
-Current status: Phase 1 scaffold (0%).
+Current status: Batch 4 complete (~70% parity, 513 tests). Beat detection, clip slot launching, chord progression tools, track freeze/stem export, MIDI output routing, virtual instruments (8 kinds), and arpeggiator engine all implemented.
 
 ---
 
 ## Parity Tracking
 
-| Phase | Feature area | Status | Tests |
+| Batch | Feature area | Status | Tests |
 |-------|-------------|--------|-------|
-| 1 | Foundation scaffold | Done | 120+ |
-| 1.5 | Extended DAW state (Batch 1) | Done | 288 |
-| 1.6 | Automation, tempo map, scenes, plugins, MIDI control (Batch 2) | Done | 366 |
-| 1.7 | Audio engine, recording, step sequencer, score view, bus routing (Batch 3) | Done | 448+ |
-| 2 | Core DAW | Not started | — |
-| 3 | AI Generation | Not started | — |
-| 4 | AI Power Tools | Not started | — |
-| 5 | Live / Session | Not started | — |
-| 6 | Advanced | Not started | — |
+| 1 | Foundation scaffold (project, tracks, clips, MIDI, mixer, transport, AI stubs, export) | Done | 120+ |
+| 2 | Phase 2 extensions (CC lanes, note ops, quantize, sends, groups, history, loop bars, automation, tempo, scenes, plugins, MIDI control) | Done | 170+ |
+| 3 | Phase 3 (audio engine, recording, step sequencer, score view, bus routing) | Done | 448+ |
+| 4 | Beat detection + warp markers, clip slot launching, chord tools, freeze/stems, MIDI routing/VI/arp | Done | 513+ |
+| Phase 2 UI | Core DAW UI (GPUI piano roll, mixer, timeline) | Not started | — |
+| Phase 3 AI | AI Generation (ONNX, MusicGen, Demucs, Magenta) | Not started | — |
+| Phase 4 AI | AI Power Tools (mastering, vocal, arrangement, smart mix) | Not started | — |
+| Phase 5 | Live Performance (session view, MIDI controllers, hardware sync) | Not started | — |
+| Phase 6 | Advanced (VST3, surround, spectral, notation) | Not started | — |
 
-Overall parity: **~52%** (full DAW state machine: tracks, clips, MIDI, mixer, transport, automation, tempo map, scenes, plugins, MIDI control, audio engine config, recording sessions/takes, step sequencer, score notation view, bus/return routing).
+Overall parity: **~70%** (comprehensive DAW state machine with beat detection, clip launching, chord tools, freeze/stem export, MIDI routing).
 
 ---
 

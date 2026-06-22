@@ -29,6 +29,13 @@ pub mod track_groups;
 pub mod tracks;
 pub mod transport;
 
+// ─── Batch 4 domain modules ───────────────────────────────────────────────────
+pub mod beat_detection;
+pub mod clip_launch;
+pub mod chord_tools;
+pub mod freeze;
+pub mod midi_routing;
+
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
@@ -49,6 +56,13 @@ pub use step_sequencer::{ChainPattern, StepCell, StepPattern};
 pub use tempo_map::{TempoEvent, TimeSigEvent};
 pub use track_groups::TrackGroup;
 pub use tracks::{InsertEffect, InsertEffectKind, ToneTrack, TrackKind, TrackSend};
+
+// ─── Batch 4 re-exports ───────────────────────────────────────────────────────
+pub use beat_detection::{AnalysisStatus, BeatDetectionResult, StretchAlgorithm, StretchConfig, WarpMarker};
+pub use clip_launch::{ClipSlot, LaunchGrid, LaunchQuantize, SlotAction, SlotFollowAction};
+pub use chord_tools::{ChordDegree, ChordProgression, ChordQualityTone, ChordSuggestion, ChordVoicing, ScaleMode};
+pub use freeze::{FreezeState, FrozenTrackInfo, StemConfig, StemExportStatus, StemFormat};
+pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument, VirtualInstrumentKind};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -657,6 +671,75 @@ pub enum Action {
     AddMasterInsertEffect(InsertEffectKind),
     /// Remove an insert effect from the master bus by index.
     RemoveMasterInsertEffect { index: usize },
+    // ── Beat Detection ────────────────────────────────────────────────────────
+    AnalyzeBeatDetection { track_id: usize },
+    UpdateBeatDetectionStatus { result_id: usize, status: AnalysisStatus },
+    ApplyDetectedBpm { result_id: usize },
+    AddWarpMarker { clip_id: usize, orig_secs: f32, warp_beats: f32 },
+    RemoveWarpMarker { marker_id: usize },
+    MoveWarpMarker { marker_id: usize, warp_beats: f32 },
+    LockWarpMarker { marker_id: usize, locked: bool },
+    SetStretchAlgorithm { clip_id: usize, algorithm: StretchAlgorithm },
+    SetFormantPreservation { clip_id: usize, enabled: bool },
+    SetTransientSensitivity { clip_id: usize, sensitivity: f32 },
+
+    // ── Clip Launch / Session View ────────────────────────────────────────────
+    AddClipSlot { track_id: usize, slot_index: usize },
+    AssignClipToSlot { slot_id: usize, clip_id: Option<usize> },
+    LaunchSlot { slot_id: usize },
+    StopSlot { slot_id: usize },
+    QueueSlotAction { slot_id: usize, action: SlotAction },
+    ClearSlotQueue { slot_id: usize },
+    SetSlotFollowAction { slot_id: usize, action: SlotFollowAction },
+    SetSlotFollowTime { slot_id: usize, bars: f32 },
+    SetLaunchQuantize(LaunchQuantize),
+    SetLinkEnabled(bool),
+    StopAllSlots,
+    LaunchSceneSlots { scene_id: usize },
+
+    // ── Chord Tools ───────────────────────────────────────────────────────────
+    AddChordProgression { name: String, root: String, scale: ScaleMode },
+    DeleteChordProgression { progression_id: usize },
+    RenameChordProgression { progression_id: usize, name: String },
+    AddChordToProgression { progression_id: usize, degree: ChordDegree },
+    RemoveChordFromProgression { progression_id: usize, index: usize },
+    SetProgressionRoot { progression_id: usize, root: String },
+    SetProgressionScale { progression_id: usize, scale: ScaleMode },
+    SetActiveProgression(Option<usize>),
+    SetScaleLock { root: Option<String>, scale: Option<ScaleMode> },
+    ClearChordSuggestions,
+    AddChordSuggestion { progression_id: usize, degree: u8, confidence: f32 },
+
+    // ── Freeze / Flatten / Stems ──────────────────────────────────────────────
+    FreezeTrack { track_id: usize, pre_fx: bool, tail_secs: f32 },
+    UnfreezeTrack { track_id: usize },
+    SetFreezeState { track_id: usize, state: FreezeState },
+    LockFrozenTrack { track_id: usize, locked: bool },
+    FlattenTrack { track_id: usize },
+    AddStem { name: String, track_ids: Vec<usize>, format: StemFormat },
+    RemoveStem { stem_id: usize },
+    SetStemTracks { stem_id: usize, track_ids: Vec<usize> },
+    SetStemOutputPath { stem_id: usize, path: String },
+    ExportStems,
+    UpdateStemStatus { stem_id: usize, status: StemExportStatus },
+
+    // ── MIDI Output Routing + Virtual Instruments ─────────────────────────────
+    AddMidiOutputPort { name: String, device: String, channel: u8 },
+    RemoveMidiOutputPort { port_id: usize },
+    SetMidiPortEnabled { port_id: usize, enabled: bool },
+    SetMidiPortTranspose { port_id: usize, semitones: i8 },
+    SetMidiPortVelocityScale { port_id: usize, scale: f32 },
+    AddVirtualInstrument { name: String, kind: VirtualInstrumentKind },
+    RemoveVirtualInstrument { vi_id: usize },
+    SetVirtualInstrumentPreset { vi_id: usize, preset: String },
+    SetVirtualInstrumentPolyphony { vi_id: usize, voices: u8 },
+    ToggleVirtualInstrument { vi_id: usize },
+    AddArpeggiator { track_id: usize },
+    RemoveArpeggiator { arp_id: usize },
+    SetArpPattern { arp_id: usize, pattern: ArpPattern },
+    SetArpRate { arp_id: usize, rate: f32 },
+    SetArpOctaveRange { arp_id: usize, octaves: u8 },
+    ToggleArpeggiator { arp_id: usize },
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -811,6 +894,38 @@ pub struct App {
     pub bus_tracks: Vec<BusTrack>,
     pub master_bus: MasterBus,
     pub next_bus_track_id: usize,
+
+    // ── Beat Detection (Batch 4) ──────────────────────────────────────────────
+    pub beat_results: Vec<BeatDetectionResult>,
+    pub next_beat_result_id: usize,
+    pub warp_markers: Vec<WarpMarker>,
+    pub next_warp_marker_id: usize,
+    pub stretch_configs: std::collections::HashMap<usize, StretchConfig>,
+
+    // ── Clip Launch (Batch 4) ─────────────────────────────────────────────────
+    pub clip_slots: Vec<ClipSlot>,
+    pub next_slot_id: usize,
+    pub launch_grid: LaunchGrid,
+
+    // ── Chord Tools (Batch 4) ─────────────────────────────────────────────────
+    pub chord_progressions: Vec<ChordProgression>,
+    pub next_progression_id: usize,
+    pub active_progression_id: Option<usize>,
+    pub chord_suggestions: Vec<ChordSuggestion>,
+    pub scale_lock: Option<(String, ScaleMode)>,
+
+    // ── Freeze / Stems (Batch 4) ──────────────────────────────────────────────
+    pub frozen_tracks: std::collections::HashMap<usize, FrozenTrackInfo>,
+    pub stems: Vec<StemConfig>,
+    pub next_stem_id: usize,
+
+    // ── MIDI Routing / VI / Arp (Batch 4) ────────────────────────────────────
+    pub midi_output_ports: Vec<MidiOutputPort>,
+    pub next_midi_port_id: usize,
+    pub virtual_instruments: Vec<VirtualInstrument>,
+    pub next_vi_id: usize,
+    pub arp_configs: Vec<ArpConfig>,
+    pub next_arp_id: usize,
 }
 
 impl App {
@@ -909,6 +1024,29 @@ impl App {
             bus_tracks: Vec::new(),
             master_bus: MasterBus::new(),
             next_bus_track_id: 0,
+            // Batch 4 fields
+            beat_results: Vec::new(),
+            next_beat_result_id: 0,
+            warp_markers: Vec::new(),
+            next_warp_marker_id: 0,
+            stretch_configs: std::collections::HashMap::new(),
+            clip_slots: Vec::new(),
+            next_slot_id: 0,
+            launch_grid: LaunchGrid::new(),
+            chord_progressions: Vec::new(),
+            next_progression_id: 0,
+            active_progression_id: None,
+            chord_suggestions: Vec::new(),
+            scale_lock: None,
+            frozen_tracks: std::collections::HashMap::new(),
+            stems: Vec::new(),
+            next_stem_id: 0,
+            midi_output_ports: Vec::new(),
+            next_midi_port_id: 0,
+            virtual_instruments: Vec::new(),
+            next_vi_id: 0,
+            arp_configs: Vec::new(),
+            next_arp_id: 0,
         }
     }
 
@@ -1248,6 +1386,75 @@ impl App {
             | Action::SetMasterAutoNormalize(..)
             | Action::AddMasterInsertEffect(..)
             | Action::RemoveMasterInsertEffect { .. } => self.apply_bus_routing(action),
+            // ── Beat Detection ────────────────────────────────────────────────
+            Action::AnalyzeBeatDetection { .. }
+            | Action::UpdateBeatDetectionStatus { .. }
+            | Action::ApplyDetectedBpm { .. }
+            | Action::AddWarpMarker { .. }
+            | Action::RemoveWarpMarker { .. }
+            | Action::MoveWarpMarker { .. }
+            | Action::LockWarpMarker { .. }
+            | Action::SetStretchAlgorithm { .. }
+            | Action::SetFormantPreservation { .. }
+            | Action::SetTransientSensitivity { .. } => self.apply_beat_detection(action),
+
+            // ── Clip Launch ───────────────────────────────────────────────────
+            Action::AddClipSlot { .. }
+            | Action::AssignClipToSlot { .. }
+            | Action::LaunchSlot { .. }
+            | Action::StopSlot { .. }
+            | Action::QueueSlotAction { .. }
+            | Action::ClearSlotQueue { .. }
+            | Action::SetSlotFollowAction { .. }
+            | Action::SetSlotFollowTime { .. }
+            | Action::SetLaunchQuantize(..)
+            | Action::SetLinkEnabled(..)
+            | Action::StopAllSlots
+            | Action::LaunchSceneSlots { .. } => self.apply_clip_launch(action),
+
+            // ── Chord Tools ───────────────────────────────────────────────────
+            Action::AddChordProgression { .. }
+            | Action::DeleteChordProgression { .. }
+            | Action::RenameChordProgression { .. }
+            | Action::AddChordToProgression { .. }
+            | Action::RemoveChordFromProgression { .. }
+            | Action::SetProgressionRoot { .. }
+            | Action::SetProgressionScale { .. }
+            | Action::SetActiveProgression(..)
+            | Action::SetScaleLock { .. }
+            | Action::ClearChordSuggestions
+            | Action::AddChordSuggestion { .. } => self.apply_chord_tools(action),
+
+            // ── Freeze / Stems ─────────────────────────────────────────────────
+            Action::FreezeTrack { .. }
+            | Action::UnfreezeTrack { .. }
+            | Action::SetFreezeState { .. }
+            | Action::LockFrozenTrack { .. }
+            | Action::FlattenTrack { .. }
+            | Action::AddStem { .. }
+            | Action::RemoveStem { .. }
+            | Action::SetStemTracks { .. }
+            | Action::SetStemOutputPath { .. }
+            | Action::ExportStems
+            | Action::UpdateStemStatus { .. } => self.apply_freeze(action),
+
+            // ── MIDI Routing / VI / Arp ───────────────────────────────────────
+            Action::AddMidiOutputPort { .. }
+            | Action::RemoveMidiOutputPort { .. }
+            | Action::SetMidiPortEnabled { .. }
+            | Action::SetMidiPortTranspose { .. }
+            | Action::SetMidiPortVelocityScale { .. }
+            | Action::AddVirtualInstrument { .. }
+            | Action::RemoveVirtualInstrument { .. }
+            | Action::SetVirtualInstrumentPreset { .. }
+            | Action::SetVirtualInstrumentPolyphony { .. }
+            | Action::ToggleVirtualInstrument { .. }
+            | Action::AddArpeggiator { .. }
+            | Action::RemoveArpeggiator { .. }
+            | Action::SetArpPattern { .. }
+            | Action::SetArpRate { .. }
+            | Action::SetArpOctaveRange { .. }
+            | Action::ToggleArpeggiator { .. } => self.apply_midi_routing(action),
         }
     }
 }

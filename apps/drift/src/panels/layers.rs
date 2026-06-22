@@ -42,26 +42,55 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .text_color(colors::text_secondary())
                         .child("LAYERS"),
                 )
-                // Add layer button
+                // Add layer buttons: V = Vector, B = Bitmap
                 .child(
                     div()
-                        .id("add-layer")
-                        .w(px(20.0))
-                        .h(px(20.0))
                         .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(font_size::SM))
-                        .text_color(colors::text_secondary())
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                            this.app.apply(Action::AddLayer {
-                                name: "New Layer".to_string(),
-                                kind: LayerKind::Vector,
-                            });
-                            cx.notify();
-                        }))
-                        .child("+"),
+                        .gap_1()
+                        .child(
+                            div()
+                                .id("add-vector-layer")
+                                .w(px(22.0))
+                                .h(px(20.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(font_size::XS))
+                                .text_color(colors::text_secondary())
+                                .bg(colors::surface_overlay())
+                                .rounded(px(2.0))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _ev, _win, cx| {
+                                    this.app.apply(Action::AddLayer {
+                                        name: "Vector Layer".to_string(),
+                                        kind: LayerKind::Vector,
+                                    });
+                                    cx.notify();
+                                }))
+                                .child("V"),
+                        )
+                        .child(
+                            div()
+                                .id("add-bitmap-layer")
+                                .w(px(22.0))
+                                .h(px(20.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(font_size::XS))
+                                .text_color(colors::text_secondary())
+                                .bg(colors::surface_overlay())
+                                .rounded(px(2.0))
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _ev, _win, cx| {
+                                    this.app.apply(Action::AddLayer {
+                                        name: "Bitmap Layer".to_string(),
+                                        kind: LayerKind::Bitmap,
+                                    });
+                                    cx.notify();
+                                }))
+                                .child("B"),
+                        ),
                 ),
         )
         // Layer rows — reversed so topmost layer is first

@@ -4,7 +4,7 @@
 //! Center: playback transport (|< < ▶/⏸ > >|) + frame counter + FPS readout.
 //! Right: document name.
 
-use crate::app_state::{Action, App};
+use crate::app_state::{Action, App, DriftTool};
 use crate::Drift;
 use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled};
@@ -16,6 +16,7 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
     let total = app.document.duration_frames;
     let fps = app.document.fps as u32;
     let doc_name = app.document.name.clone();
+    let active_tool = app.active_tool;
 
     div()
         .w_full()
@@ -27,12 +28,12 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
         .items_center()
         .px_3()
         .gap_2()
-        // Left: tool buttons
-        .child(tool_btn("V", "Select"))
-        .child(tool_btn("M", "Move"))
-        .child(tool_btn("P", "Pen"))
-        .child(tool_btn("R", "Rect"))
-        .child(tool_btn("E", "Ellipse"))
+        // Left: tool buttons — wired to SetActiveTool
+        .child(tool_btn("V", DriftTool::Select, active_tool, cx))
+        .child(tool_btn("M", DriftTool::Move, active_tool, cx))
+        .child(tool_btn("P", DriftTool::Pen, active_tool, cx))
+        .child(tool_btn("R", DriftTool::Rect, active_tool, cx))
+        .child(tool_btn("E", DriftTool::Ellipse, active_tool, cx))
         // Divider
         .child(
             div()
@@ -73,19 +74,37 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
         )
 }
 
-fn tool_btn(label: &'static str, _title: &'static str) -> impl IntoElement {
+fn tool_btn(
+    label: &'static str,
+    tool: DriftTool,
+    active: DriftTool,
+    cx: &mut Context<Drift>,
+) -> impl IntoElement {
+    let is_active = tool == active;
     div()
         .id(SharedString::from(label.to_string()))
         .w(px(28.0))
         .h(px(28.0))
-        .bg(colors::surface_overlay())
+        .bg(if is_active {
+            colors::accent()
+        } else {
+            colors::surface_overlay()
+        })
         .rounded(px(3.0))
         .flex()
         .items_center()
         .justify_center()
         .text_size(px(font_size::XS))
-        .text_color(colors::text_primary())
+        .text_color(if is_active {
+            gpui::rgb(0xffffff)
+        } else {
+            colors::text_primary()
+        })
         .cursor_pointer()
+        .on_click(cx.listener(move |this, _ev, _win, cx| {
+            this.app.apply(Action::SetActiveTool(tool));
+            cx.notify();
+        }))
         .child(label)
 }
 

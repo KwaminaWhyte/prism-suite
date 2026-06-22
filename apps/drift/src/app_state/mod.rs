@@ -43,6 +43,19 @@ pub use frame_labels::FrameLabel;
 pub use library::LibraryFolder;
 pub use swap_sets::{SwapSet, SwapSetItem};
 
+// ── Tool enum ─────────────────────────────────────────────────────────────────
+
+/// The currently active drawing/selection tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriftTool {
+    Select,
+    Move,
+    Pen,
+    Rect,
+    Ellipse,
+    Lasso,
+}
+
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 /// Every mutation the UI can request. Apply via [`App::apply`].
@@ -248,12 +261,18 @@ pub enum Action {
     RemoveSwapItem { swap_set_id: usize, item_id: usize },
     ActivateSwapItem { swap_set_id: usize, item_id: usize },
     DeleteSwapSet { swap_set_id: usize },
+
+    // Tool selection
+    SetActiveTool(DriftTool),
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
 /// Shared application state. All mutation goes through [`App::apply`].
 pub struct App {
+    // Active tool
+    pub active_tool: DriftTool,
+
     // Document
     pub document: DriftDocument,
 
@@ -350,6 +369,7 @@ impl App {
         let doc = DriftDocument::new();
         let out = doc.duration_frames;
         Self {
+            active_tool: DriftTool::Select,
             document: doc,
             grid: GridConfig::new(),
             rulers: RulerConfig::new(),
@@ -578,6 +598,9 @@ impl App {
             | Action::RemoveSwapItem { .. }
             | Action::ActivateSwapItem { .. }
             | Action::DeleteSwapSet { .. } => self.apply_swap_sets(action),
+
+            // Tool selection
+            Action::SetActiveTool(t) => self.active_tool = *t,
         }
     }
 }

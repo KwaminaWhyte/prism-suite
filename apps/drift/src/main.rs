@@ -21,6 +21,7 @@ use gpui::{
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
     WindowBounds, WindowOptions,
 };
+use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, font_size};
 
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route their
@@ -90,8 +91,44 @@ impl Drift {
 
 impl Render for Drift {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let frame = self.app.current_frame;
-        let total = self.app.document.duration_frames;
+        let has_layers = !self.app.layers.is_empty();
+        let stage_w = self.app.document.width as f32 * 0.5;
+        let stage_h = self.app.document.height as f32 * 0.5;
+
+        // Collect visible layers for canvas rendering.
+        let visible_layers: Vec<_> = self
+            .app
+            .layers
+            .iter()
+            .filter(|l| l.visible)
+            .enumerate()
+            .map(|(idx, layer)| {
+                let layer_id = layer.id;
+                let is_active = self.app.active_layer == Some(layer_id);
+                let (tx, ty) = self
+                    .app
+                    .transforms
+                    .get(&layer_id)
+                    .map(|t| (t.x, t.y))
+                    .unwrap_or((0.0, 0.0));
+                let opacity = self
+                    .app
+                    .transforms
+                    .get(&layer_id)
+                    .map(|t| t.opacity)
+                    .unwrap_or(1.0);
+                let layer_color = match idx % 6 {
+                    0 => gpui::rgb(0x6366f1),
+                    1 => gpui::rgb(0x22d3ee),
+                    2 => gpui::rgb(0xf59e0b),
+                    3 => gpui::rgb(0x10b981),
+                    4 => gpui::rgb(0xf43f5e),
+                    _ => gpui::rgb(0xa78bfa),
+                };
+                let name = layer.name.clone();
+                (layer_id, is_active, tx, ty, opacity, layer_color, name)
+            })
+            .collect();
 
         div()
             .track_focus(&self.focus)
@@ -116,6 +153,7 @@ impl Render for Drift {
                     // Center: Canvas area
                     .child(
                         div()
+                            .id("canvas")
                             .flex_1()
                             .h_full()
                             .overflow_hidden()
@@ -125,22 +163,64 @@ impl Render for Drift {
                             .justify_center()
                             .child(
                                 div()
-                                    .w(px(self.app.document.width as f32))
-                                    .h(px(self.app.document.height as f32))
+                                    .id("stage")
+                                    .w(px(stage_w))
+                                    .h(px(stage_h))
                                     .bg(gpui::rgb(0x1a1a2e))
                                     .border_1()
                                     .border_color(colors::surface_border())
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(font_size::SM))
-                                    .text_color(colors::text_secondary())
-                                    .child(format!(
-                                        "Frame {frame} / {total}  ·  {}x{} @ {}fps",
-                                        self.app.document.width,
-                                        self.app.document.height,
-                                        self.app.document.fps
-                                    )),
+                                    .relative()
+                                    .overflow_hidden()
+                                    // Render visible layers as colored labeled boxes
+                                    .children(visible_layers.iter().map(
+                                        |(layer_id, is_active, tx, ty, opacity, layer_color, name)| {
+                                            let layer_id = *layer_id;
+                                            let is_active = *is_active;
+                                            let left = tx * 0.5 + 60.0;
+                                            let top = ty * 0.5 + 40.0;
+                                            div()
+                                                .id(("layer-vis", layer_id))
+                                                .absolute()
+                                                .left(px(left))
+                                                .top(px(top))
+                                                .w(px(120.0))
+                                                .h(px(80.0))
+                                                .bg(*layer_color)
+                                                .opacity(*opacity)
+                                                .border_2()
+                                                .border_color(if is_active {
+                                                    gpui::rgb(0xffffff)
+                                                } else {
+                                                    gpui::rgba(0xffffff22)
+                                                })
+                                                .rounded(px(4.0))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .text_size(px(10.0))
+                                                .text_color(gpui::rgb(0xffffff))
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                    this.app.apply(Action::SetActiveLayer(layer_id));
+                                                    cx.notify();
+                                                }))
+                                                .child(name.clone())
+                                        },
+                                    ))
+                                    // Empty state hint
+                                    .when(!has_layers, |el: gpui::Stateful<gpui::Div>| {
+                                        el.flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .child(
+                                                div()
+                                                    .text_size(px(font_size::SM))
+                                                    .text_color(colors::text_secondary())
+                                                    .child(
+                                                        "Click + in the Layers panel to add a layer",
+                                                    ),
+                                            )
+                                    }),
                             ),
                     )
                     // Right: AI panel

@@ -3,12 +3,12 @@
 //! Layout (top → bottom):
 //!   1. Transport bar  — frame readout, in/out points, loop toggle
 //!   2. Frame ruler    — tick marks at every second (fps interval)
-//!   3. Layer tracks   — one row per layer, clip bar showing in/out frames
+//!   3. Layer tracks   — one row per layer, clip bar + keyframe dots
 
-use crate::app_state::{Action, App};
+use crate::app_state::{Action, App, EasingKind};
 use crate::Drift;
 use gpui::{div, px, relative, Context, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled};
+    SharedString, StatefulInteractiveElement, Styled};
 use prism_ui::{colors, font_size};
 
 pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
@@ -16,6 +16,17 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
     let current = app.current_frame;
     let fps = app.document.fps as usize;
     let loop_on = app.loop_playback;
+
+    // Pre-collect keyframes per layer for rendering dots.
+    // Vec of (layer_id, frame, pct_pos) for all keyframes.
+    let kf_positions: Vec<(usize, f32)> = app
+        .keyframes
+        .iter()
+        .map(|kf| {
+            let pct = kf.frame as f32 / total.max(1) as f32;
+            (kf.layer_id, pct)
+        })
+        .collect();
 
     div()
         .w_full()
@@ -107,12 +118,20 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                 .flex_col()
                 .overflow_y_scroll()
                 .children(app.layers.iter().map(|layer| {
+                    let layer_id = layer.id;
                     let in_f = layer.start_frame;
                     let out_f = layer.end_frame;
                     let name = layer.name.clone();
                     let denom = total.max(1) as f32;
                     let pct_start = in_f as f32 / denom;
                     let pct_width = (out_f.saturating_sub(in_f)) as f32 / denom;
+
+                    // Keyframe dots for this layer
+                    let layer_kf_pcts: Vec<f32> = kf_positions
+                        .iter()
+                        .filter(|(lid, _)| *lid == layer_id)
+                        .map(|(_, pct)| *pct)
+                        .collect();
 
                     div()
                         .w_full()
@@ -131,12 +150,15 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                                 .overflow_hidden()
                                 .child(name),
                         )
-                        // Track bar area
+                        // Track bar area — click to add keyframe at current frame
                         .child(
                             div()
+                                .id(SharedString::from(format!("track-{layer_id}")))
                                 .flex_1()
                                 .h_full()
                                 .relative()
+                                .cursor_pointer()
+                                // Clip bar
                                 .child(
                                     div()
                                         .absolute()
@@ -147,7 +169,34 @@ pub fn render_timeline(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                                         .bg(colors::accent())
                                         .rounded(px(2.0))
                                         .opacity(0.7),
-                                ),
+                                )
+                                // Keyframe dots
+                                .children(layer_kf_pcts.iter().enumerate().map(|(i, pct)| {
+                                    let kf_pct = *pct;
+                                    div()
+                                        .id(SharedString::from(format!("kf-dot-{layer_id}-{i}")))
+                                        .absolute()
+                                        .left(relative(kf_pct))
+                                        .top(px(7.0))
+                                        .w(px(8.0))
+                                        .h(px(8.0))
+                                        .bg(gpui::rgb(0xfbbf24))
+                                        .rounded_full()
+                                        .border_1()
+                                        .border_color(gpui::rgb(0x1a1a2e))
+                                }))
+                                // Click to add keyframe at current frame
+                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                    let frame = this.app.current_frame;
+                                    this.app.apply(Action::AddKeyframe {
+                                        layer_id,
+                                        property: "position_x".to_string(),
+                                        frame,
+                                        value: 0.0,
+                                        easing: EasingKind::Linear,
+                                    });
+                                    cx.notify();
+                                })),
                         )
                 })),
         )

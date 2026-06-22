@@ -1,6 +1,15 @@
 # Contour — Open Source Illustrator Alternative
 
-> **Status: ~60% parity (Batches 1–9 complete). Target ≥85%.**
+> **Status: ~77% parity (Batches 1–10 complete). Target ≥85%.**
+
+## Batch 10 — Completed (2026-06-22)
+
+- [x] **Variable Fonts & OpenType** — `VariableAxisValue` / `OpenTypeFeatures` types in `types_text.rs`; `variable_axis_values` / `opentype_features` (HashMaps) on App. `Action::SetVariableAxis/ResetVariableAxes/SetOpenTypeFeature/SetStylisticSet/ApplyAllSmallCaps`.
+- [x] **Character & Paragraph Panel** — `CharacterStyle` (tracking, kerning, baseline shift, h/v scale, underline, strikethrough) / `ParagraphStyle` (alignment, spacing, indent, hyphenation, tab stops) / `KerningMode` / `ParaAlignment` types; `char_styles` / `para_styles` (HashMaps) on App. `Action::SetCharacterTracking/SetCharacterKerning/SetBaselineShift/SetHorizontalScale/SetVerticalScale/SetUnderline/SetStrikethrough/SetParagraphAlignment/SetParagraphSpacing/SetFirstLineIndent/SetHyphenation/AddTabStop/RemoveTabStop`.
+- [x] **Blend Tool (depth)** — `BlendSpacing` / `BlendOrientation` / `BlendObject` types in `types_effects.rs`; `blends` / `next_blend_id` on App. `Action::MakeBlend/ReleaseBlend/ExpandBlend/SetBlendSpacing/SetBlendOrientation/ReplaceBlendSpine/ReverseBlend/ReverseBlendSpine`.
+- [x] **3D Effects (Extrude & Revolve)** — `Extrude3D` / `Revolve3D` / `BevelKind` / `BevelExtent` / `SurfaceShading` / `RevolveFrom` types; `extrude_3d` / `revolve_3d` (HashMaps) on App. `Action::Apply3DExtrude/Update3DExtrude/Remove3DEffect/Apply3DRevolve/Update3DRevolve/Set3DLighting/Set3DPerspective`.
+- [x] **PDF Export State** — `PdfExportConfig` / `PdfStandard` / `PdfCompatibility` / `PdfColorSpace` / `PdfMarks` / `PdfLayerVisibility` types; `pdf_export_config` on App. `Action::SetPdfStandard/SetPdfCompatibility/SetPdfEmbedFonts/SetPdfFlattenTransparency/SetPdfColorSpace/SetPdfBleed/SetPdfMarks/SetPdfPassword/SetPdfPermissions/ExportAsPdf`.
+- 45 tests added → **712 total**
 
 ## Batch 9 — Completed (2026-06-20)
 

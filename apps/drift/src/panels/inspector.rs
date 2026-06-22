@@ -2,6 +2,8 @@
 //!
 //! Displays position (x/y), scale (x/y), rotation, and opacity for the
 //! currently selected layer.  If no layer is selected, shows a prompt.
+//! Inspector panel — shows fill color swatch and layer properties for the
+//! active layer.  Rendered below the AI panel or as a separate section.
 
 use crate::app_state::App;
 use crate::Drift;
@@ -16,6 +18,42 @@ pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement
         .flex_col()
         .border_t_1()
         .border_color(colors::surface_border())
+/// Color swatch colors keyed by layer index (matches the main canvas palette).
+fn layer_color_hex(idx: usize) -> (u32, &'static str) {
+    match idx % 6 {
+        0 => (0x6366f1, "#6366f1"),
+        1 => (0x22d3ee, "#22d3ee"),
+        2 => (0xf59e0b, "#f59e0b"),
+        3 => (0x10b981, "#10b981"),
+        4 => (0xf43f5e, "#f43f5e"),
+        _ => (0xa78bfa, "#a78bfa"),
+    }
+}
+
+pub fn render_inspector(app: &App, _cx: &mut Context<Drift>) -> impl IntoElement {
+    // Resolve the active layer index (for color lookup).
+    let active_layer_idx = app
+        .active_layer
+        .and_then(|lid| app.layers.iter().position(|l| l.id == lid));
+
+    let (swatch_color, hex_str) = match active_layer_idx {
+        Some(idx) => layer_color_hex(idx),
+        None => (0x6366f1, "#6366f1"),
+    };
+
+    let active_layer_name = app
+        .active_layer
+        .and_then(|lid| app.layers.iter().find(|l| l.id == lid))
+        .map(|l| l.name.clone())
+        .unwrap_or_else(|| "—".to_string());
+
+    div()
+        .id("inspector-panel")
+        .w_full()
+        .border_t_1()
+        .border_color(colors::surface_border())
+        .flex()
+        .flex_col()
         // Header
         .child(
             div()
@@ -117,5 +155,75 @@ fn prop_row(label: &'static str, value: String) -> impl IntoElement {
                 .text_size(px(font_size::XS))
                 .text_color(colors::text_primary())
                 .child(value),
+        // Active layer name
+        .child(
+            div()
+                .px_3()
+                .py(px(4.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_secondary())
+                        .child("Layer"),
+                )
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .child(active_layer_name),
+                ),
+        )
+        // Fill Color row
+        .child(
+            div()
+                .px_3()
+                .py(px(4.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_secondary())
+                        .child("Fill Color:"),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        // Color swatch
+                        .child(
+                            div()
+                                .w(px(20.0))
+                                .h(px(20.0))
+                                .rounded(px(2.0))
+                                .border_1()
+                                .border_color(colors::surface_border())
+                                .bg(gpui::rgb(swatch_color)),
+                        )
+                        // Hex display
+                        .child(
+                            div()
+                                .text_size(px(font_size::XS))
+                                .text_color(colors::text_primary())
+                                .child(hex_str),
+                        ),
+                ),
+        )
+        // Copy hex hint
+        .child(
+            div()
+                .px_3()
+                .py(px(2.0))
+                .child(
+                    div()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_disabled())
+                        .child("Copy Hex"),
+                ),
         )
 }

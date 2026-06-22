@@ -15,7 +15,7 @@ mod welcome;
 
 use prism_ui::PrismAssets;
 
-use app_state::{Action, App};
+use app_state::{Action, App, DriftTool, Fill, Stroke, StrokeCap, StrokeJoin};
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
@@ -95,7 +95,39 @@ impl Render for Drift {
         let stage_w = self.app.document.width as f32 * 0.5;
         let stage_h = self.app.document.height as f32 * 0.5;
 
-        // Collect visible layers for canvas rendering.
+        // ── Checkerboard tile parameters ─────────────────────────────────────
+        let tile = 16.0_f32;
+        let checker_cols = ((stage_w / tile).ceil() as usize).min(20);
+        let checker_rows = ((stage_h / tile).ceil() as usize).min(15);
+
+        // Build checkerboard cells (capped at 20×15 = 300 but we min them too).
+        let mut checker_cells: Vec<gpui::Div> = Vec::with_capacity(checker_cols * checker_rows);
+        for row in 0..checker_rows {
+            for col in 0..checker_cols {
+                let is_light = (row + col) % 2 == 0;
+                checker_cells.push(
+                    div()
+                        .absolute()
+                        .left(px(col as f32 * tile))
+                        .top(px(row as f32 * tile))
+                        .w(px(tile))
+                        .h(px(tile))
+                        .bg(if is_light {
+                            gpui::rgb(0x2a2a3e)
+                        } else {
+                            gpui::rgb(0x222233)
+                        }),
+                );
+            }
+        }
+
+        // ── Ruler tick parameters ─────────────────────────────────────────────
+        // Horizontal ruler ticks at every 50px (canvas-space) up to stage_w.
+        let h_tick_count = ((stage_w / 50.0).floor() as usize) + 1;
+        // Vertical ruler ticks at every 50px (canvas-space) up to stage_h.
+        let v_tick_count = ((stage_h / 50.0).floor() as usize) + 1;
+
+        // ── Collect visible layers ────────────────────────────────────────────
         let visible_layers: Vec<_> = self
             .app
             .layers
@@ -130,6 +162,42 @@ impl Render for Drift {
             })
             .collect();
 
+        // ── Rig bone dots for the active layer ───────────────────────────────
+        let active_layer_id = self.app.active_layer;
+        let bone_dots: Vec<gpui::Div> = active_layer_id
+            .and_then(|lid| self.app.layer_rigs.iter().find(|r| r.layer_id == lid))
+            .map(|rig| {
+                rig.bones
+                    .iter()
+                    .map(|bone| {
+                        let bx = bone.x * 0.5;
+                        let by = bone.y * 0.5;
+                        div()
+                            .absolute()
+                            .left(px(bx - 5.0))
+                            .top(px(by - 5.0))
+                            .w(px(10.0))
+                            .h(px(10.0))
+                            .rounded_full()
+                            .bg(gpui::rgb(0xffd700))
+                            .border_1()
+                            .border_color(gpui::rgb(0xffffff))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // ── Shape tool: hint label text ───────────────────────────────────────
+        let active_tool = self.app.active_tool;
+        let shape_hint: Option<&str> = match active_tool {
+            DriftTool::Rect => Some("Click to place a Rectangle"),
+            DriftTool::Ellipse => Some("Click to place an Ellipse"),
+            _ => None,
+        };
+
+        // ── Ruler visibility ──────────────────────────────────────────────────
+        let show_rulers = self.app.rulers.enabled;
+
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _win, cx| this.on_key(ev, cx)))
@@ -142,6 +210,7 @@ impl Render for Drift {
             // Top toolbar — tool buttons + playback controls
             .child(panels::render_toolbar(&self.app, cx))
             // Main workspace: left layers+inspector | center canvas | right AI panel
+            // Main workspace: left layers | center canvas | right AI + Inspector
             .child(
                 div()
                     .flex_1()
@@ -165,6 +234,9 @@ impl Render for Drift {
                             .child(panels::render_inspector(&self.app, cx)),
                     )
                     // Center: Canvas area + stage status bar
+                    // Left: Layers panel
+                    .child(panels::render_layers(&self.app, cx))
+                    // Center: Canvas area with optional rulers
                     .child(
                         div()
                             .id("canvas")
@@ -182,6 +254,94 @@ impl Render for Drift {
                                     .items_center()
                                     .justify_center()
                                     .min_h(px(0.0))
+                            .items_center()
+                            .justify_center()
+                            // ── Horizontal ruler (above stage) ───────────────
+                            .when(show_rulers, |el| {
+                                el.child(
+                                    div()
+                                        .w(px(stage_w + 20.0))
+                                        .h(px(20.0))
+                                        .flex()
+                                        .flex_row()
+                                        .bg(gpui::rgb(0x1e1e2e))
+                                        .border_b_1()
+                                        .border_color(colors::surface_border())
+                                        // Corner spacer
+                                        .child(
+                                            div()
+                                                .w(px(20.0))
+                                                .h(px(20.0))
+                                                .bg(gpui::rgb(0x1e1e2e)),
+                                        )
+                                        // Tick marks
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .h_full()
+                                                .relative()
+                                                .children((0..h_tick_count).map(|i| {
+                                                    let pos = i as f32 * 50.0;
+                                                    let label = format!("{}", i * 50);
+                                                    div()
+                                                        .absolute()
+                                                        .left(px(pos))
+                                                        .top(px(0.0))
+                                                        .w(px(1.0))
+                                                        .h(px(6.0))
+                                                        .bg(colors::text_disabled())
+                                                        // Label
+                                                        .child(
+                                                            div()
+                                                                .absolute()
+                                                                .left(px(2.0))
+                                                                .top(px(6.0))
+                                                                .text_size(px(8.0))
+                                                                .text_color(colors::text_disabled())
+                                                                .child(label),
+                                                        )
+                                                })),
+                                        ),
+                                )
+                            })
+                            // ── Stage row (vertical ruler + stage) ───────────
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    // Vertical ruler (left of stage)
+                                    .when(show_rulers, |el| {
+                                        el.child(
+                                            div()
+                                                .w(px(20.0))
+                                                .h(px(stage_h))
+                                                .bg(gpui::rgb(0x1e1e2e))
+                                                .border_r_1()
+                                                .border_color(colors::surface_border())
+                                                .relative()
+                                                .children((0..v_tick_count).map(|i| {
+                                                    let pos = i as f32 * 50.0;
+                                                    let label = format!("{}", i * 50);
+                                                    div()
+                                                        .absolute()
+                                                        .left(px(0.0))
+                                                        .top(px(pos))
+                                                        .w(px(6.0))
+                                                        .h(px(1.0))
+                                                        .bg(colors::text_disabled())
+                                                        .child(
+                                                            div()
+                                                                .absolute()
+                                                                .left(px(7.0))
+                                                                .top(px(1.0))
+                                                                .text_size(px(7.0))
+                                                                .text_color(colors::text_disabled())
+                                                                .child(label),
+                                                        )
+                                                })),
+                                        )
+                                    })
+                                    // Stage canvas
                                     .child(
                                         div()
                                             .id("stage")
@@ -215,6 +375,9 @@ impl Render for Drift {
                                                     .bg(gpui::rgba(0xffffff26))
                                             }))
                                             // Render visible layers as colored labeled boxes
+                                            // ── Checkerboard background ───────
+                                            .children(checker_cells)
+                                            // ── Visible layer boxes ───────────
                                             .children(visible_layers.iter().map(
                                                 |(layer_id, is_active, tx, ty, opacity, layer_color, name)| {
                                                     let layer_id = *layer_id;
@@ -250,6 +413,69 @@ impl Render for Drift {
                                                         .child(name.clone())
                                                 },
                                             ))
+                                            // ── Rig bone overlay dots ─────────
+                                            .children(bone_dots)
+                                            // ── Shape tool hint text ──────────
+                                            .when(shape_hint.is_some(), |el| {
+                                                let hint = shape_hint.unwrap_or("");
+                                                el.child(
+                                                    div()
+                                                        .absolute()
+                                                        .left(px(stage_w * 0.5 - 80.0))
+                                                        .top(px(stage_h * 0.5 - 10.0))
+                                                        .text_size(px(font_size::SM))
+                                                        .text_color(gpui::rgba(0xffffff99))
+                                                        .child(hint.to_string()),
+                                                )
+                                            })
+                                            // ── Shape tool click-to-place ─────
+                                            .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                                let tool = this.app.active_tool;
+                                                let layer_id = this.app.active_layer.unwrap_or(0);
+                                                match tool {
+                                                    DriftTool::Rect => {
+                                                        this.app.apply(Action::AddRectangle {
+                                                            layer_id,
+                                                            x: 100.0,
+                                                            y: 80.0,
+                                                            width: 100.0,
+                                                            height: 60.0,
+                                                            fill: Fill::Solid { r: 0.388, g: 0.400, b: 0.945, a: 1.0 },
+                                                            stroke: Stroke {
+                                                                width: 2.0,
+                                                                r: 1.0,
+                                                                g: 1.0,
+                                                                b: 1.0,
+                                                                a: 1.0,
+                                                                cap: StrokeCap::Butt,
+                                                                join: StrokeJoin::Miter,
+                                                            },
+                                                        });
+                                                        cx.notify();
+                                                    }
+                                                    DriftTool::Ellipse => {
+                                                        this.app.apply(Action::AddEllipse {
+                                                            layer_id,
+                                                            cx: 150.0,
+                                                            cy: 110.0,
+                                                            rx: 50.0,
+                                                            ry: 30.0,
+                                                            fill: Fill::Solid { r: 0.388, g: 0.400, b: 0.945, a: 1.0 },
+                                                            stroke: Stroke {
+                                                                width: 2.0,
+                                                                r: 1.0,
+                                                                g: 1.0,
+                                                                b: 1.0,
+                                                                a: 1.0,
+                                                                cap: StrokeCap::Butt,
+                                                                join: StrokeJoin::Miter,
+                                                            },
+                                                        });
+                                                        cx.notify();
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }))
                                             // Empty state hint
                                             .when(!has_layers, |el: gpui::Stateful<gpui::Div>| {
                                                 el.flex()
@@ -257,6 +483,9 @@ impl Render for Drift {
                                                     .justify_center()
                                                     .child(
                                                         div()
+                                                            .absolute()
+                                                            .left(px(stage_w * 0.5 - 90.0))
+                                                            .top(px(stage_h * 0.5 - 8.0))
                                                             .text_size(px(font_size::SM))
                                                             .text_color(colors::text_secondary())
                                                             .child(
@@ -292,8 +521,21 @@ impl Render for Drift {
                                     ),
                             ),
                     )
-                    // Right: AI panel
-                    .child(panels::render_ai_panel(&self.app, cx)),
+                    // Right: AI panel + Inspector (stacked in a column)
+                    .child(
+                        div()
+                            .id("right-panel")
+                            .w(px(260.0))
+                            .h_full()
+                            .bg(colors::surface_raised())
+                            .border_l_1()
+                            .border_color(colors::surface_border())
+                            .flex()
+                            .flex_col()
+                            .overflow_y_scroll()
+                            .child(panels::render_ai_panel(&self.app, cx))
+                            .child(panels::render_inspector(&self.app, cx)),
+                    ),
             )
             // Bottom: Timeline
             .child(panels::render_timeline(&self.app, cx))

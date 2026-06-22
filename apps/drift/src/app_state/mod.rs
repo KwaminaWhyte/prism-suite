@@ -6,6 +6,8 @@
 //! frame labels, library, grid/ruler config, IK chains, spring dynamics,
 //! mesh warps, bone weights, easing curves, audio tracks, lip-sync data,
 //! and Character Animator behaviors.
+//! Character Animator behaviors, 3D layer transforms, camera viewport,
+//! motion-capture imports, publishing config, and stage settings.
 //! Panels NEVER mutate `App` fields directly — they emit an [`Action`], and the
 //! root view routes it through [`App::apply`], the single mutation choke point.
 
@@ -33,6 +35,12 @@ pub mod bone_weights;
 pub mod easing;
 pub mod audio_sync;
 pub mod behaviors;
+// New — batch 6 domains
+pub mod layer_3d;
+pub mod camera;
+pub mod mocap;
+pub mod publish;
+pub mod stage;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -54,6 +62,11 @@ pub use bone_weights::{BoneInfluence, LayerBoneWeights};
 pub use easing::{EasingCurve, EasingCurveKind, StepPosition};
 pub use audio_sync::{DriftAudioTrack, LipSyncData, PhonemeFrame, Phoneme};
 pub use behaviors::{Behavior, BehaviorKind};
+pub use layer_3d::{Layer3DTransform, Projection3D};
+pub use camera::{DriftCamera, CameraKeyframe};
+pub use mocap::{MocapFormat, MocapImport, MocapBoneMapping};
+pub use publish::{PublishTarget, PublishConfig, VideoCodecKind, SpriteFormat, ExportStatus, ExportJob, ExportQueue};
+pub use stage::{StageSettings, StageRulerUnit, LabelColor, SceneProperties};
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -170,7 +183,7 @@ pub enum Action {
     CompleteAiInterpolation { layer_id: usize },
     AutoRigWithAi(usize),
 
-    // Export
+    // Export (legacy single-job)
     SetExportFormat(ExportFormat),
     SetExportFps(f32),
     SetExportScale(f32),
@@ -302,6 +315,59 @@ pub enum Action {
     SetBehaviorPriority { id: usize, priority: i32 },
     RenameBehavior { id: usize, name: String },
     UpdateBehaviorKind { id: usize, kind: BehaviorKind },
+
+    // 3D Layer Transforms (batch 6 — A)
+    SetLayer3DRotationX { layer_id: usize, degrees: f32 },
+    SetLayer3DRotationY { layer_id: usize, degrees: f32 },
+    SetLayerZPosition { layer_id: usize, z: f32 },
+    SetVanishingPoint { x: f32, y: f32 },
+    SetProjection3D(Projection3D),
+    Reset3DTransform { layer_id: usize },
+    Enable3DLayer { layer_id: usize, enabled: bool },
+
+    // Camera / Viewport Controls (batch 6 — B)
+    SetCameraPosition { x: f32, y: f32 },
+    SetCameraZoom(f32),
+    SetCameraRotation(f32),
+    ResetCamera,
+    ToggleCameraEnabled,
+    AddCameraKeyframe { frame: u32, x: f32, y: f32, zoom: f32, rotation: f32 },
+    RemoveCameraKeyframe { kf_id: usize },
+    SetCameraAnimatable(bool),
+
+    // Motion Capture Import (batch 6 — C)
+    ImportMocap { name: String, path: String, format: MocapFormat },
+    RemoveMocap { mocap_id: usize },
+    SetMocapBoneMapping { mocap_id: usize, mocap_bone: String, rig_bone_id: usize },
+    SetMocapRetargetScale { mocap_id: usize, scale: f32 },
+    SetMocapApplyRig { mocap_id: usize, rig_id: Option<usize> },
+    BakeMocapToKeyframes { mocap_id: usize },
+
+    // Publishing / Advanced Export (batch 6 — D)
+    SetPublishTarget(PublishTarget),
+    SetPublishOutputPath(String),
+    SetPublishDimensions { width: u32, height: u32 },
+    SetPublishFrameRate(f32),
+    SetPublishQuality(u8),
+    SetPublishLoop(bool),
+    SetPublishTransparentBg(bool),
+    AddToExportQueue { name: String, config: PublishConfig },
+    RemoveFromExportQueue { job_id: usize },
+    ClearExportQueue,
+    SetExportJobStatus { job_id: usize, status: ExportStatus },
+
+    // Stage / Document Settings (batch 6 — E)
+    SetStageDimensions { width: u32, height: u32 },
+    SetStageFrameRate(f32),
+    SetStageBackgroundColor([u8; 4]),
+    SetStageRulerUnit(StageRulerUnit),
+    SetSnapToObjects(bool),
+    SetSnapToPixel(bool),
+    SetAutoSave { enabled: bool, interval_min: u32 },
+    SetUndoLevels(u32),
+    SetSceneLabel { scene_id: usize, color: LabelColor },
+    SetSceneDescription { scene_id: usize, description: String },
+    SetSceneFrameCount { scene_id: usize, count: u32 },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -351,7 +417,7 @@ pub struct App {
     pub ai_lipsync_jobs: Vec<(usize, String)>,
     pub ai_interpolation_queue: Vec<(usize, usize, usize)>,
 
-    // Export
+    // Export (legacy single-job)
     pub export_config: ExportConfig,
     pub export_in_progress: bool,
 
@@ -422,6 +488,33 @@ pub struct App {
     // Phase 3: Character Animator Behaviors
     pub behaviors: Vec<Behavior>,
     pub next_behavior_id: usize,
+
+    // Batch 6 — A: 3D Layer Transforms
+    /// Per-layer 3D transform data.  layer_id → Layer3DTransform.
+    pub layer_3d: HashMap<usize, Layer3DTransform>,
+    /// Global vanishing point (fraction of stage). Default (0.5, 0.5).
+    pub global_vanishing_point: (f32, f32),
+    /// Global projection mode applied to all 3D layers.
+    pub global_projection_3d: Projection3D,
+
+    // Batch 6 — B: Camera / Viewport
+    pub camera: DriftCamera,
+    pub camera_keyframes: Vec<CameraKeyframe>,
+    pub next_camera_kf_id: usize,
+    pub camera_enabled: bool,
+
+    // Batch 6 — C: Motion Capture
+    pub mocap_imports: Vec<MocapImport>,
+    pub next_mocap_id: usize,
+
+    // Batch 6 — D: Publishing / Advanced Export
+    pub publish_config: PublishConfig,
+    pub export_queue: ExportQueue,
+
+    // Batch 6 — E: Stage Settings
+    pub stage: StageSettings,
+    /// Extended per-scene properties.  scene_id → SceneProperties.
+    pub scene_properties: HashMap<usize, SceneProperties>,
 }
 
 impl App {
@@ -507,6 +600,24 @@ impl App {
             // Phase 3: Behaviors
             behaviors: Vec::new(),
             next_behavior_id: 0,
+            // Batch 6 — A: 3D Layer Transforms
+            layer_3d: HashMap::new(),
+            global_vanishing_point: (0.5, 0.5),
+            global_projection_3d: Projection3D::Perspective,
+            // Batch 6 — B: Camera
+            camera: DriftCamera::new(),
+            camera_keyframes: Vec::new(),
+            next_camera_kf_id: 0,
+            camera_enabled: false,
+            // Batch 6 — C: Mocap
+            mocap_imports: Vec::new(),
+            next_mocap_id: 0,
+            // Batch 6 — D: Publish / Export Queue
+            publish_config: PublishConfig::new(),
+            export_queue: ExportQueue::new(),
+            // Batch 6 — E: Stage
+            stage: StageSettings::new(),
+            scene_properties: HashMap::new(),
         };
         app.seed_easing_curves();
         app
@@ -601,7 +712,7 @@ impl App {
             | Action::CompleteAiInterpolation { .. }
             | Action::AutoRigWithAi(_) => self.apply_ai(action),
 
-            // Export
+            // Export (legacy)
             Action::SetExportFormat(_)
             | Action::SetExportFps(_)
             | Action::SetExportScale(_)
@@ -720,6 +831,59 @@ impl App {
             | Action::SetBehaviorPriority { .. }
             | Action::RenameBehavior { .. }
             | Action::UpdateBehaviorKind { .. } => self.apply_behaviors(action),
+
+            // 3D Layer Transforms (batch 6 — A)
+            Action::SetLayer3DRotationX { .. }
+            | Action::SetLayer3DRotationY { .. }
+            | Action::SetLayerZPosition { .. }
+            | Action::SetVanishingPoint { .. }
+            | Action::SetProjection3D(_)
+            | Action::Reset3DTransform { .. }
+            | Action::Enable3DLayer { .. } => self.apply_layer_3d(action),
+
+            // Camera (batch 6 — B)
+            Action::SetCameraPosition { .. }
+            | Action::SetCameraZoom(_)
+            | Action::SetCameraRotation(_)
+            | Action::ResetCamera
+            | Action::ToggleCameraEnabled
+            | Action::AddCameraKeyframe { .. }
+            | Action::RemoveCameraKeyframe { .. }
+            | Action::SetCameraAnimatable(_) => self.apply_camera(action),
+
+            // Motion Capture (batch 6 — C)
+            Action::ImportMocap { .. }
+            | Action::RemoveMocap { .. }
+            | Action::SetMocapBoneMapping { .. }
+            | Action::SetMocapRetargetScale { .. }
+            | Action::SetMocapApplyRig { .. }
+            | Action::BakeMocapToKeyframes { .. } => self.apply_mocap(action),
+
+            // Publishing / Export Queue (batch 6 — D)
+            Action::SetPublishTarget(_)
+            | Action::SetPublishOutputPath(_)
+            | Action::SetPublishDimensions { .. }
+            | Action::SetPublishFrameRate(_)
+            | Action::SetPublishQuality(_)
+            | Action::SetPublishLoop(_)
+            | Action::SetPublishTransparentBg(_)
+            | Action::AddToExportQueue { .. }
+            | Action::RemoveFromExportQueue { .. }
+            | Action::ClearExportQueue
+            | Action::SetExportJobStatus { .. } => self.apply_publish(action),
+
+            // Stage Settings (batch 6 — E)
+            Action::SetStageDimensions { .. }
+            | Action::SetStageFrameRate(_)
+            | Action::SetStageBackgroundColor(_)
+            | Action::SetStageRulerUnit(_)
+            | Action::SetSnapToObjects(_)
+            | Action::SetSnapToPixel(_)
+            | Action::SetAutoSave { .. }
+            | Action::SetUndoLevels(_)
+            | Action::SetSceneLabel { .. }
+            | Action::SetSceneDescription { .. }
+            | Action::SetSceneFrameCount { .. } => self.apply_stage(action),
         }
     }
 }

@@ -16,7 +16,7 @@ const VISIBLE_BARS: f32 = 32.0;
 pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
     div()
         .w_full()
-        .h(px(140.0))
+        .h_full()
         .bg(colors::surface_raised())
         .border_t_1()
         .border_color(colors::surface_border())
@@ -81,7 +81,7 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
 
                             div()
                                 .w_full()
-                                .h(px(24.0))
+                                .h(px(40.0))
                                 .flex()
                                 .items_center()
                                 .border_b_1()

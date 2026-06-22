@@ -35,6 +35,9 @@ impl Focusable for Tone {
 
 impl Render for Tone {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use gpui::prelude::FluentBuilder;
+        let has_active_clip = self.app.piano_roll_clip.is_some();
+
         div()
             .track_focus(&self.focus)
             .size_full()
@@ -43,17 +46,50 @@ impl Render for Tone {
             .bg(colors::surface_bg())
             .text_color(colors::text_primary())
             .font_family(".SystemUIFont")
+            // Transport toolbar
             .child(panels::render_toolbar(&self.app, cx))
+            // Primary view: arrangement (clip lanes, track list) — fills remaining space
             .child(
                 div()
                     .flex_1()
-                    .flex()
-                    .flex_row()
                     .min_h(px(0.0))
-                    .child(panels::render_tracks(&self.app, cx))
-                    .child(panels::render_piano_roll(&self.app, cx)),
+                    .child(panels::render_timeline(&self.app, cx)),
             )
-            .child(panels::render_timeline(&self.app, cx))
+            // Piano roll — only visible when a clip is focused (bottom split, 260px)
+            .when(has_active_clip, |d| {
+                d.child(
+                    div()
+                        .w_full()
+                        .h(px(260.0))
+                        .flex()
+                        .flex_row()
+                        .border_t_1()
+                        .border_color(colors::surface_border())
+                        // Left: track stub (aligns with arrangement label column)
+                        .child(
+                            div()
+                                .w(px(panels::TRACKS_W))
+                                .h_full()
+                                .flex_shrink_0()
+                                .bg(colors::surface_raised())
+                                .border_r_1()
+                                .border_color(colors::surface_border())
+                                .flex()
+                                .flex_col()
+                                .justify_center()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .text_size(px(9.0))
+                                        .text_color(colors::text_disabled())
+                                        .child("PIANO ROLL"),
+                                ),
+                        )
+                        // Right: piano roll canvas
+                        .child(panels::render_piano_roll(&self.app, cx)),
+                )
+            })
+            // Mixer strip — always visible at bottom
             .child(panels::render_mixer(&self.app, cx))
     }
 }

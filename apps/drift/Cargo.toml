@@ -24,6 +24,8 @@ log.workspace = true
 env_logger.workspace = true
 pollster.workspace = true
 rfd.workspace = true
+dirs.workspace = true
+ureq.workspace = true
 
 [package.metadata.bundle]
 name = "Drift"

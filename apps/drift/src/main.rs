@@ -10,12 +10,13 @@
 //! - A welcome window (`welcome::WelcomeView`) is opened at startup.
 
 mod app_state;
+mod model_manager;
 mod panels;
 mod welcome;
 
 use prism_ui::PrismAssets;
 
-use app_state::{Action, App, DriftTool, Fill, Stroke, StrokeCap, StrokeJoin};
+use app_state::{Action, App, DriftTool, DriftOnnxModel, Fill, Stroke, StrokeCap, StrokeJoin};
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
@@ -31,6 +32,7 @@ pub struct Drift {
     focus: FocusHandle,
     last_tick: Option<std::time::Instant>,
     pub editing_prompt: bool,
+    model_downloads: Vec<model_manager::ModelDownloadHandle>,
 }
 
 impl Focusable for Drift {
@@ -133,8 +135,54 @@ impl Drift {
     }
 }
 
+fn drift_model_from_id(m: &model_manager::DriftModelId) -> DriftOnnxModel {
+    match m {
+        model_manager::DriftModelId::AnimateDiff   => DriftOnnxModel::AnimateDiff,
+        model_manager::DriftModelId::FilmRife      => DriftOnnxModel::FilmRife,
+        model_manager::DriftModelId::Wav2Vec2      => DriftOnnxModel::Wav2Vec2,
+        model_manager::DriftModelId::StyleTransfer => DriftOnnxModel::StyleTransfer,
+    }
+}
+
 impl Render for Drift {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // ── Model download polling ────────────────────────────────────────────
+        {
+            use model_manager::DownloadEvent;
+            let mut done_indices = vec![];
+            for (i, handle) in self.model_downloads.iter().enumerate() {
+                while let Ok(ev) = handle.rx.try_recv() {
+                    let drift_model = drift_model_from_id(&handle.model_id);
+                    match ev {
+                        DownloadEvent::Progress { bytes_done, bytes_total } => {
+                            let progress = if bytes_total > 0 {
+                                bytes_done as f32 / bytes_total as f32
+                            } else {
+                                0.0
+                            };
+                            self.app.apply(Action::UpdateDriftModelDownload { model: drift_model, progress });
+                            cx.notify();
+                        }
+                        DownloadEvent::Done => {
+                            let path = handle.model_id.local_path().to_string_lossy().to_string();
+                            self.app.apply(Action::CompleteDriftModelDownload { model: drift_model, local_path: path });
+                            done_indices.push(i);
+                            cx.notify();
+                        }
+                        DownloadEvent::Error(e) => {
+                            log::error!("drift model download error: {e}");
+                            self.app.apply(Action::ErrorDriftModelDownload { model: drift_model, message: e });
+                            done_indices.push(i);
+                            cx.notify();
+                        }
+                    }
+                }
+            }
+            for i in done_indices.into_iter().rev() {
+                self.model_downloads.swap_remove(i);
+            }
+        }
+
         // ── Transport tick ────────────────────────────────────────────────────
         if self.app.playing {
             let now = std::time::Instant::now();
@@ -634,7 +682,7 @@ fn main() {
                     let app = App::new();
                     let focus = cx.focus_handle();
                     window.focus(&focus);
-                    Drift { app, focus, last_tick: None, editing_prompt: false }
+                    Drift { app, focus, last_tick: None, editing_prompt: false, model_downloads: vec![] }
                 })
             },
         )

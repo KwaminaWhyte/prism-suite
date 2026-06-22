@@ -542,6 +542,10 @@ pub enum Action {
 
     // ONNX inference stubs (Batch 8)
     RegisterDriftModel { model: DriftOnnxModel, local_path: String },
+    StartDriftModelDownload { model: DriftOnnxModel },
+    UpdateDriftModelDownload { model: DriftOnnxModel, progress: f32 },
+    CompleteDriftModelDownload { model: DriftOnnxModel, local_path: String },
+    ErrorDriftModelDownload { model: DriftOnnxModel, message: String },
     QueueAnimateDiff { layer_id: usize, prompt: String, num_frames: usize, guidance_scale: f32 },
     CompleteAnimateDiff { job_id: usize },
     FailAnimateDiff { job_id: usize, error: String },

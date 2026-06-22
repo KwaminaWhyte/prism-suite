@@ -19,6 +19,8 @@ env_logger.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 rfd.workspace = true
+dirs.workspace = true
+ureq.workspace = true
 
 [package.metadata.bundle]
 name = "Tone"

@@ -839,6 +839,10 @@ impl App {
             | Action::DeleteNestedTimeline { .. } => self.apply_nested_timeline(action),
             // Batch 8: ONNX inference stubs
             Action::RegisterDriftModel { .. }
+            | Action::StartDriftModelDownload { .. }
+            | Action::UpdateDriftModelDownload { .. }
+            | Action::CompleteDriftModelDownload { .. }
+            | Action::ErrorDriftModelDownload { .. }
             | Action::QueueAnimateDiff { .. }
             | Action::CompleteAnimateDiff { .. }
             | Action::FailAnimateDiff { .. }

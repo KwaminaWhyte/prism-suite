@@ -8,10 +8,11 @@
 //! matching the Reel pattern.
 
 mod app_state;
+mod model_manager;
 mod panels;
 mod welcome;
 
-use app_state::App;
+use app_state::{App, OnnxModelKind};
 use gpui::{
     div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
@@ -20,6 +21,15 @@ use gpui::{
 use prism_ui::colors;
 use welcome::WelcomeView;
 
+fn tone_model_to_onnx_kind(m: &model_manager::ToneModelId) -> OnnxModelKind {
+    match m {
+        model_manager::ToneModelId::MusicGenSmall => OnnxModelKind::MusicGen,
+        model_manager::ToneModelId::DemucsHybrid  => OnnxModelKind::Demucs,
+        model_manager::ToneModelId::AiMasterNet   => OnnxModelKind::AiMasterNet,
+        model_manager::ToneModelId::MelodyRnn     => OnnxModelKind::MelodyRnn,
+    }
+}
+
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route
 /// mutations back through `app.apply` inside `cx.listener` callbacks.
 struct Tone {
@@ -27,6 +37,7 @@ struct Tone {
     focus: FocusHandle,
     last_tick: Option<std::time::Instant>,
     editing_ai_prompt: bool,
+    model_downloads: Vec<model_manager::ModelDownloadHandle>,
 }
 
 impl Focusable for Tone {
@@ -39,6 +50,44 @@ impl Render for Tone {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use gpui::prelude::FluentBuilder;
         let has_active_clip = self.app.piano_roll_clip.is_some();
+        // ── Model download polling ──────────────────────────────────
+        {
+            use model_manager::DownloadEvent;
+            use crate::app_state::{Action, OnnxModelKind};
+            let mut done_indices = vec![];
+            for (i, handle) in self.model_downloads.iter().enumerate() {
+                while let Ok(ev) = handle.rx.try_recv() {
+                    match ev {
+                        DownloadEvent::Progress { bytes_done, bytes_total } => {
+                            let progress = if bytes_total > 0 {
+                                bytes_done as f32 / bytes_total as f32
+                            } else {
+                                0.0
+                            };
+                            let kind = tone_model_to_onnx_kind(&handle.model_id);
+                            self.app.apply(Action::UpdateModelDownload { kind, progress });
+                            cx.notify();
+                        }
+                        DownloadEvent::Done => {
+                            let kind = tone_model_to_onnx_kind(&handle.model_id);
+                            let path = handle.model_id.local_path().to_string_lossy().to_string();
+                            self.app.apply(Action::CompleteModelDownload { kind, local_path: path });
+                            done_indices.push(i);
+                            cx.notify();
+                        }
+                        DownloadEvent::Error(e) => {
+                            log::error!("model download error: {e}");
+                            done_indices.push(i);
+                            cx.notify();
+                        }
+                    }
+                }
+            }
+            for i in done_indices.into_iter().rev() {
+                self.model_downloads.swap_remove(i);
+            }
+        }
+
         // ── Transport tick ──────────────────────────────────────────
         if self.app.playing {
             let now = std::time::Instant::now();
@@ -206,7 +255,7 @@ fn main() {
                     cx.new(|cx| {
                         let focus = cx.focus_handle();
                         window.focus(&focus);
-                        Tone { app: App::new(), focus, last_tick: None, editing_ai_prompt: false }
+                        Tone { app: App::new(), focus, last_tick: None, editing_ai_prompt: false, model_downloads: vec![] }
                     })
                 },
             )

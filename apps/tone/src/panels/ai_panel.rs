@@ -4,14 +4,38 @@ use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement, Sta
 use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, font_size};
 
-use crate::app_state::{Action, App, MusicGenStatus, DemucsStatus};
+use crate::app_state::{Action, App, MusicGenStatus, DemucsStatus, ModelDownloadStatus, OnnxModelKind};
+use crate::model_manager::{self, ToneModelId};
 use crate::Tone;
+
+fn musicgen_model_status(app: &App) -> ModelDownloadStatus {
+    app.onnx_models.iter()
+        .find(|m| m.kind == OnnxModelKind::MusicGen)
+        .map(|m| m.status.clone())
+        .unwrap_or(ModelDownloadStatus::NotDownloaded)
+}
+fn demucs_model_status(app: &App) -> ModelDownloadStatus {
+    app.onnx_models.iter()
+        .find(|m| m.kind == OnnxModelKind::Demucs)
+        .map(|m| m.status.clone())
+        .unwrap_or(ModelDownloadStatus::NotDownloaded)
+}
+fn musicgen_download_progress(app: &App) -> f32 {
+    app.onnx_models.iter().find(|m| m.kind == OnnxModelKind::MusicGen).map(|m| m.download_progress).unwrap_or(0.0)
+}
+fn demucs_download_progress(app: &App) -> f32 {
+    app.onnx_models.iter().find(|m| m.kind == OnnxModelKind::Demucs).map(|m| m.download_progress).unwrap_or(0.0)
+}
 
 pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) -> impl IntoElement {
     let has_musicgen_running = app.musicgen_jobs.iter().any(|j| j.status == MusicGenStatus::Running);
     let has_demucs_running = app.demucs_jobs.iter().any(|j| j.status == DemucsStatus::Splitting);
     let last_musicgen = app.musicgen_jobs.last();
     let last_demucs = app.demucs_jobs.last();
+    let musicgen_status = musicgen_model_status(app);
+    let demucs_status = demucs_model_status(app);
+    let musicgen_progress = musicgen_download_progress(app);
+    let demucs_progress = demucs_download_progress(app);
 
     div()
         .id("tone-ai-panel")
@@ -119,33 +143,8 @@ pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) 
                                 }),
                         ),
                 )
-                // Generate button
-                .child(
-                    div()
-                        .id("musicgen-btn")
-                        .w_full()
-                        .h(px(28.0))
-                        .bg(colors::accent())
-                        .rounded(px(3.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(font_size::XS))
-                        .text_color(gpui::white())
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                            let prompt = this.app.ai_prompt.clone();
-                            this.app.apply(Action::QueueMusicGen {
-                                prompt: if prompt.is_empty() { "upbeat background music".to_string() } else { prompt },
-                                style_tag: String::new(),
-                                bars: 8,
-                                temperature: 1.0,
-                            });
-                            this.editing_ai_prompt = false;
-                            cx.notify();
-                        }))
-                        .child(if has_musicgen_running { "Generating..." } else { "Generate Music" }),
-                )
+                // Download / Generate button — switches based on model state
+                .child(model_action_button_musicgen(cx, &musicgen_status, musicgen_progress, has_musicgen_running))
                 // Last job status
                 .when(last_musicgen.is_some(), |d| {
                     let job = last_musicgen.unwrap();
@@ -185,30 +184,7 @@ pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) 
                         .text_color(colors::text_disabled())
                         .child("Select an audio track in the timeline, then separate into vocals, drums, bass, other."),
                 )
-                .child(
-                    div()
-                        .id("demucs-btn")
-                        .w_full()
-                        .h(px(28.0))
-                        .bg(colors::surface_overlay())
-                        .rounded(px(3.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_primary())
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                            // Use first audio clip id, or 0 if none
-                            let clip_id = this.app.clips.iter()
-                                .find(|c| matches!(c.kind, crate::app_state::ClipKind::Audio))
-                                .map(|c| c.id)
-                                .unwrap_or(0);
-                            this.app.apply(Action::QueueStemSplit { clip_id });
-                            cx.notify();
-                        }))
-                        .child(if has_demucs_running { "Separating..." } else { "Separate Stems" }),
-                )
+                .child(model_action_button_demucs(cx, &demucs_status, demucs_progress, has_demucs_running))
                 .when(last_demucs.is_some(), |d| {
                     let job = last_demucs.unwrap();
                     let status = match job.status {
@@ -310,4 +286,157 @@ pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) 
                         ),
                 ),
         )
+}
+
+// ── Download-aware action buttons ─────────────────────────────────────────────
+
+fn model_action_button_musicgen(
+    cx: &mut gpui::Context<Tone>,
+    status: &ModelDownloadStatus,
+    progress: f32,
+    is_running: bool,
+) -> impl IntoElement {
+    match status {
+        ModelDownloadStatus::NotDownloaded => div()
+            .id("musicgen-download-btn")
+            .w_full().h(px(28.0))
+            .bg(colors::surface_overlay()).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(colors::text_primary())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let handle = model_manager::start_download(ToneModelId::MusicGenSmall);
+                this.app.apply(Action::StartModelDownload { kind: OnnxModelKind::MusicGen });
+                this.model_downloads.push(handle);
+                cx.notify();
+            }))
+            .child(format!("Download MusicGen ({}MB)", ToneModelId::MusicGenSmall.size_mb())),
+
+        ModelDownloadStatus::Downloading => div()
+            .id("musicgen-progress")
+            .w_full().h(px(28.0))
+            .bg(colors::surface_bg()).rounded(px(3.0))
+            .border_1().border_color(colors::accent())
+            .flex().items_center().px_2().gap_2()
+            .child(
+                div().flex_1().h(px(6.0)).bg(colors::surface_overlay()).rounded(px(3.0))
+                    .child(
+                        div().h_full().w(gpui::relative(progress.clamp(0.0, 1.0)))
+                            .bg(colors::accent()).rounded(px(3.0))
+                    )
+            )
+            .child(
+                div().text_size(px(7.0)).text_color(colors::text_secondary())
+                    .child(format!("{:.0}%", progress * 100.0))
+            ),
+
+        ModelDownloadStatus::Downloaded => div()
+            .id("musicgen-generate-btn")
+            .w_full().h(px(28.0))
+            .bg(colors::accent()).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(gpui::white())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let prompt = this.app.ai_prompt.clone();
+                this.app.apply(Action::QueueMusicGen {
+                    prompt: if prompt.is_empty() { "upbeat background music".to_string() } else { prompt },
+                    style_tag: String::new(),
+                    bars: 8,
+                    temperature: 1.0,
+                });
+                this.editing_ai_prompt = false;
+                cx.notify();
+            }))
+            .child(if is_running { "Generating..." } else { "Generate Music" }),
+
+        ModelDownloadStatus::Error => div()
+            .id("musicgen-error-btn")
+            .w_full().h(px(28.0))
+            .bg(gpui::rgb(0x7f1d1d)).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(gpui::rgb(0xfca5a5))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                // Retry download
+                let handle = model_manager::start_download(ToneModelId::MusicGenSmall);
+                this.app.apply(Action::StartModelDownload { kind: OnnxModelKind::MusicGen });
+                this.model_downloads.push(handle);
+                cx.notify();
+            }))
+            .child("Download failed — retry"),
+    }
+}
+
+fn model_action_button_demucs(
+    cx: &mut gpui::Context<Tone>,
+    status: &ModelDownloadStatus,
+    progress: f32,
+    is_running: bool,
+) -> impl IntoElement {
+    match status {
+        ModelDownloadStatus::NotDownloaded => div()
+            .id("demucs-download-btn")
+            .w_full().h(px(28.0))
+            .bg(colors::surface_overlay()).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(colors::text_primary())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let handle = model_manager::start_download(ToneModelId::DemucsHybrid);
+                this.app.apply(Action::StartModelDownload { kind: OnnxModelKind::Demucs });
+                this.model_downloads.push(handle);
+                cx.notify();
+            }))
+            .child(format!("Download Demucs ({}MB)", ToneModelId::DemucsHybrid.size_mb())),
+
+        ModelDownloadStatus::Downloading => div()
+            .id("demucs-progress")
+            .w_full().h(px(28.0))
+            .bg(colors::surface_bg()).rounded(px(3.0))
+            .border_1().border_color(colors::accent())
+            .flex().items_center().px_2().gap_2()
+            .child(
+                div().flex_1().h(px(6.0)).bg(colors::surface_overlay()).rounded(px(3.0))
+                    .child(
+                        div().h_full().w(gpui::relative(progress.clamp(0.0, 1.0)))
+                            .bg(colors::accent()).rounded(px(3.0))
+                    )
+            )
+            .child(
+                div().text_size(px(7.0)).text_color(colors::text_secondary())
+                    .child(format!("{:.0}%", progress * 100.0))
+            ),
+
+        ModelDownloadStatus::Downloaded => div()
+            .id("demucs-separate-btn")
+            .w_full().h(px(28.0))
+            .bg(colors::surface_overlay()).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(colors::text_primary())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let clip_id = this.app.clips.iter()
+                    .find(|c| matches!(c.kind, crate::app_state::ClipKind::Audio))
+                    .map(|c| c.id).unwrap_or(0);
+                this.app.apply(Action::QueueStemSplit { clip_id });
+                cx.notify();
+            }))
+            .child(if is_running { "Separating..." } else { "Separate Stems" }),
+
+        ModelDownloadStatus::Error => div()
+            .id("demucs-error-btn")
+            .w_full().h(px(28.0))
+            .bg(gpui::rgb(0x7f1d1d)).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(gpui::rgb(0xfca5a5))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let handle = model_manager::start_download(ToneModelId::DemucsHybrid);
+                this.app.apply(Action::StartModelDownload { kind: OnnxModelKind::Demucs });
+                this.model_downloads.push(handle);
+                cx.notify();
+            }))
+            .child("Download failed — retry"),
+    }
 }

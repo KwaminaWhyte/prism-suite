@@ -54,6 +54,7 @@ half          = { version = "2", features = ["bytemuck"] }
 pollster      = "0.4"
 rfd           = "0.15"
 dirs          = "5"
+ureq          = "2"
 exr           = "1"
 gpui          = "0.2.2"
 rhai          = "1.25.1"

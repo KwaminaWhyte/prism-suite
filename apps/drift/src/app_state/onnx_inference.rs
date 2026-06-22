@@ -28,6 +28,7 @@ pub enum OnnxModelStatus {
     NotDownloaded,
     Downloading,
     Ready,
+    Error,
 }
 
 /// Registry entry for a Drift ONNX model.
@@ -117,6 +118,36 @@ impl App {
                 };
                 self.drift_onnx_models.retain(|m| m.model != *model);
                 self.drift_onnx_models.push(entry);
+            }
+            Action::StartDriftModelDownload { model } => {
+                if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
+                    e.status = OnnxModelStatus::Downloading;
+                    e.download_progress = 0.0;
+                } else {
+                    self.drift_onnx_models.push(DriftOnnxModelEntry {
+                        model: model.clone(),
+                        local_path: None,
+                        status: OnnxModelStatus::Downloading,
+                        download_progress: 0.0,
+                    });
+                }
+            }
+            Action::UpdateDriftModelDownload { model, progress } => {
+                if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
+                    e.download_progress = progress.clamp(0.0, 1.0);
+                }
+            }
+            Action::CompleteDriftModelDownload { model, local_path } => {
+                if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
+                    e.status = OnnxModelStatus::Ready;
+                    e.download_progress = 1.0;
+                    e.local_path = Some(local_path.clone());
+                }
+            }
+            Action::ErrorDriftModelDownload { model, message: _ } => {
+                if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
+                    e.status = OnnxModelStatus::Error;
+                }
             }
             Action::QueueAnimateDiff { layer_id, prompt, num_frames, guidance_scale } => {
                 let id = self.next_animatediff_id;

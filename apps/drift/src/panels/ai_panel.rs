@@ -1,13 +1,30 @@
 //! AI panel — motion generation prompt, style tags, and document property readout.
 
-use crate::app_state::{self, Action, App};
+use crate::app_state::{self, Action, App, DriftOnnxModel, OnnxModelStatus};
+use crate::model_manager::{self, DriftModelId};
 use crate::Drift;
 use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
 use prism_ui::{colors, font_size};
 
+fn animatediff_status(app: &App) -> OnnxModelStatus {
+    app.drift_onnx_models.iter()
+        .find(|m| m.model == DriftOnnxModel::AnimateDiff)
+        .map(|m| m.status.clone())
+        .unwrap_or(OnnxModelStatus::NotDownloaded)
+}
+fn animatediff_progress(app: &App) -> f32 {
+    app.drift_onnx_models.iter()
+        .find(|m| m.model == DriftOnnxModel::AnimateDiff)
+        .map(|m| m.download_progress)
+        .unwrap_or(0.0)
+}
+
 /// Full AI panel with outer shell (width, border, background). Used when the
 /// panel is rendered standalone in the flex row.
 pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Drift>) -> impl IntoElement {
+    let animdiff_status = animatediff_status(app);
+    let animdiff_progress = animatediff_progress(app);
+    let is_generating = app.animatediff_jobs.iter().any(|j| matches!(j.status, app_state::OnnxJobStatus::Queued | app_state::OnnxJobStatus::Running));
     div()
         .id("ai-panel")
         .w(px(260.0))
@@ -115,40 +132,8 @@ pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Drift>)
                                 }),
                         ),
                 )
-                // Generate button — queues an AnimateDiff job
-                .child(
-                    div()
-                        .id("drift-generate-btn")
-                        .w_full()
-                        .h(px(30.0))
-                        .bg(colors::accent())
-                        .rounded(px(3.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(font_size::SM))
-                        .text_color(gpui::white())
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                            let prompt = this.app.ai_motion_prompt.clone();
-                            let layer_id = this.app.active_layer.unwrap_or(0);
-                            this.app.apply(Action::QueueAnimateDiff {
-                                layer_id,
-                                prompt: if prompt.is_empty() { "motion animation".to_string() } else { prompt },
-                                num_frames: this.app.document.duration_frames,
-                                guidance_scale: 7.5,
-                            });
-                            this.editing_prompt = false;
-                            cx.notify();
-                        }))
-                        .child(
-                            if app.animatediff_jobs.iter().any(|j| matches!(j.status, app_state::OnnxJobStatus::Queued | app_state::OnnxJobStatus::Running)) {
-                                "Generating..."
-                            } else {
-                                "Generate Motion"
-                            }
-                        ),
-                ),
+                // Generate / Download button — adapts to AnimateDiff model state
+                .child(animdiff_action_button(cx, &animdiff_status, animdiff_progress, is_generating)),
         )
         // Properties section
         .child(
@@ -195,4 +180,82 @@ fn prop_row(label: &str, value: &str) -> impl IntoElement {
                 .text_color(colors::text_primary())
                 .child(value.to_string()),
         )
+}
+
+fn animdiff_action_button(
+    cx: &mut gpui::Context<Drift>,
+    status: &OnnxModelStatus,
+    progress: f32,
+    is_generating: bool,
+) -> impl IntoElement {
+    match status {
+        OnnxModelStatus::NotDownloaded => div()
+            .id("animdiff-download-btn")
+            .w_full().h(px(30.0))
+            .bg(colors::surface_overlay()).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(colors::text_primary())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let handle = model_manager::start_download(DriftModelId::AnimateDiff);
+                this.app.apply(Action::StartDriftModelDownload { model: DriftOnnxModel::AnimateDiff });
+                this.model_downloads.push(handle);
+                cx.notify();
+            }))
+            .child(format!("Download AnimateDiff ({}MB)", DriftModelId::AnimateDiff.size_mb())),
+
+        OnnxModelStatus::Downloading => div()
+            .id("animdiff-progress")
+            .w_full().h(px(30.0))
+            .bg(colors::surface_bg()).rounded(px(3.0))
+            .border_1().border_color(colors::accent())
+            .flex().items_center().px_2().gap_2()
+            .child(
+                div().flex_1().h(px(6.0)).bg(colors::surface_overlay()).rounded(px(3.0))
+                    .child(
+                        div().h_full().w(gpui::relative(progress.clamp(0.0, 1.0)))
+                            .bg(colors::accent()).rounded(px(3.0))
+                    )
+            )
+            .child(
+                div().text_size(px(7.0)).text_color(colors::text_secondary())
+                    .child(format!("{:.0}%", progress * 100.0))
+            ),
+
+        OnnxModelStatus::Ready => div()
+            .id("animdiff-generate-btn")
+            .w_full().h(px(30.0))
+            .bg(colors::accent()).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::SM)).text_color(gpui::white())
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let prompt = this.app.ai_motion_prompt.clone();
+                let layer_id = this.app.active_layer.unwrap_or(0);
+                this.app.apply(Action::QueueAnimateDiff {
+                    layer_id,
+                    prompt: if prompt.is_empty() { "motion animation".to_string() } else { prompt },
+                    num_frames: this.app.document.duration_frames,
+                    guidance_scale: 7.5,
+                });
+                this.editing_prompt = false;
+                cx.notify();
+            }))
+            .child(if is_generating { "Generating..." } else { "Generate Motion" }),
+
+        OnnxModelStatus::Error => div()
+            .id("animdiff-error-btn")
+            .w_full().h(px(30.0))
+            .bg(gpui::rgb(0x7f1d1d)).rounded(px(3.0))
+            .flex().items_center().justify_center()
+            .text_size(px(font_size::XS)).text_color(gpui::rgb(0xfca5a5))
+            .cursor_pointer()
+            .on_click(cx.listener(|this, _ev, _win, cx| {
+                let handle = model_manager::start_download(DriftModelId::AnimateDiff);
+                this.app.apply(Action::StartDriftModelDownload { model: DriftOnnxModel::AnimateDiff });
+                this.model_downloads.push(handle);
+                cx.notify();
+            }))
+            .child("Download failed — retry"),
+    }
 }

@@ -66,6 +66,17 @@ pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument,
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
+/// The active editing tool in the piano roll / timeline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToneTool {
+    /// Pointer / selection tool.
+    Select,
+    /// Pencil / draw tool — click to create notes or clips.
+    Draw,
+    /// Eraser tool — click to delete notes or clips.
+    Erase,
+}
+
 /// Quantize grid subdivision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QuantizeGrid {
@@ -238,6 +249,10 @@ pub enum Action {
     SetClipPitchF32 { clip_id: usize, semitones: f32 },
     /// Set the per-clip gain in dB (converted to linear gain and stored).
     SetClipGainDb { clip_id: usize, gain_db: f32 },
+
+    // ── Tool selection ─────────────────────────────────────────────────────
+    /// Set the active editing tool (Select / Draw / Erase).
+    SetActiveTool(ToneTool),
 
     // ── Piano Roll / MIDI ──────────────────────────────────────────────────
     /// Open the piano roll editor focused on the given clip.
@@ -760,6 +775,9 @@ pub struct App {
     pub track_counter: usize,
     pub active_track: Option<usize>,
 
+    // ── Tool selection ─────────────────────────────────────────────────────
+    pub active_tool: ToneTool,
+
     // ── Send routing (Phase 2) ─────────────────────────────────────────────
     pub track_sends: Vec<TrackSend>,
     pub next_send_id: usize,
@@ -938,6 +956,7 @@ impl App {
             tracks: vec![master],
             track_counter: 1,
             active_track: None,
+            active_tool: ToneTool::Select,
             track_sends: Vec::new(),
             next_send_id: 0,
             clips: Vec::new(),
@@ -1168,6 +1187,11 @@ impl App {
             | Action::ResizeSelectedNotes { .. }
             | Action::SetSelectedNotesVelocity { .. }
             | Action::QuantizeSelectedNotes { .. } => self.apply_midi(action),
+
+            // ── Tool selection ────────────────────────────────────────────────
+            Action::SetActiveTool(tool) => {
+                self.active_tool = *tool;
+            }
 
             // ── Quantize ─────────────────────────────────────────────────────
             Action::SetQuantize { .. } => {

@@ -7,7 +7,7 @@ use gpui::{
 use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, font_size};
 
-use crate::app_state::App;
+use crate::app_state::{Action, App};
 use crate::Tone;
 
 const PIANO_KEY_W: f32 = 36.0;
@@ -21,9 +21,17 @@ fn is_black_key(midi: usize) -> bool {
     matches!(midi % 12, 1 | 3 | 6 | 8 | 10)
 }
 
-pub fn render_piano_roll(app: &App, _cx: &mut Context<Tone>) -> impl IntoElement {
+pub fn render_piano_roll(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
     // Capture midi notes for the focused clip
     let clip_id = app.piano_roll_clip;
+
+    // Pre-collect notes by (clip_id, pitch) — avoids repeated borrows inside closures
+    let note_data: Vec<(usize, u8, f32, f32)> = app
+        .midi_notes
+        .iter()
+        .filter(|n| clip_id.map_or(false, |cid| n.clip_id == cid))
+        .map(|n| (n.id, n.pitch, n.start_beat, n.duration_beats))
+        .collect();
 
     div()
         .flex_1()
@@ -113,7 +121,7 @@ pub fn render_piano_roll(app: &App, _cx: &mut Context<Tone>) -> impl IntoElement
                                 )
                         })),
                 )
-                // Note grid
+                // Note grid — one row per MIDI pitch, rendered top-to-bottom (high pitch first)
                 .child(
                     div()
                         .flex_1()
@@ -121,12 +129,32 @@ pub fn render_piano_roll(app: &App, _cx: &mut Context<Tone>) -> impl IntoElement
                         .flex_col()
                         .overflow_hidden()
                         .children((0..NUM_KEYS).rev().map(|i| {
-                            let midi_note = (48 + i) as u8;
-                            let note_in_oct = midi_note % 12;
-                            let is_black = is_black_key(midi_note as usize);
+                            let midi_pitch = (48 + i) as u8;
+                            let note_in_oct = midi_pitch % 12;
+                            let is_black = is_black_key(midi_pitch as usize);
                             let is_c = note_in_oct == 0;
 
+                            // Collect note blocks for this pitch
+                            let note_blocks: Vec<_> = note_data
+                                .iter()
+                                .filter(|(_, pitch, _, _)| *pitch == midi_pitch)
+                                .map(|(note_id, _, start_beat, duration_beats)| {
+                                    let left = (start_beat / VISIBLE_BEATS).clamp(0.0, 1.0);
+                                    let width = (duration_beats / VISIBLE_BEATS).max(0.02);
+                                    let _ = note_id; // used for key below
+                                    div()
+                                        .absolute()
+                                        .left(gpui::relative(left))
+                                        .w(gpui::relative(width))
+                                        .top(px(1.0))
+                                        .bottom(px(1.0))
+                                        .bg(colors::accent())
+                                        .rounded(px(1.0))
+                                })
+                                .collect();
+
                             div()
+                                .id(("note-row", i))
                                 .w_full()
                                 .h(px(NOTE_ROW_H))
                                 .bg(if is_black {
@@ -141,6 +169,20 @@ pub fn render_piano_roll(app: &App, _cx: &mut Context<Tone>) -> impl IntoElement
                                     colors::surface_border()
                                 })
                                 .relative()
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                    if let Some(cid) = this.app.piano_roll_clip {
+                                        this.app.apply(Action::AddMidiNote {
+                                            clip_id: cid,
+                                            pitch: midi_pitch,
+                                            velocity: 100,
+                                            start_beat: 0.0,
+                                            duration_beats: 0.5,
+                                        });
+                                        cx.notify();
+                                    }
+                                }))
+                                .children(note_blocks)
                         })),
                 ),
         )
@@ -156,7 +198,7 @@ pub fn render_piano_roll(app: &App, _cx: &mut Context<Tone>) -> impl IntoElement
                     .justify_center()
                     .text_size(px(font_size::SM))
                     .text_color(colors::text_disabled())
-                    .child("Double-click a MIDI clip to edit"),
+                    .child("Click a clip in the timeline to edit"),
             )
         })
 }

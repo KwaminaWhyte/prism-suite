@@ -37,20 +37,49 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                 )
                 .child(
                     div()
-                        .id("add-track")
-                        .w(px(20.0))
-                        .h(px(20.0))
                         .flex()
                         .items_center()
-                        .justify_center()
-                        .text_size(px(font_size::SM))
-                        .text_color(colors::text_secondary())
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                            this.app.apply(Action::AddTrack(TrackKind::Audio));
-                            cx.notify();
-                        }))
-                        .child("+"),
+                        .gap_1()
+                        // [A] Audio track button
+                        .child(
+                            div()
+                                .id("add-audio-track")
+                                .w(px(20.0))
+                                .h(px(20.0))
+                                .bg(colors::surface_overlay())
+                                .rounded(px(2.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(7.0))
+                                .text_color(colors::text_secondary())
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _ev, _win, cx| {
+                                    this.app.apply(Action::AddTrack(TrackKind::Audio));
+                                    cx.notify();
+                                }))
+                                .child("A"),
+                        )
+                        // [M] MIDI track button
+                        .child(
+                            div()
+                                .id("add-midi-track")
+                                .w(px(20.0))
+                                .h(px(20.0))
+                                .bg(colors::surface_overlay())
+                                .rounded(px(2.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_size(px(7.0))
+                                .text_color(colors::text_secondary())
+                                .cursor_pointer()
+                                .on_click(cx.listener(|this, _ev, _win, cx| {
+                                    this.app.apply(Action::AddTrack(TrackKind::Midi));
+                                    cx.notify();
+                                }))
+                                .child("M"),
+                        ),
                 ),
         )
         // Track rows

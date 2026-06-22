@@ -47,6 +47,10 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// Batch 8 domains
+pub mod lottie;
+pub mod blend_modes_layer;
+pub mod plugin_api;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +82,9 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use lottie::{LottieImportStatus, LottieKf, LottiePropValue, LottieLayerKs, LottieLayerDef, LottieAnim, LottieExportConfig, LottieImportJob};
+pub use blend_modes_layer::{LayerBlend, LayerBlendConfig};
+pub use plugin_api::{PluginKind, PluginStatus, PluginManifest, LoadedPlugin, ExtensionPanel};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -461,6 +468,26 @@ pub enum Action {
     AddSyncGroup { name: String, layer_ids: Vec<usize> },
     RemoveSyncGroup { group_id: usize },
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
+    // --- lottie ---
+    StartLottieExport { config: LottieExportConfig },
+    CompleteLottieExport,
+    CancelLottieExport,
+    StartLottieImport { source_path: String },
+    UpdateLottieImport { job_id: usize, layers_created: usize },
+    CompleteLottieImport { job_id: usize },
+    CancelLottieImport { job_id: usize },
+    // --- blend_modes_layer ---
+    SetLayerBlend { layer_id: usize, blend: LayerBlend },
+    SetLayerFillOpacity { layer_id: usize, opacity: f32 },
+    ResetLayerBlend { layer_id: usize },
+    // --- plugin_api ---
+    RegisterPlugin { manifest: PluginManifest },
+    EnablePlugin { plugin_id: String },
+    DisablePlugin { plugin_id: String },
+    UnloadPlugin { plugin_id: String },
+    OpenExtensionPanel { plugin_id: String, title: String },
+    CloseExtensionPanel { panel_id: usize },
+    ToggleExtensionPanel { panel_id: usize },
     // Tool selection
     SetActiveTool(DriftTool),
 }
@@ -647,6 +674,20 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // Batch 8 — Lottie
+    pub lottie_export_config: Option<LottieExportConfig>,
+    pub lottie_exporting: bool,
+    pub lottie_import_jobs: Vec<LottieImportJob>,
+    pub next_lottie_job_id: usize,
+
+    // Batch 8 — Layer Blend Modes
+    pub layer_blend_configs: Vec<LayerBlendConfig>,
+
+    // Batch 8 — Plugin API
+    pub loaded_plugins: Vec<LoadedPlugin>,
+    pub extension_panels: Vec<ExtensionPanel>,
+    pub next_ext_panel_id: usize,
 }
 
 impl App {
@@ -781,6 +822,17 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // Batch 8 — Lottie
+            lottie_export_config: None,
+            lottie_exporting: false,
+            lottie_import_jobs: Vec::new(),
+            next_lottie_job_id: 1,
+            // Batch 8 — Layer Blend Modes
+            layer_blend_configs: Vec::new(),
+            // Batch 8 — Plugin API
+            loaded_plugins: Vec::new(),
+            extension_panels: Vec::new(),
+            next_ext_panel_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1108,6 +1160,29 @@ impl App {
             | Action::AddSyncGroup { .. }
             | Action::RemoveSyncGroup { .. }
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
+            // Lottie (Batch 8)
+            Action::StartLottieExport { .. }
+            | Action::CompleteLottieExport
+            | Action::CancelLottieExport
+            | Action::StartLottieImport { .. }
+            | Action::UpdateLottieImport { .. }
+            | Action::CompleteLottieImport { .. }
+            | Action::CancelLottieImport { .. } => self.apply_lottie(action),
+
+            // Blend Modes (Batch 8)
+            Action::SetLayerBlend { .. }
+            | Action::SetLayerFillOpacity { .. }
+            | Action::ResetLayerBlend { .. } => self.apply_blend_modes(action),
+
+            // Plugin API (Batch 8)
+            Action::RegisterPlugin { .. }
+            | Action::EnablePlugin { .. }
+            | Action::DisablePlugin { .. }
+            | Action::UnloadPlugin { .. }
+            | Action::OpenExtensionPanel { .. }
+            | Action::CloseExtensionPanel { .. }
+            | Action::ToggleExtensionPanel { .. } => self.apply_plugin_api(action),
+
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
         }

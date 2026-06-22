@@ -36,6 +36,11 @@ pub mod chord_tools;
 pub mod freeze;
 pub mod midi_routing;
 
+// ─── Batch 5 AI generation modules ───────────────────────────────────────────
+pub mod musicgen;
+pub mod demucs;
+pub mod magenta;
+
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
@@ -63,6 +68,11 @@ pub use clip_launch::{ClipSlot, LaunchGrid, LaunchQuantize, SlotAction, SlotFoll
 pub use chord_tools::{ChordDegree, ChordProgression, ChordQualityTone, ChordSuggestion, ChordVoicing, ScaleMode};
 pub use freeze::{FreezeState, FrozenTrackInfo, StemConfig, StemExportStatus, StemFormat};
 pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument, VirtualInstrumentKind};
+
+// ─── Batch 5 AI generation re-exports ────────────────────────────────────────
+pub use musicgen::{MusicGenStatus, MusicGenJob};
+pub use demucs::{DemucsStatus, StemKind, StemOutput, DemucsJob};
+pub use magenta::{MagentaModel, MagentaStatus, MelodyGenJob, MelodyContinueJob, ChordVoicingJob};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -755,6 +765,31 @@ pub enum Action {
     SetArpRate { arp_id: usize, rate: f32 },
     SetArpOctaveRange { arp_id: usize, octaves: u8 },
     ToggleArpeggiator { arp_id: usize },
+
+    // ── MusicGen (Batch 5) ────────────────────────────────────────────────
+    QueueMusicGen { prompt: String, style_tag: String, bars: u8, temperature: f32 },
+    StartMusicGen { job_id: usize },
+    UpdateMusicGenProgress { job_id: usize, bars_done: u8 },
+    CompleteMusicGen { job_id: usize, track_id: usize },
+    CancelMusicGen { job_id: usize },
+    RetryMusicGen { job_id: usize },
+
+    // ── Demucs stem splitting (Batch 5) ───────────────────────────────────
+    QueueStemSplit { clip_id: usize },
+    StartStemSplit { job_id: usize },
+    UpdateStemSplitProgress { job_id: usize, pct: f32 },
+    CompleteStemSplit { job_id: usize, stem_track_ids: Vec<usize> },
+    CancelStemSplit { job_id: usize },
+
+    // ── Magenta melody / continuation / chord voicing (Batch 5) ──────────
+    QueueMelodyGen { track_id: usize, bars: u8, temperature: f32, model: MagentaModel },
+    StartMelodyGen { job_id: usize },
+    CompleteMelodyGen { job_id: usize, clip_id: usize },
+    CancelMelodyGen { job_id: usize },
+    QueueMelodyContinue { clip_id: usize, bars: u8, temperature: f32 },
+    CompleteMelodyContinue { job_id: usize, clip_id: usize },
+    QueueChordVoicing { progression_id: usize, voices: u8 },
+    CompleteChordVoicing { job_id: usize, clip_id: usize },
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -944,6 +979,22 @@ pub struct App {
     pub next_vi_id: usize,
     pub arp_configs: Vec<ArpConfig>,
     pub next_arp_id: usize,
+
+    // ── MusicGen AI (Batch 5) ──────────────────────────────────────────────
+    pub musicgen_jobs: Vec<MusicGenJob>,
+    pub next_musicgen_id: usize,
+
+    // ── Demucs stem splitting (Batch 5) ───────────────────────────────────
+    pub demucs_jobs: Vec<DemucsJob>,
+    pub next_demucs_id: usize,
+
+    // ── Magenta melody / continuation / chord voicing (Batch 5) ──────────
+    pub melody_gen_jobs: Vec<MelodyGenJob>,
+    pub next_melody_gen_id: usize,
+    pub melody_cont_jobs: Vec<MelodyContinueJob>,
+    pub next_melody_cont_id: usize,
+    pub chord_voicing_jobs: Vec<ChordVoicingJob>,
+    pub next_chord_voicing_id: usize,
 }
 
 impl App {
@@ -1066,6 +1117,17 @@ impl App {
             next_vi_id: 0,
             arp_configs: Vec::new(),
             next_arp_id: 0,
+            // Batch 5 fields
+            musicgen_jobs: Vec::new(),
+            next_musicgen_id: 1,
+            demucs_jobs: Vec::new(),
+            next_demucs_id: 1,
+            melody_gen_jobs: Vec::new(),
+            next_melody_gen_id: 1,
+            melody_cont_jobs: Vec::new(),
+            next_melody_cont_id: 1,
+            chord_voicing_jobs: Vec::new(),
+            next_chord_voicing_id: 1,
         }
     }
 
@@ -1479,6 +1541,31 @@ impl App {
             | Action::SetArpRate { .. }
             | Action::SetArpOctaveRange { .. }
             | Action::ToggleArpeggiator { .. } => self.apply_midi_routing(action),
+
+            // ── MusicGen ──────────────────────────────────────────────────────
+            Action::QueueMusicGen { .. }
+            | Action::StartMusicGen { .. }
+            | Action::UpdateMusicGenProgress { .. }
+            | Action::CompleteMusicGen { .. }
+            | Action::CancelMusicGen { .. }
+            | Action::RetryMusicGen { .. } => self.apply_musicgen(action),
+
+            // ── Demucs stem splitting ─────────────────────────────────────────
+            Action::QueueStemSplit { .. }
+            | Action::StartStemSplit { .. }
+            | Action::UpdateStemSplitProgress { .. }
+            | Action::CompleteStemSplit { .. }
+            | Action::CancelStemSplit { .. } => self.apply_demucs(action),
+
+            // ── Magenta melody / continuation / chord voicing ─────────────────
+            Action::QueueMelodyGen { .. }
+            | Action::StartMelodyGen { .. }
+            | Action::CompleteMelodyGen { .. }
+            | Action::CancelMelodyGen { .. }
+            | Action::QueueMelodyContinue { .. }
+            | Action::CompleteMelodyContinue { .. }
+            | Action::QueueChordVoicing { .. }
+            | Action::CompleteChordVoicing { .. } => self.apply_magenta(action),
         }
     }
 }

@@ -40,6 +40,10 @@ pub mod midi_routing;
 pub mod musicgen;
 pub mod demucs;
 pub mod magenta;
+// ─── Batch 5 domain modules ───────────────────────────────────────────────────
+pub mod ai_mastering;
+pub mod vocal_tools;
+pub mod smart_mix;
 
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
@@ -73,6 +77,10 @@ pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument,
 pub use musicgen::{MusicGenStatus, MusicGenJob};
 pub use demucs::{DemucsStatus, StemKind, StemOutput, DemucsJob};
 pub use magenta::{MagentaModel, MagentaStatus, MelodyGenJob, MelodyContinueJob, ChordVoicingJob};
+// ─── Batch 5 re-exports ───────────────────────────────────────────────────────
+pub use ai_mastering::{LufsTarget, AiMasterStatus, MultibandComp, AiMasterJob};
+pub use vocal_tools::{VocalJobKind, VocalJobStatus, AutoTuneConfig, HarmonyConfig, VocalJob};
+pub use smart_mix::{FreqAnalysis, MixSuggestion, AutoMixStatus, AutoMixSession};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -790,6 +798,30 @@ pub enum Action {
     CompleteMelodyContinue { job_id: usize, clip_id: usize },
     QueueChordVoicing { progression_id: usize, voices: u8 },
     CompleteChordVoicing { job_id: usize, clip_id: usize },
+    // ── AI Mastering ──────────────────────────────────────────────────────────
+    QueueAiMaster { target: LufsTarget },
+    StartAiMaster { job_id: usize },
+    UpdateAiMasterProgress { job_id: usize, input_lufs: f32 },
+    CompleteAiMaster { job_id: usize, output_lufs: f32 },
+    ToggleAiMasterAB { job_id: usize },
+    SetAiMasterTarget { job_id: usize, target: LufsTarget },
+    CancelAiMaster { job_id: usize },
+
+    // ── Vocal Tools ───────────────────────────────────────────────────────────
+    ApplyAutoTune { clip_id: usize, config: AutoTuneConfig },
+    GenVocalHarmony { clip_id: usize, config: HarmonyConfig },
+    IsolateVocals { clip_id: usize },
+    StartVocalJob { job_id: usize },
+    CompleteVocalJob { job_id: usize, output_clip_ids: Vec<usize> },
+    CancelVocalJob { job_id: usize },
+
+    // ── Smart Mix ─────────────────────────────────────────────────────────────
+    StartAutoMix,
+    UpdateAutoMixAnalysis { session_id: usize, analyses: Vec<FreqAnalysis> },
+    ApplyMixSuggestions { session_id: usize, suggestions: Vec<MixSuggestion> },
+    SetAutoMixTarget { session_id: usize, lufs: f32 },
+    ResetAutoMix { session_id: usize },
+    DiscardAutoMix { session_id: usize },
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -995,6 +1027,18 @@ pub struct App {
     pub next_melody_cont_id: usize,
     pub chord_voicing_jobs: Vec<ChordVoicingJob>,
     pub next_chord_voicing_id: usize,
+    // ── AI Mastering (Batch 5) ────────────────────────────────────────────────
+    pub aimaster_jobs: Vec<AiMasterJob>,
+    pub next_aimaster_id: usize,
+
+    // ── Vocal Tools (Batch 5) ─────────────────────────────────────────────────
+    pub vocal_jobs: Vec<VocalJob>,
+    pub auto_tune_configs: Vec<(usize, AutoTuneConfig)>,
+    pub next_vocal_job_id: usize,
+
+    // ── Smart Mix (Batch 5) ───────────────────────────────────────────────────
+    pub automix_sessions: Vec<AutoMixSession>,
+    pub next_automix_id: usize,
 }
 
 impl App {
@@ -1128,6 +1172,13 @@ impl App {
             next_melody_cont_id: 1,
             chord_voicing_jobs: Vec::new(),
             next_chord_voicing_id: 1,
+            aimaster_jobs: Vec::new(),
+            next_aimaster_id: 1,
+            vocal_jobs: Vec::new(),
+            auto_tune_configs: Vec::new(),
+            next_vocal_job_id: 1,
+            automix_sessions: Vec::new(),
+            next_automix_id: 1,
         }
     }
 
@@ -1566,6 +1617,30 @@ impl App {
             | Action::CompleteMelodyContinue { .. }
             | Action::QueueChordVoicing { .. }
             | Action::CompleteChordVoicing { .. } => self.apply_magenta(action),
+            // ── AI Mastering ──────────────────────────────────────────────────
+            Action::QueueAiMaster { .. }
+            | Action::StartAiMaster { .. }
+            | Action::UpdateAiMasterProgress { .. }
+            | Action::CompleteAiMaster { .. }
+            | Action::ToggleAiMasterAB { .. }
+            | Action::SetAiMasterTarget { .. }
+            | Action::CancelAiMaster { .. } => self.apply_ai_mastering(action),
+
+            // ── Vocal Tools ───────────────────────────────────────────────────
+            Action::ApplyAutoTune { .. }
+            | Action::GenVocalHarmony { .. }
+            | Action::IsolateVocals { .. }
+            | Action::StartVocalJob { .. }
+            | Action::CompleteVocalJob { .. }
+            | Action::CancelVocalJob { .. } => self.apply_vocal_tools(action),
+
+            // ── Smart Mix ─────────────────────────────────────────────────────
+            Action::StartAutoMix
+            | Action::UpdateAutoMixAnalysis { .. }
+            | Action::ApplyMixSuggestions { .. }
+            | Action::SetAutoMixTarget { .. }
+            | Action::ResetAutoMix { .. }
+            | Action::DiscardAutoMix { .. } => self.apply_smart_mix(action),
         }
     }
 }

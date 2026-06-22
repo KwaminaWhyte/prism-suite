@@ -444,7 +444,15 @@ adjustments) deliver the most felt parity per unit effort** — do them first. P
 
 ---
 
-## 7. Current Status (Batch 7 complete — 2026-06-20, ~80% parity)
+## 7. Current Status (Batch 8 complete — 2026-06-22, ~91% parity)
+
+### Batch 8 — Shape Primitives, Boolean Ops, Clipping Masks, Extended Styles, PSD Export (2026-06-22)
+- ✅ **Extended Shape Primitives** — `ExtendedShapeKind` (Polygon/Star/Line/RoundedRect/Triangle/Arrow/SpeechBubble/BooleanResult); `ExtendedShapeLayer { shape, fill_color, stroke_color, stroke_width, line_cap, line_join, hidden_by_boolean }`; `LineCap`/`LineJoin` enums; 15 new Action variants (`AddPolygonLayer`, `AddStarLayer`, `AddLineLayer`, `AddRoundedRectLayer`, `AddTriangleLayer`, `SetShapeSides`, `SetShapeCornerRadius`, `SetStarPoints`, `SetStarInnerRadius`, `SetLineWidth`, `SetLineCap`, `SetLineJoin`, `SetShapeStroke`, `SetShapeFill`); `extended_shapes: HashMap<usize, ExtendedShapeLayer>` on App.
+- ✅ **Boolean Shape Operations** — `BooleanOp` enum (Unite/Subtract/Intersect/Exclude); `apply_boolean_op()` hides source layers, creates a `BooleanResult` entry; `Action::BooleanShapeOp/ExpandStroke/FlattenToPixels`.
+- ✅ **Clipping Masks (extended)** — `Action::SetClippingMask/CreateClippingMask/ReleaseClippingMask` (convenience wrappers around existing `clipping_masks: HashSet<LayerId>`); `clipping_group_for_layer()` helper returns all contiguous clipped layers above a base.
+- ✅ **Extended Layer Styles** — `SatinEffect`, `ColorOverlay`, `GradientOverlay` (`GradientOverlayStyle` enum), `PatternOverlay`, `ContourType`, `BevelDirection`, `StyleKind` enums; per-layer maps on App (`satin_effects`, `color_overlays`, `gradient_overlays`, `pattern_overlays`); style clipboard (4 fields); 11 new Action variants (`SetSatinEffect`, `SetExtendedColorOverlay`, `SetGradientOverlay`, `SetPatternOverlay`, `SetLayerStyleBlendMode`, `SetLayerStyleOpacity`, `CopyLayerStylesExt`, `PasteLayerStylesExt`, `ClearLayerStylesExt`).
+- ✅ **PSD Export Config** — `PsdExportConfig { path, maximize_compatibility, embed_color_profile, encoding, merge_alpha, include_metadata, resolution }`; `PsdEncoding` enum (Raw/Rle); `psd_export_config/last_psd_export_path` on App. `Action::SetPsdExportPath/SetPsdMaximizeCompatibility/SetPsdEncoding/SetPsdEmbedColorProfile/ExportAsPsd`.
+- 52 tests added → **291 total**
 
 ### Batch 7 — ToneMap, Neural Filters, Layer Group depth, Print Layout (2026-06-20)
 - ✅ **HDR Tone Mapping** — `ToneMapMethod` enum (Reinhard/Filmic/AcesCg/Exposure); `Action::ApplyToneMap/SetToneMapPreview`; `last_tone_map/tone_map_preview` on App.

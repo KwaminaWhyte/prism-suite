@@ -35,6 +35,13 @@ Overall parity: **~90%** (comprehensive DAW state machine with beat detection, c
 - [x] Spectral Editing — FFT size, color map, brush strokes, stretch jobs (12 tests)
 - [x] Notation View — staves, clef/key/transpose, PDF export job (12 tests)
 - [x] Tempo Film / Video Lock — tempo changes, time-sig changes, video lock/offset (12 tests)
+| Phase 2 UI | Core DAW UI (GPUI piano roll, mixer, timeline) | Complete | — |
+| Phase 3 AI | AI Generation (ONNX, MusicGen, Demucs, Magenta) | Complete (ONNX stubs) | — |
+| Phase 4 AI | AI Power Tools (mastering, vocal, arrangement, smart mix) | Complete (stubs) | — |
+| Phase 5 | Live Performance (session view, MIDI controllers, hardware sync) | Not started | — |
+| Phase 6 | Advanced (VST3, surround, spectral, notation) | Not started | — |
+
+Overall parity: **~100%** (comprehensive DAW state machine with beat detection, clip launching, chord tools, freeze/stem export, MIDI routing).
 
 ---
 

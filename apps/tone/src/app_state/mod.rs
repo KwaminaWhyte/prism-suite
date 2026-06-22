@@ -10,12 +10,17 @@
 // ─── Domain modules ──────────────────────────────────────────────────────────
 
 pub mod ai;
+pub mod automation;
 pub mod clips;
 pub mod export;
 pub mod history;
 pub mod midi;
+pub mod midi_control;
 pub mod mixer;
+pub mod plugins;
 pub mod project;
+pub mod scenes;
+pub mod tempo_map;
 pub mod track_groups;
 pub mod tracks;
 pub mod transport;
@@ -23,12 +28,17 @@ pub mod transport;
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
+pub use automation::{AutomationLane, AutomationMode, AutomationParameter, AutomationPoint, SendParam};
 pub use clips::{ClipKind, ToneClip};
 pub use export::{BounceConfig, BounceFormat};
 pub use history::HistoryEntry;
 pub use midi::{MidiCC, MidiNote, NudgeAmount, NudgeDirection};
+pub use midi_control::{MappingTarget, MidiDevice, MidiDeviceKind, MidiMapping};
 pub use mixer::{EqBand, MixerChannel};
+pub use plugins::{BuiltinSynth, BuiltinSynthKind, DrumKit, PluginFormat, PluginInstance, SamplerLoop};
 pub use project::ToneProject;
+pub use scenes::{ArrangementMode, FollowAction, Scene, SceneSlot};
+pub use tempo_map::{TempoEvent, TimeSigEvent};
 pub use track_groups::TrackGroup;
 pub use tracks::{InsertEffect, InsertEffectKind, ToneTrack, TrackKind, TrackSend};
 
@@ -385,6 +395,106 @@ pub enum Action {
     SetBounceStemsPerTrack(bool),
     StartBounce,
     CancelBounce,
+
+    // ── Automation ─────────────────────────────────────────────────────────
+    /// Create an automation lane for a parameter on the given track.
+    CreateAutomationLane { track_id: usize, parameter: AutomationParameter },
+    /// Delete an automation lane by id.
+    DeleteAutomationLane { lane_id: usize },
+    /// Add a control point to an automation lane (value clamped 0..=1).
+    AddAutomationPoint { lane_id: usize, beat: f32, value: f32 },
+    /// Remove a control point from an automation lane.
+    RemoveAutomationPoint { lane_id: usize, point_id: usize },
+    /// Move a control point to a new beat/value (re-sorts lane by beat).
+    MoveAutomationPoint { lane_id: usize, point_id: usize, beat: f32, value: f32 },
+    /// Set the curve bias of a control point. Clamped -1..=1.
+    SetAutomationCurve { lane_id: usize, point_id: usize, curve: f32 },
+    /// Enable or disable an automation lane.
+    SetAutomationLaneEnabled { lane_id: usize, enabled: bool },
+    /// Show or hide an automation lane in the UI.
+    SetAutomationLaneVisible { lane_id: usize, visible: bool },
+    /// Set the global automation record mode.
+    SetAutomationMode(AutomationMode),
+    /// Remove all control points from an automation lane.
+    ClearAutomationLane { lane_id: usize },
+
+    // ── Tempo Map ──────────────────────────────────────────────────────────
+    /// Add a tempo change event at the given bar (bpm clamped 20..=999).
+    AddTempoEvent { bar: f32, bpm: f32 },
+    /// Remove a tempo event (cannot remove the bar-1 anchor).
+    RemoveTempoEvent { event_id: usize },
+    /// Move a tempo event to a new bar (cannot move bar-1 anchor).
+    MoveTempoEvent { event_id: usize, bar: f32 },
+    /// Add a time signature change event at the given bar.
+    AddTimeSigEvent { bar: f32, numerator: u8, denominator: u8 },
+    /// Remove a time signature event (cannot remove bar-1 anchor).
+    RemoveTimeSigEvent { event_id: usize },
+    /// Set the global BPM (updates project.bpm and bar-1 anchor event).
+    SetGlobalBpm(f32),
+
+    // ── Scenes ─────────────────────────────────────────────────────────────
+    /// Add a new scene with the given name.
+    AddScene { name: String },
+    /// Delete a scene. Clears active_scene_id if it matches.
+    DeleteScene { scene_id: usize },
+    /// Rename a scene.
+    RenameScene { scene_id: usize, name: String },
+    /// Set the display color of a scene.
+    SetSceneColor { scene_id: usize, color: String },
+    /// Override the BPM for a scene (None = use project BPM).
+    SetSceneBpmOverride { scene_id: usize, bpm: Option<f32> },
+    /// Assign (or clear) the clip for a track slot within a scene.
+    AssignClipToScene { scene_id: usize, track_id: usize, clip_id: Option<usize> },
+    /// Set the follow action for a track slot within a scene.
+    SetFollowAction { scene_id: usize, track_id: usize, action: FollowAction },
+    /// Launch a scene (set it as active).
+    LaunchScene { scene_id: usize },
+    /// Switch between session and arrangement view mode.
+    SetArrangementMode(ArrangementMode),
+    /// Duplicate a scene (new id, name gains " (copy)").
+    DuplicateScene { scene_id: usize },
+
+    // ── Plugins ────────────────────────────────────────────────────────────
+    /// Load a plugin onto a track.
+    AddPlugin { track_id: usize, name: String, format: PluginFormat, path: String, is_instrument: bool },
+    /// Unload a plugin.
+    RemovePlugin { plugin_id: usize },
+    /// Toggle a plugin's enabled state.
+    TogglePlugin { plugin_id: usize },
+    /// Set the active preset name on a plugin.
+    SetPluginPreset { plugin_id: usize, preset_name: String },
+    /// Set a named parameter value on a plugin.
+    SetPluginParam { plugin_id: usize, param_name: String, value: f32 },
+    /// Open the plugin's floating editor window.
+    OpenPluginWindow { plugin_id: usize },
+    /// Close the plugin's floating editor window.
+    ClosePluginWindow { plugin_id: usize },
+    /// Add a builtin synthesizer to a track.
+    AddBuiltinSynth { track_id: usize, kind: BuiltinSynthKind },
+    /// Remove the builtin synth from a track.
+    RemoveBuiltinSynth { track_id: usize },
+    /// Set the octave transpose of a builtin synth. Clamped -4..=4.
+    SetBuiltinSynthOctave { track_id: usize, octave: i32 },
+
+    // ── MIDI Control ───────────────────────────────────────────────────────
+    /// Add a MIDI CC → parameter mapping.
+    AddMidiMapping { channel: u8, cc: u8, target: MappingTarget },
+    /// Remove a MIDI mapping.
+    RemoveMidiMapping { mapping_id: usize },
+    /// Set the output range of a MIDI mapping.
+    SetMappingRange { mapping_id: usize, min: f32, max: f32 },
+    /// Register a MIDI device.
+    AddMidiDevice { name: String, kind: MidiDeviceKind },
+    /// Unregister a MIDI device.
+    RemoveMidiDevice { device_id: usize },
+    /// Enable or disable a MIDI device.
+    EnableMidiDevice { device_id: usize, enabled: bool },
+    /// Start MIDI learn mode for the given target.
+    StartMidiLearn { target: MappingTarget },
+    /// Cancel MIDI learn without creating a mapping.
+    StopMidiLearn,
+    /// Complete MIDI learn: create a mapping from the learned channel+cc to the pending target.
+    CompleteMidiLearn { channel: u8, cc: u8 },
 }
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -469,6 +579,37 @@ pub struct App {
     pub loop_start_bar: f32,
     pub loop_end_bar: f32,
     pub loop_bar_enabled: bool,
+
+    // ── Automation ─────────────────────────────────────────────────────────
+    pub automation_lanes: Vec<AutomationLane>,
+    pub next_lane_id: usize,
+    pub next_auto_point_id: usize,
+    pub automation_record_mode: AutomationMode,
+
+    // ── Tempo Map ──────────────────────────────────────────────────────────
+    pub tempo_map: Vec<TempoEvent>,
+    pub time_sig_map: Vec<TimeSigEvent>,
+    pub next_tempo_event_id: usize,
+    pub next_time_sig_event_id: usize,
+
+    // ── Scenes ─────────────────────────────────────────────────────────────
+    pub scenes: Vec<Scene>,
+    pub active_scene_id: Option<usize>,
+    pub next_scene_id: usize,
+    pub arrangement_mode: ArrangementMode,
+
+    // ── Plugins ────────────────────────────────────────────────────────────
+    pub plugin_instances: Vec<PluginInstance>,
+    pub builtin_synths: Vec<BuiltinSynth>,
+    pub next_plugin_id: usize,
+
+    // ── MIDI Control ───────────────────────────────────────────────────────
+    pub midi_mappings: Vec<MidiMapping>,
+    pub midi_devices: Vec<MidiDevice>,
+    pub next_mapping_id: usize,
+    pub next_device_id: usize,
+    pub midi_learn_active: bool,
+    pub midi_learn_target: Option<MappingTarget>,
 }
 
 impl App {
@@ -521,6 +662,27 @@ impl App {
             loop_start_bar: 1.0,
             loop_end_bar: 5.0,
             loop_bar_enabled: false,
+            automation_lanes: Vec::new(),
+            next_lane_id: 0,
+            next_auto_point_id: 0,
+            automation_record_mode: AutomationMode::Read,
+            tempo_map: vec![TempoEvent { id: 0, bar: 1.0, bpm: 120.0 }],
+            time_sig_map: vec![TimeSigEvent { id: 0, bar: 1.0, numerator: 4, denominator: 4 }],
+            next_tempo_event_id: 1,
+            next_time_sig_event_id: 1,
+            scenes: Vec::new(),
+            active_scene_id: None,
+            next_scene_id: 0,
+            arrangement_mode: ArrangementMode::Arrangement,
+            plugin_instances: Vec::new(),
+            builtin_synths: Vec::new(),
+            next_plugin_id: 0,
+            midi_mappings: Vec::new(),
+            midi_devices: Vec::new(),
+            next_mapping_id: 0,
+            next_device_id: 0,
+            midi_learn_active: false,
+            midi_learn_target: None,
         }
     }
 
@@ -723,6 +885,61 @@ impl App {
             | Action::SetBounceStemsPerTrack(..)
             | Action::StartBounce
             | Action::CancelBounce => self.apply_export(action),
+
+            // ── Automation ────────────────────────────────────────────────────
+            Action::CreateAutomationLane { .. }
+            | Action::DeleteAutomationLane { .. }
+            | Action::AddAutomationPoint { .. }
+            | Action::RemoveAutomationPoint { .. }
+            | Action::MoveAutomationPoint { .. }
+            | Action::SetAutomationCurve { .. }
+            | Action::SetAutomationLaneEnabled { .. }
+            | Action::SetAutomationLaneVisible { .. }
+            | Action::SetAutomationMode(..)
+            | Action::ClearAutomationLane { .. } => self.apply_automation(action),
+
+            // ── Tempo Map ─────────────────────────────────────────────────────
+            Action::AddTempoEvent { .. }
+            | Action::RemoveTempoEvent { .. }
+            | Action::MoveTempoEvent { .. }
+            | Action::AddTimeSigEvent { .. }
+            | Action::RemoveTimeSigEvent { .. }
+            | Action::SetGlobalBpm(..) => self.apply_tempo_map(action),
+
+            // ── Scenes ────────────────────────────────────────────────────────
+            Action::AddScene { .. }
+            | Action::DeleteScene { .. }
+            | Action::RenameScene { .. }
+            | Action::SetSceneColor { .. }
+            | Action::SetSceneBpmOverride { .. }
+            | Action::AssignClipToScene { .. }
+            | Action::SetFollowAction { .. }
+            | Action::LaunchScene { .. }
+            | Action::SetArrangementMode(..)
+            | Action::DuplicateScene { .. } => self.apply_scenes(action),
+
+            // ── Plugins ───────────────────────────────────────────────────────
+            Action::AddPlugin { .. }
+            | Action::RemovePlugin { .. }
+            | Action::TogglePlugin { .. }
+            | Action::SetPluginPreset { .. }
+            | Action::SetPluginParam { .. }
+            | Action::OpenPluginWindow { .. }
+            | Action::ClosePluginWindow { .. }
+            | Action::AddBuiltinSynth { .. }
+            | Action::RemoveBuiltinSynth { .. }
+            | Action::SetBuiltinSynthOctave { .. } => self.apply_plugins(action),
+
+            // ── MIDI Control ──────────────────────────────────────────────────
+            Action::AddMidiMapping { .. }
+            | Action::RemoveMidiMapping { .. }
+            | Action::SetMappingRange { .. }
+            | Action::AddMidiDevice { .. }
+            | Action::RemoveMidiDevice { .. }
+            | Action::EnableMidiDevice { .. }
+            | Action::StartMidiLearn { .. }
+            | Action::StopMidiLearn
+            | Action::CompleteMidiLearn { .. } => self.apply_midi_control(action),
         }
     }
 }

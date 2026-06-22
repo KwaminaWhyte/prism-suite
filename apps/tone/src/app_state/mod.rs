@@ -44,6 +44,10 @@ pub mod magenta;
 pub mod ai_mastering;
 pub mod vocal_tools;
 pub mod smart_mix;
+// ─── Batch 5 domain modules ───────────────────────────────────────────────────
+pub mod midi_controllers;
+pub mod loop_recording;
+pub mod hardware_sync;
 
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
@@ -81,6 +85,10 @@ pub use magenta::{MagentaModel, MagentaStatus, MelodyGenJob, MelodyContinueJob, 
 pub use ai_mastering::{LufsTarget, AiMasterStatus, MultibandComp, AiMasterJob};
 pub use vocal_tools::{VocalJobKind, VocalJobStatus, AutoTuneConfig, HarmonyConfig, VocalJob};
 pub use smart_mix::{FreqAnalysis, MixSuggestion, AutoMixStatus, AutoMixSession};
+// ─── Batch 5 re-exports ───────────────────────────────────────────────────────
+pub use midi_controllers::{ControllerPreset, PadMapping, KnobMapping, HardwareController, MidiLearnCtrlState};
+pub use loop_recording::{TakeStatus, Take, CompRegion, TakeStack};
+pub use hardware_sync::{MidiClockSource, MidiClockStatus, MidiClockConfig, AbletonLinkConfig};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -822,6 +830,39 @@ pub enum Action {
     SetAutoMixTarget { session_id: usize, lufs: f32 },
     ResetAutoMix { session_id: usize },
     DiscardAutoMix { session_id: usize },
+    // ── MIDI Controllers (Batch 5) ────────────────────────────────────────────
+    RegisterController { name: String, preset: ControllerPreset },
+    UnregisterController { controller_id: usize },
+    SetControllerPreset { controller_id: usize, preset: ControllerPreset },
+    ActivateController { controller_id: usize },
+    DeactivateController { controller_id: usize },
+    StartPadLearn { controller_id: usize, pad_index: u8 },
+    CompletePadLearn { controller_id: usize, note: u8 },
+    StartKnobLearn { controller_id: usize, knob_index: u8 },
+    CompleteKnobLearn { controller_id: usize, cc: u8 },
+    CancelCtrlLearn,
+
+    // ── Loop Recording (Batch 5) ──────────────────────────────────────────────
+    StartLoopRecord { track_id: usize, beat_start: f32 },
+    EndLoopRecord { take_id: usize, beat_end: f32, clip_id: usize },
+    DiscardTake { take_id: usize },
+    SetLoopActiveTake { stack_id: usize, take_id: usize },
+    SetCompRegion { stack_id: usize, beat_start: f32, beat_end: f32 },
+    BakeComp { stack_id: usize },
+    DeleteTakeStack { stack_id: usize },
+
+    // ── Hardware Sync (Batch 5) ───────────────────────────────────────────────
+    SetMidiClockSource { source: MidiClockSource },
+    SetMidiClockBpm { bpm: f32 },
+    ToggleSendClock,
+    ToggleReceiveClock,
+    StartMidiClock,
+    StopMidiClock,
+    SetHardwareLinkEnabled { enabled: bool },
+    SetLinkBpm { bpm: f32 },
+    UpdateLinkPeers { count: u8 },
+    SetLinkQuantum { quantum: f32 },
+    ToggleLinkStartStop,
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -1039,6 +1080,20 @@ pub struct App {
     // ── Smart Mix (Batch 5) ───────────────────────────────────────────────────
     pub automix_sessions: Vec<AutoMixSession>,
     pub next_automix_id: usize,
+    // ── MIDI Controllers (Batch 5) ────────────────────────────────────────────
+    pub hardware_controllers: Vec<HardwareController>,
+    pub next_controller_id: usize,
+    pub ctrl_learn_state: MidiLearnCtrlState,
+
+    // ── Loop Recording (Batch 5) ──────────────────────────────────────────────
+    pub take_stacks: Vec<TakeStack>,
+    pub loop_takes: Vec<Take>,
+    pub next_take_stack_id: usize,
+    pub next_take_id: usize,
+
+    // ── Hardware Sync (Batch 5) ───────────────────────────────────────────────
+    pub midi_clock: MidiClockConfig,
+    pub ableton_link: AbletonLinkConfig,
 }
 
 impl App {
@@ -1179,6 +1234,15 @@ impl App {
             next_vocal_job_id: 1,
             automix_sessions: Vec::new(),
             next_automix_id: 1,
+            hardware_controllers: vec![],
+            next_controller_id: 1,
+            ctrl_learn_state: MidiLearnCtrlState::Idle,
+            take_stacks: vec![],
+            loop_takes: vec![],
+            next_take_stack_id: 1,
+            next_take_id: 1,
+            midi_clock: MidiClockConfig::default(),
+            ableton_link: AbletonLinkConfig::default(),
         }
     }
 
@@ -1641,6 +1705,39 @@ impl App {
             | Action::SetAutoMixTarget { .. }
             | Action::ResetAutoMix { .. }
             | Action::DiscardAutoMix { .. } => self.apply_smart_mix(action),
+            // ── MIDI Controllers (Batch 5) ────────────────────────────────────
+            Action::RegisterController { .. }
+            | Action::UnregisterController { .. }
+            | Action::SetControllerPreset { .. }
+            | Action::ActivateController { .. }
+            | Action::DeactivateController { .. }
+            | Action::StartPadLearn { .. }
+            | Action::CompletePadLearn { .. }
+            | Action::StartKnobLearn { .. }
+            | Action::CompleteKnobLearn { .. }
+            | Action::CancelCtrlLearn => self.apply_midi_controllers(action),
+
+            // ── Loop Recording (Batch 5) ──────────────────────────────────────
+            Action::StartLoopRecord { .. }
+            | Action::EndLoopRecord { .. }
+            | Action::DiscardTake { .. }
+            | Action::SetLoopActiveTake { .. }
+            | Action::SetCompRegion { .. }
+            | Action::BakeComp { .. }
+            | Action::DeleteTakeStack { .. } => self.apply_loop_recording(action),
+
+            // ── Hardware Sync (Batch 5) ───────────────────────────────────────
+            Action::SetMidiClockSource { .. }
+            | Action::SetMidiClockBpm { .. }
+            | Action::ToggleSendClock
+            | Action::ToggleReceiveClock
+            | Action::StartMidiClock
+            | Action::StopMidiClock
+            | Action::SetHardwareLinkEnabled { .. }
+            | Action::SetLinkBpm { .. }
+            | Action::UpdateLinkPeers { .. }
+            | Action::SetLinkQuantum { .. }
+            | Action::ToggleLinkStartStop => self.apply_hardware_sync(action),
         }
     }
 }

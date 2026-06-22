@@ -36,6 +36,10 @@ pub mod chord_tools;
 pub mod freeze;
 pub mod midi_routing;
 
+// ─── Batch 5 domain modules ───────────────────────────────────────────────────
+pub mod onnx_runtime;
+pub mod waveform_cache;
+
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
@@ -63,6 +67,10 @@ pub use clip_launch::{ClipSlot, LaunchGrid, LaunchQuantize, SlotAction, SlotFoll
 pub use chord_tools::{ChordDegree, ChordProgression, ChordQualityTone, ChordSuggestion, ChordVoicing, ScaleMode};
 pub use freeze::{FreezeState, FrozenTrackInfo, StemConfig, StemExportStatus, StemFormat};
 pub use midi_routing::{ArpConfig, ArpPattern, MidiOutputPort, VirtualInstrument, VirtualInstrumentKind};
+
+// ─── Batch 5 re-exports ───────────────────────────────────────────────────────
+pub use onnx_runtime::{OnnxModelKind, ModelDownloadStatus, OnnxModelEntry, OnnxInferenceJob};
+pub use waveform_cache::{WaveformPeak, WaveformChunk};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -755,6 +763,32 @@ pub enum Action {
     SetArpRate { arp_id: usize, rate: f32 },
     SetArpOctaveRange { arp_id: usize, octaves: u8 },
     ToggleArpeggiator { arp_id: usize },
+
+    // ── ONNX Model Management (Batch 5) ──────────────────────────────────────
+    /// Register an ONNX model in the local registry (no-op if kind already registered).
+    RegisterOnnxModel { kind: OnnxModelKind, name: String, url_hint: String, size_mb: u32 },
+    /// Begin downloading an ONNX model.
+    StartModelDownload { kind: OnnxModelKind },
+    /// Update the download progress of an ONNX model (0.0..=1.0).
+    UpdateModelDownload { kind: OnnxModelKind, progress: f32 },
+    /// Mark an ONNX model as fully downloaded with its local path.
+    CompleteModelDownload { kind: OnnxModelKind, local_path: String },
+    /// Remove an ONNX model from the registry.
+    RemoveOnnxModel { kind: OnnxModelKind },
+    /// Queue an inference job against a loaded model.
+    QueueOnnxInference { model_kind: OnnxModelKind, input_desc: String },
+    /// Mark an inference job as successfully completed.
+    CompleteOnnxInference { job_id: usize },
+    /// Mark an inference job as failed with an error message.
+    FailOnnxInference { job_id: usize, error: String },
+
+    // ── Waveform Peak Cache (Batch 5) ─────────────────────────────────────────
+    /// Mark the waveform peak cache for a clip as dirty (needs recompute).
+    InvalidateWaveform { clip_id: usize },
+    /// Store computed waveform peaks for a clip.
+    SetWaveformPeaks { clip_id: usize, peaks: Vec<WaveformPeak>, sample_rate: u32, pixels_per_second: f32 },
+    /// Clear all waveform peak cache entries.
+    ClearWaveformCache,
 }
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -944,6 +978,14 @@ pub struct App {
     pub next_vi_id: usize,
     pub arp_configs: Vec<ArpConfig>,
     pub next_arp_id: usize,
+
+    // ── ONNX Model Management (Batch 5) ──────────────────────────────────────
+    pub onnx_models: Vec<OnnxModelEntry>,
+    pub onnx_inference_jobs: Vec<OnnxInferenceJob>,
+    pub next_onnx_job_id: usize,
+
+    // ── Waveform Peak Cache (Batch 5) ─────────────────────────────────────────
+    pub waveform_cache: Vec<WaveformChunk>,
 }
 
 impl App {
@@ -1066,6 +1108,11 @@ impl App {
             next_vi_id: 0,
             arp_configs: Vec::new(),
             next_arp_id: 0,
+            // Batch 5 fields
+            onnx_models: Vec::new(),
+            onnx_inference_jobs: Vec::new(),
+            next_onnx_job_id: 1,
+            waveform_cache: Vec::new(),
         }
     }
 
@@ -1479,6 +1526,21 @@ impl App {
             | Action::SetArpRate { .. }
             | Action::SetArpOctaveRange { .. }
             | Action::ToggleArpeggiator { .. } => self.apply_midi_routing(action),
+
+            // ── ONNX Model Management ─────────────────────────────────────────
+            Action::RegisterOnnxModel { .. }
+            | Action::StartModelDownload { .. }
+            | Action::UpdateModelDownload { .. }
+            | Action::CompleteModelDownload { .. }
+            | Action::RemoveOnnxModel { .. }
+            | Action::QueueOnnxInference { .. }
+            | Action::CompleteOnnxInference { .. }
+            | Action::FailOnnxInference { .. } => self.apply_onnx_runtime(action),
+
+            // ── Waveform Peak Cache ───────────────────────────────────────────
+            Action::InvalidateWaveform { .. }
+            | Action::SetWaveformPeaks { .. }
+            | Action::ClearWaveformCache => self.apply_waveform_cache(action),
         }
     }
 }

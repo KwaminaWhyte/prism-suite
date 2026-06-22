@@ -47,6 +47,8 @@ pub mod facial_capture;
 pub mod ai_motion;
 pub mod advanced_tweening;
 pub mod beat_sync;
+// Batch 8: Lottie builder, media export queue, JS runtime, web publish, CRDT
+pub mod export_web;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -78,6 +80,12 @@ pub use facial_capture::{CaptureSource, TrackedFeature, FacialCaptureSession, Ca
 pub use ai_motion::{AiMotionModel, AiRequestStatus, AiMotionRequest, AiInterpolationRequest, AiStyleTransfer, AiBackend};
 pub use advanced_tweening::{AdvancedTweenKind, MotionGuide, PropertyTween};
 pub use beat_sync::{MarkerKind, AudioMarker, BeatSyncConfig, SyncGroup};
+pub use export_web::{
+    LottieJsonBuilder, LottieImportSession, LottieImportStatus,
+    MediaExportFormat, MediaExportStatus, MediaExportJob,
+    JsRuntimeConfig, WebPublishJob, WebPublishStatus,
+    WsLivePreviewConfig, CollabSession, CollabStatus,
+};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -461,6 +469,44 @@ pub enum Action {
     AddSyncGroup { name: String, layer_ids: Vec<usize> },
     RemoveSyncGroup { group_id: usize },
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
+    // Batch 8 — Lottie JSON builder
+    BuildLottieJson { scene_id: usize, output_path: String },
+
+    // Batch 8 — Lottie import
+    StartLottieImport { source_path: String },
+    CompleteLottieImport { session_id: usize, layers_created: usize },
+    FailLottieImport { session_id: usize, error: String },
+
+    // Batch 8 — Media export queue
+    QueueMediaExport {
+        format: MediaExportFormat,
+        output_path: String,
+        fps: f32,
+        start_frame: usize,
+        end_frame: usize,
+        scale: f32,
+    },
+    StartMediaExport { job_id: usize },
+    UpdateMediaExportProgress { job_id: usize, progress: f32 },
+    CompleteMediaExport { job_id: usize },
+    FailMediaExport { job_id: usize, error: String },
+
+    // Batch 8 — JS runtime
+    SetJsRuntime { enabled: bool, bundle_path: String, auto_reload: bool },
+
+    // Batch 8 — Web publish
+    StartWebPublish { output_dir: String, include_player: bool, minify: bool },
+    CompleteWebPublish { job_id: usize },
+
+    // Batch 8 — WebSocket live preview
+    SetWsLivePreview { enabled: bool, port: u16 },
+    SetWsClientCount { count: usize },
+
+    // Batch 8 — CRDT collab
+    StartCollabSession { room_id: String },
+    CollabSessionConnected { peer_count: usize },
+    StopCollabSession,
+
     // Tool selection
     SetActiveTool(DriftTool),
 }
@@ -647,6 +693,31 @@ pub struct App {
     pub beat_sync: BeatSyncConfig,
     pub sync_groups: Vec<SyncGroup>,
     pub next_sync_group_id: usize,
+
+    // Batch 8: Lottie JSON builder
+    pub lottie_builds: Vec<LottieJsonBuilder>,
+    pub next_lottie_build_id: usize,
+
+    // Batch 8: Lottie import sessions
+    pub lottie_imports: Vec<LottieImportSession>,
+    pub next_lottie_import_id: usize,
+
+    // Batch 8: Media export queue
+    pub media_export_jobs: Vec<MediaExportJob>,
+    pub next_media_export_id: usize,
+
+    // Batch 8: JS runtime bridge
+    pub js_runtime: JsRuntimeConfig,
+
+    // Batch 8: Web publish jobs
+    pub web_publish_jobs: Vec<WebPublishJob>,
+    pub next_web_publish_id: usize,
+
+    // Batch 8: WebSocket live preview
+    pub ws_live_preview: WsLivePreviewConfig,
+
+    // Batch 8: CRDT collaboration session
+    pub collab_session: CollabSession,
 }
 
 impl App {
@@ -781,6 +852,18 @@ impl App {
             beat_sync: BeatSyncConfig::new(),
             sync_groups: Vec::new(),
             next_sync_group_id: 0,
+            // Batch 8: Lottie / export / web / collab
+            lottie_builds: Vec::new(),
+            next_lottie_build_id: 1,
+            lottie_imports: Vec::new(),
+            next_lottie_import_id: 1,
+            media_export_jobs: Vec::new(),
+            next_media_export_id: 1,
+            js_runtime: JsRuntimeConfig::default(),
+            web_publish_jobs: Vec::new(),
+            next_web_publish_id: 1,
+            ws_live_preview: WsLivePreviewConfig::default(),
+            collab_session: CollabSession::default(),
         };
         app.seed_easing_curves();
         app
@@ -1108,6 +1191,25 @@ impl App {
             | Action::AddSyncGroup { .. }
             | Action::RemoveSyncGroup { .. }
             | Action::SetSyncGroupLayers { .. } => self.apply_beat_sync(action),
+            // Batch 8: Lottie / export / web / collab
+            Action::BuildLottieJson { .. }
+            | Action::StartLottieImport { .. }
+            | Action::CompleteLottieImport { .. }
+            | Action::FailLottieImport { .. }
+            | Action::QueueMediaExport { .. }
+            | Action::StartMediaExport { .. }
+            | Action::UpdateMediaExportProgress { .. }
+            | Action::CompleteMediaExport { .. }
+            | Action::FailMediaExport { .. }
+            | Action::SetJsRuntime { .. }
+            | Action::StartWebPublish { .. }
+            | Action::CompleteWebPublish { .. }
+            | Action::SetWsLivePreview { .. }
+            | Action::SetWsClientCount { .. }
+            | Action::StartCollabSession { .. }
+            | Action::CollabSessionConnected { .. }
+            | Action::StopCollabSession => self.apply_export_web(&action),
+
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,
         }

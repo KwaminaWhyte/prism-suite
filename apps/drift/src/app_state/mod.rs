@@ -58,6 +58,7 @@ pub mod plugin_api;
 pub mod history;
 pub mod state_machine_eval;
 pub mod export_presets;
+pub mod ai_motion_ext;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -102,6 +103,7 @@ pub use action::{DriftTool, Action};
 pub use history::{AppHistory, HistoryEntry};
 pub use state_machine_eval::SmRuntime;
 pub use export_presets::{ExportPreset, BatchJobStatus, BatchExportJob, RenderQueueBatch};
+pub use ai_motion_ext::{AiExtJobStatus, MotionSmoothJob, EaseSuggestion, EaseSuggestJob, InbetweenJob, ExpressionTransferJob, MotionFromVideoJob, DftExportStatus, CharacterPackExport};
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
 
@@ -502,6 +504,23 @@ pub enum Action {
     UpdateBatchJobProgress { job_id: usize, progress: f32 },
     CompleteBatchJob { job_id: usize },
     CancelRenderBatch { batch_id: usize },
+    // AI Motion Extensions (Batch 8)
+    QueueMotionSmooth { layer_id: usize, property: String, strength: f32 },
+    CompleteMotionSmooth { job_id: usize },
+    CancelMotionSmooth { job_id: usize },
+    QueueEaseSuggest { layer_id: usize },
+    CompleteEaseSuggest { job_id: usize, suggestions: Vec<EaseSuggestion> },
+    QueueInbetween { layer_id: usize, from_frame: usize, to_frame: usize, frames_to_fill: usize },
+    CompleteInbetween { job_id: usize },
+    CancelInbetween { job_id: usize },
+    QueueExpressionTransfer { rig_layer_id: usize, reference_image_path: String },
+    CompleteExpressionTransfer { job_id: usize },
+    QueueMotionFromVideo { video_path: String, target_rig_layer_id: usize, fps: f32 },
+    UpdateMotionFromVideoProgress { job_id: usize, keyframes_created: usize },
+    CompleteMotionFromVideo { job_id: usize, keyframes_created: usize },
+    StartCharPackExport { rig_layer_id: usize, output_path: String, include_audio: bool },
+    CompleteCharPackExport { export_id: usize },
+    CancelCharPackExport { export_id: usize },
 
     // Tool selection
     SetActiveTool(DriftTool),
@@ -743,6 +762,19 @@ pub struct App {
     pub render_batches: Vec<RenderQueueBatch>,
     pub next_batch_id: usize,
     pub next_batch_job_id: usize,
+    // Batch 8: AI Motion Extensions
+    pub motion_smooth_jobs: Vec<MotionSmoothJob>,
+    pub next_ms_job_id: usize,
+    pub ease_suggest_jobs: Vec<EaseSuggestJob>,
+    pub next_ease_job_id: usize,
+    pub inbetween_jobs: Vec<InbetweenJob>,
+    pub next_inbetween_id: usize,
+    pub expr_transfer_jobs: Vec<ExpressionTransferJob>,
+    pub next_expr_transfer_id: usize,
+    pub mfv_jobs: Vec<MotionFromVideoJob>,
+    pub next_mfv_id: usize,
+    pub char_pack_exports: Vec<CharacterPackExport>,
+    pub next_char_pack_id: usize,
 }
 
 impl App {
@@ -915,6 +947,19 @@ impl App {
             render_batches: Vec::new(),
             next_batch_id: 1,
             next_batch_job_id: 1,
+            // Batch 8: AI Motion Extensions
+            motion_smooth_jobs: Vec::new(),
+            next_ms_job_id: 1,
+            ease_suggest_jobs: Vec::new(),
+            next_ease_job_id: 1,
+            inbetween_jobs: Vec::new(),
+            next_inbetween_id: 1,
+            expr_transfer_jobs: Vec::new(),
+            next_expr_transfer_id: 1,
+            mfv_jobs: Vec::new(),
+            next_mfv_id: 1,
+            char_pack_exports: Vec::new(),
+            next_char_pack_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1282,6 +1327,23 @@ impl App {
             | Action::UpdateBatchJobProgress { .. }
             | Action::CompleteBatchJob { .. }
             | Action::CancelRenderBatch { .. } => self.apply_export_presets(action),
+            // AI Motion Extensions (Batch 8)
+            Action::QueueMotionSmooth { .. }
+            | Action::CompleteMotionSmooth { .. }
+            | Action::CancelMotionSmooth { .. }
+            | Action::QueueEaseSuggest { .. }
+            | Action::CompleteEaseSuggest { .. }
+            | Action::QueueInbetween { .. }
+            | Action::CompleteInbetween { .. }
+            | Action::CancelInbetween { .. }
+            | Action::QueueExpressionTransfer { .. }
+            | Action::CompleteExpressionTransfer { .. }
+            | Action::QueueMotionFromVideo { .. }
+            | Action::UpdateMotionFromVideoProgress { .. }
+            | Action::CompleteMotionFromVideo { .. }
+            | Action::StartCharPackExport { .. }
+            | Action::CompleteCharPackExport { .. }
+            | Action::CancelCharPackExport { .. } => self.apply_ai_motion_ext(&action),
 
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,

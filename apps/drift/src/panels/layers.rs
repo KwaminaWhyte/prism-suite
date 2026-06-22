@@ -8,9 +8,9 @@
 
 use crate::app_state::{Action, App, LayerKind};
 use crate::Drift;
-use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
+use gpui::{div, svg, px, Context, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled};
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, Icon};
 
 pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
     let active = app.active_layer;
@@ -67,7 +67,7 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                                     });
                                     cx.notify();
                                 }))
-                                .child("V"),
+                                .child(svg().path(Icon::Pen.path()).w(px(11.0)).h(px(11.0)).text_color(colors::text_secondary())),
                         )
                         .child(
                             div()
@@ -77,8 +77,6 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(font_size::XS))
-                                .text_color(colors::text_secondary())
                                 .bg(colors::surface_overlay())
                                 .rounded(px(2.0))
                                 .cursor_pointer()
@@ -89,7 +87,7 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                                     });
                                     cx.notify();
                                 }))
-                                .child("B"),
+                                .child(svg().path(Icon::Layers.path()).w(px(11.0)).h(px(11.0)).text_color(colors::text_secondary())),
                         ),
                 ),
         )
@@ -168,7 +166,7 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                             });
                             cx.notify();
                         }))
-                        .child(if visible { "●" } else { "○" }),
+                        .child(svg().path(if visible { Icon::Eye.path() } else { Icon::EyeOff.path() }).w(px(11.0)).h(px(11.0)).text_color(if visible { colors::text_primary() } else { colors::text_disabled() })),
                 )
                 // Lock icon
                 .child(
@@ -193,7 +191,7 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                             });
                             cx.notify();
                         }))
-                        .child(if locked { "L" } else { "l" }),
+                        .child(svg().path(if locked { Icon::Lock.path() } else { Icon::Unlock.path() }).w(px(11.0)).h(px(11.0)).text_color(if locked { colors::accent() } else { colors::text_disabled() })),
                 )
                 // Kind badge
                 .child(
@@ -239,7 +237,7 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                             this.app.apply(Action::DeleteLayer(layer_id));
                             cx.notify();
                         }))
-                        .child("×"),
+                        .child(svg().path(Icon::Trash.path()).w(px(11.0)).h(px(11.0)).text_color(colors::text_disabled())),
                 )
                 // Select on row click
                 .on_click(cx.listener(move |this, _ev, _win, cx| {

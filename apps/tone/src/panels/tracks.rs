@@ -1,10 +1,10 @@
 //! Track list panel — left sidebar showing tracks with M/S/R controls.
 
 use gpui::{
-    div, px, Context, InteractiveElement, IntoElement, ParentElement,
+    div, svg, px, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, Icon};
 
 use crate::app_state::{Action, App, TrackKind};
 use crate::Tone;
@@ -58,7 +58,7 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                     this.app.apply(Action::AddTrack(TrackKind::Audio));
                                     cx.notify();
                                 }))
-                                .child("A"),
+                                .child(svg().path(Icon::Waveform.path()).w(px(11.0)).h(px(11.0)).text_color(colors::text_secondary())),
                         )
                         // [M] MIDI track button
                         .child(
@@ -71,14 +71,12 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(7.0))
-                                .text_color(colors::text_secondary())
                                 .cursor_pointer()
                                 .on_click(cx.listener(|this, _ev, _win, cx| {
                                     this.app.apply(Action::AddTrack(TrackKind::Midi));
                                     cx.notify();
                                 }))
-                                .child("M"),
+                                .child(svg().path(Icon::Music.path()).w(px(11.0)).h(px(11.0)).text_color(colors::text_secondary())),
                         ),
                 ),
         )
@@ -197,67 +195,37 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                     });
                                                     cx.notify();
                                                 }))
-                                                .child("M"),
+                                                .child(svg().path(Icon::Mute.path()).w(px(10.0)).h(px(10.0)).text_color(if muted { gpui::rgb(0xffffff) } else { colors::text_disabled() })),
                                         )
                                         .child(
                                             div()
                                                 .id(("solo", idx))
                                                 .w(px(16.0))
                                                 .h(px(16.0))
-                                                .bg(if soloed {
-                                                    gpui::rgb(0xf1c40f)
-                                                } else {
-                                                    colors::surface_bg()
-                                                })
+                                                .bg(if soloed { gpui::rgb(0xf1c40f) } else { colors::surface_bg() })
                                                 .rounded(px(2.0))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_size(px(7.0))
-                                                .text_color(if soloed {
-                                                    gpui::rgb(0x000000)
-                                                } else {
-                                                    colors::text_disabled()
-                                                })
+                                                .flex().items_center().justify_center()
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(move |this, _ev, _win, cx| {
-                                                    this.app.apply(Action::SetTrackSolo {
-                                                        id: track_id,
-                                                        solo: !soloed,
-                                                    });
+                                                    this.app.apply(Action::SetTrackSolo { id: track_id, solo: !soloed });
                                                     cx.notify();
                                                 }))
-                                                .child("S"),
+                                                .child(svg().path(Icon::Speaker.path()).w(px(10.0)).h(px(10.0)).text_color(if soloed { gpui::rgb(0x000000) } else { colors::text_disabled() })),
                                         )
                                         .child(
                                             div()
                                                 .id(("arm", idx))
                                                 .w(px(16.0))
                                                 .h(px(16.0))
-                                                .bg(if armed {
-                                                    gpui::rgb(0xe74c3c)
-                                                } else {
-                                                    colors::surface_bg()
-                                                })
+                                                .bg(if armed { gpui::rgb(0xe74c3c) } else { colors::surface_bg() })
                                                 .rounded(px(2.0))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_size(px(7.0))
-                                                .text_color(if armed {
-                                                    gpui::rgb(0xffffff)
-                                                } else {
-                                                    colors::text_disabled()
-                                                })
+                                                .flex().items_center().justify_center()
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(move |this, _ev, _win, cx| {
-                                                    this.app.apply(Action::SetTrackArm {
-                                                        id: track_id,
-                                                        armed: !armed,
-                                                    });
+                                                    this.app.apply(Action::SetTrackArm { id: track_id, armed: !armed });
                                                     cx.notify();
                                                 }))
-                                                .child("R"),
+                                                .child(svg().path(Icon::Waveform.path()).w(px(10.0)).h(px(10.0)).text_color(if armed { gpui::rgb(0xffffff) } else { colors::text_disabled() })),
                                         )
                                         .child(div().flex_1())
                                         .child(
@@ -284,46 +252,34 @@ pub fn render_tracks(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                     this.app.apply(Action::SetTrackVolume { id: track_id, volume: (v - 0.1).max(0.0) });
                                                     cx.notify();
                                                 }))
-                                                .child("\u{2212}"),
+                                                .child(svg().path(Icon::ArrowDown.path()).w(px(9.0)).h(px(9.0)).text_color(colors::text_primary())),
                                         )
                                         .child(
                                             div()
                                                 .id(("vol-up", idx))
-                                                .w(px(14.0))
-                                                .h(px(14.0))
-                                                .bg(colors::surface_overlay())
-                                                .rounded(px(2.0))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_size(px(8.0))
-                                                .text_color(colors::text_primary())
+                                                .w(px(14.0)).h(px(14.0))
+                                                .bg(colors::surface_overlay()).rounded(px(2.0))
+                                                .flex().items_center().justify_center()
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(move |this, _ev, _win, cx| {
                                                     let v = this.app.tracks.iter().find(|t| t.id == track_id).map(|t| t.volume).unwrap_or(1.0);
                                                     this.app.apply(Action::SetTrackVolume { id: track_id, volume: (v + 0.1).min(2.0) });
                                                     cx.notify();
                                                 }))
-                                                .child("+"),
+                                                .child(svg().path(Icon::ArrowUp.path()).w(px(9.0)).h(px(9.0)).text_color(colors::text_primary())),
                                         )
                                         .child(
                                             div()
                                                 .id(("del-track", idx))
-                                                .w(px(20.0))
-                                                .h(px(14.0))
-                                                .bg(colors::surface_overlay())
-                                                .rounded(px(2.0))
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_size(px(7.0))
-                                                .text_color(colors::text_disabled())
+                                                .w(px(20.0)).h(px(14.0))
+                                                .bg(colors::surface_overlay()).rounded(px(2.0))
+                                                .flex().items_center().justify_center()
                                                 .cursor_pointer()
                                                 .on_click(cx.listener(move |this, _ev, _win, cx| {
                                                     this.app.apply(Action::DeleteTrack(track_id));
                                                     cx.notify();
                                                 }))
-                                                .child("\u{00d7}"),
+                                                .child(svg().path(Icon::Trash.path()).w(px(10.0)).h(px(10.0)).text_color(colors::text_disabled())),
                                         ),
                                 )
                         })

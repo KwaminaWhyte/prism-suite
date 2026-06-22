@@ -1,14 +1,10 @@
 //! Toolbar panel for Drift — tool buttons + playback controls.
-//!
-//! Row 1 (top): tool buttons (V=Select, M=Move, P=Pen, R=Rect, E=Ellipse)
-//!              + playback transport (|< < ▶/⏸ > >|) + frame counter + FPS.
-//! Row 2 (hint): active tool name + keyboard shortcut legend.
 
 use crate::app_state::{Action, App, DriftTool};
 use crate::Drift;
-use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
+use gpui::{div, svg, px, Context, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled};
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, Icon};
 
 pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
     let playing = app.playing;
@@ -34,7 +30,7 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
         .border_color(colors::surface_border())
         .flex()
         .flex_col()
-        // ── Row 1: tool buttons + playback ───────────────────────────────────
+        // ── Row 1: tool buttons + playback ─────────────────────────────────
         .child(
             div()
                 .w_full()
@@ -43,26 +39,22 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                 .items_center()
                 .px_3()
                 .gap_2()
-                // Left: tool buttons — wired to SetActiveTool
-                .child(tool_btn("V", DriftTool::Select, active_tool, cx))
-                .child(tool_btn("M", DriftTool::Move, active_tool, cx))
-                .child(tool_btn("P", DriftTool::Pen, active_tool, cx))
-                .child(tool_btn("R", DriftTool::Rect, active_tool, cx))
-                .child(tool_btn("E", DriftTool::Ellipse, active_tool, cx))
+                // Tool buttons — icon variants
+                .child(tool_btn("tb-select",  Icon::Cursor,  DriftTool::Select,  active_tool, cx))
+                .child(tool_btn("tb-move",    Icon::Move,    DriftTool::Move,    active_tool, cx))
+                .child(tool_btn("tb-pen",     Icon::Pen,     DriftTool::Pen,     active_tool, cx))
+                .child(tool_btn("tb-rect",    Icon::Rect,    DriftTool::Rect,    active_tool, cx))
+                .child(tool_btn("tb-ellipse", Icon::Ellipse, DriftTool::Ellipse, active_tool, cx))
                 // Divider
                 .child(
-                    div()
-                        .w(px(1.0))
-                        .h(px(24.0))
-                        .bg(colors::surface_border())
-                        .mx_2(),
+                    div().w(px(1.0)).h(px(24.0)).bg(colors::surface_border()).mx_2(),
                 )
-                // Center: playback controls
-                .child(playback_btn("|<"))
-                .child(playback_btn("<"))
+                // Transport — icon buttons
+                .child(icon_btn("tb-first",  Icon::Rewind,       || Action::GoToFirstFrame, cx))
+                .child(icon_btn("tb-prev",   Icon::ArrowLeft,    || Action::StepBackward,   cx))
                 .child(play_pause_btn(playing, cx))
-                .child(playback_btn(">"))
-                .child(playback_btn(">|"))
+                .child(icon_btn("tb-next",   Icon::ArrowRight,   || Action::StepForward,    cx))
+                .child(icon_btn("tb-last",   Icon::FastForward,  || Action::GoToLastFrame,  cx))
                 // Frame counter
                 .child(
                     div()
@@ -71,16 +63,17 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .text_color(colors::text_primary())
                         .child(format!("{current} / {total}")),
                 )
-                // FPS readout
+                // FPS
                 .child(
                     div()
                         .text_size(px(font_size::XS))
                         .text_color(colors::text_secondary())
                         .child(format!("{fps}fps")),
                 )
-                // Spacer
                 .child(div().flex_1())
-                // Right: doc name
+                // Right: undo / redo
+                .child(icon_btn("tb-undo", Icon::Undo, || Action::Undo, cx))
+                .child(icon_btn("tb-redo", Icon::Redo, || Action::Redo, cx))
                 .child(
                     div()
                         .text_size(px(font_size::SM))
@@ -88,7 +81,7 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .child(doc_name),
                 ),
         )
-        // ── Row 2: active tool hint + shortcut legend ─────────────────────
+        // ── Row 2: hint bar ──────────────────────────────────────────────
         .child(
             div()
                 .w_full()
@@ -116,76 +109,90 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
 }
 
 fn tool_btn(
-    label: &'static str,
+    id: &'static str,
+    icon: Icon,
     tool: DriftTool,
     active: DriftTool,
     cx: &mut Context<Drift>,
 ) -> impl IntoElement {
     let is_active = tool == active;
     div()
-        .id(SharedString::from(label.to_string()))
-        .w(px(28.0))
-        .h(px(28.0))
-        .bg(if is_active {
-            colors::accent()
-        } else {
-            colors::surface_overlay()
-        })
-        .rounded(px(3.0))
+        .id(SharedString::from(id))
+        .w(px(30.0))
+        .h(px(30.0))
+        .bg(if is_active { colors::tool_active() } else { colors::surface_overlay() })
+        .rounded(px(4.0))
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(font_size::XS))
-        .text_color(if is_active {
-            gpui::rgb(0xffffff)
-        } else {
-            colors::text_primary()
-        })
         .cursor_pointer()
         .on_click(cx.listener(move |this, _ev, _win, cx| {
             this.app.apply(Action::SetActiveTool(tool));
             cx.notify();
         }))
-        .child(label)
+        .child(
+            svg()
+                .path(icon.path())
+                .w(px(15.0))
+                .h(px(15.0))
+                .text_color(if is_active {
+                    colors::text_primary()
+                } else {
+                    colors::text_secondary()
+                }),
+        )
 }
 
-fn playback_btn(label: &'static str) -> impl IntoElement {
+fn icon_btn(
+    id: &'static str,
+    icon: Icon,
+    make_action: fn() -> Action,
+    cx: &mut Context<Drift>,
+) -> impl IntoElement {
     div()
-        .id(SharedString::from(label.to_string()))
-        .px_2()
+        .id(SharedString::from(id))
+        .w(px(28.0))
         .h(px(28.0))
         .bg(colors::surface_overlay())
         .rounded(px(3.0))
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(font_size::XS))
-        .text_color(colors::text_primary())
         .cursor_pointer()
-        .child(label)
+        .on_click(cx.listener(move |this, _ev, _win, cx| {
+            this.app.apply(make_action());
+            cx.notify();
+        }))
+        .child(
+            svg()
+                .path(icon.path())
+                .w(px(13.0))
+                .h(px(13.0))
+                .text_color(colors::text_primary()),
+        )
 }
 
 fn play_pause_btn(playing: bool, cx: &mut Context<Drift>) -> impl IntoElement {
-    let label = if playing { "⏸" } else { "▶" };
+    let icon = if playing { Icon::Pause } else { Icon::Play };
     div()
-        .id("play-pause")
-        .px_3()
+        .id("tb-play-pause")
+        .w(px(36.0))
         .h(px(28.0))
         .bg(colors::accent())
         .rounded(px(3.0))
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(font_size::SM))
-        .text_color(gpui::white())
         .cursor_pointer()
         .on_click(cx.listener(move |this, _ev, _win, cx| {
-            if playing {
-                this.app.apply(Action::Pause);
-            } else {
-                this.app.apply(Action::Play);
-            }
+            if playing { this.app.apply(Action::Pause); } else { this.app.apply(Action::Play); }
             cx.notify();
         }))
-        .child(label)
+        .child(
+            svg()
+                .path(icon.path())
+                .w(px(15.0))
+                .h(px(15.0))
+                .text_color(gpui::white()),
+        )
 }

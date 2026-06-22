@@ -100,6 +100,17 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
             let visible = layer.visible;
             let locked = layer.locked;
             let name = layer.name.clone();
+            // Derive a display color from the layer's color_tag string.
+            let tag_color: gpui::Rgba = match layer.color_tag.as_str() {
+                "red"    => gpui::rgba(0xef4444ff),
+                "orange" => gpui::rgba(0xf97316ff),
+                "yellow" => gpui::rgba(0xeab308ff),
+                "green"  => gpui::rgba(0x22c55eff),
+                "blue"   => gpui::rgba(0x3b82f6ff),
+                "purple" => gpui::rgba(0xa855f7ff),
+                "pink"   => gpui::rgba(0xec4899ff),
+                _        => gpui::rgba(0x44444488),
+            };
             let kind_str = match layer.kind {
                 LayerKind::Vector => "V",
                 LayerKind::Bitmap => "B",
@@ -125,6 +136,15 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                 .border_b_1()
                 .border_color(colors::surface_border())
                 .cursor_pointer()
+                // Color tag dot
+                .child(
+                    div()
+                        .w(px(6.0))
+                        .h(px(6.0))
+                        .rounded_full()
+                        .bg(tag_color)
+                        .flex_shrink_0(),
+                )
                 // Visibility eye
                 .child(
                     div()

@@ -1815,7 +1815,7 @@ impl App {
             | Action::CompleteAiMaster { .. }
             | Action::ToggleAiMasterAB { .. }
             | Action::SetAiMasterTarget { .. }
-            | Action::CancelAiMaster { .. } => self.apply_ai_mastering(action),
+            | Action::CancelAiMaster { .. } => self.apply_ai_mastering(&action),
 
             // ── Vocal Tools ───────────────────────────────────────────────────
             Action::ApplyAutoTune { .. }
@@ -1823,7 +1823,7 @@ impl App {
             | Action::IsolateVocals { .. }
             | Action::StartVocalJob { .. }
             | Action::CompleteVocalJob { .. }
-            | Action::CancelVocalJob { .. } => self.apply_vocal_tools(action),
+            | Action::CancelVocalJob { .. } => self.apply_vocal_tools(&action),
 
             // ── Smart Mix ─────────────────────────────────────────────────────
             Action::StartAutoMix
@@ -1831,7 +1831,7 @@ impl App {
             | Action::ApplyMixSuggestions { .. }
             | Action::SetAutoMixTarget { .. }
             | Action::ResetAutoMix { .. }
-            | Action::DiscardAutoMix { .. } => self.apply_smart_mix(action),
+            | Action::DiscardAutoMix { .. } => self.apply_smart_mix(&action),
             // ── MIDI Controllers (Batch 5) ────────────────────────────────────
             Action::RegisterController { .. }
             | Action::UnregisterController { .. }

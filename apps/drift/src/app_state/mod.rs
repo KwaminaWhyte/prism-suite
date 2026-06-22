@@ -1241,12 +1241,12 @@ impl App {
             | Action::StartLottieImport { .. }
             | Action::UpdateLottieImport { .. }
             | Action::CompleteLottieImport { .. }
-            | Action::CancelLottieImport { .. } => self.apply_lottie(action),
+            | Action::CancelLottieImport { .. } => self.apply_lottie(&action),
 
             // Blend Modes (Batch 8)
             Action::SetLayerBlend { .. }
             | Action::SetLayerFillOpacity { .. }
-            | Action::ResetLayerBlend { .. } => self.apply_blend_modes(action),
+            | Action::ResetLayerBlend { .. } => self.apply_blend_modes(&action),
 
             // Plugin API (Batch 8)
             Action::RegisterPlugin { .. }
@@ -1255,7 +1255,7 @@ impl App {
             | Action::UnloadPlugin { .. }
             | Action::OpenExtensionPanel { .. }
             | Action::CloseExtensionPanel { .. }
-            | Action::ToggleExtensionPanel { .. } => self.apply_plugin_api(action),
+            | Action::ToggleExtensionPanel { .. } => self.apply_plugin_api(&action),
 
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,

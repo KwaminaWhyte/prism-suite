@@ -44,6 +44,7 @@ mod workspace;
 mod app_state;
 mod canvas_host;
 mod panels;
+mod welcome;
 
 use prism_ui::{colors as ui_colors, PrismAssets};
 
@@ -57,7 +58,7 @@ use gpui::{
     canvas, div, img, px, rgb, rgba, size, AppContext, Application, Bounds, Context, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Pixels,
     Point, Render, RenderImage, StatefulInteractiveElement, Styled, Window,
-    WindowBounds, WindowOptions,
+    WindowBounds, WindowKind, WindowOptions,
 };
 
 use panels::{DOCK_W, STRIP_W, TOOLBAR_H};
@@ -717,8 +718,6 @@ impl Render for Contour {
         let artboards_panel = panels::artboards::render(app, cx);
         let trace_opt = panels::trace_dialog::render(app, cx);
         let recolor = panels::recolor::render(app, cx);
-        let welcome_opt = panels::welcome::render(app, cx);
-
         // Selection ring overlay (viewport-local), mapped doc → viewport.
         let (ox, oy) = self.app.host.artboard_origin(&self.app.doc);
         let ring = |bounds: Option<[f32; 4]>, color: u32| {
@@ -1148,7 +1147,6 @@ impl Render for Contour {
                             .children(knife_preview)
                             .children(isolation_overlay)
                             .children(text_cursor)
-                            .children(welcome_opt)
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(|this, ev: &gpui::MouseDownEvent, _win, cx| {
@@ -1276,6 +1274,27 @@ fn main() {
             },
         )
         .expect("failed to open window");
+
+        let weak_contour = main_handle
+            .entity(cx)
+            .expect("failed to get main entity")
+            .downgrade();
+
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(
+                    Bounds::centered(None, size(px(900.0), px(560.0)), cx),
+                )),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |window, cx| {
+                let focus = cx.focus_handle();
+                window.focus(&focus);
+                cx.new(|_cx| welcome::WelcomeView::new(focus, weak_contour))
+            },
+        )
+        .expect("failed to open Contour welcome window");
 
         cx.activate(true);
     });

@@ -61,6 +61,8 @@ pub mod export_presets;
 pub mod ai_motion_ext;
 pub mod drawing_tools;
 pub mod nested_timeline;
+// Batch 8: ONNX inference stubs
+pub mod onnx_inference;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -100,6 +102,10 @@ pub use blend_modes_layer::{LayerBlend, LayerBlendConfig};
 pub use plugin_api::{PluginKind, PluginStatus, PluginManifest, LoadedPlugin, ExtensionPanel};
 pub use drawing_tools::{PenMode, PenToolState, PenBezierPoint, PencilStroke, GizmoHandle, SelectionGizmo};
 pub use nested_timeline::{NestedTimeline, NestedLayer, NestedKeyframe};
+pub use onnx_inference::{
+    OnnxJobStatus, DriftOnnxModel, OnnxModelStatus, DriftOnnxModelEntry,
+    AnimateDiffJob, FilmRifeJob, PhonemeDetectJob, StyleTransferJob, AiBgGenJob, AiScriptJob,
+};
 
 // Tool enum and Action enum live in their own file.
 pub mod action;
@@ -526,6 +532,21 @@ pub enum Action {
     SetNestedFrame { timeline_id: usize, frame: usize },
     SetNestedLoop { timeline_id: usize, loop_on: bool },
     DeleteNestedTimeline { id: usize },
+    // Batch 8: ONNX inference stubs
+    RegisterDriftModel { model: DriftOnnxModel, local_path: String },
+    QueueAnimateDiff { layer_id: usize, prompt: String, num_frames: usize, guidance_scale: f32 },
+    CompleteAnimateDiff { job_id: usize },
+    FailAnimateDiff { job_id: usize, error: String },
+    QueueFilmRife { layer_id: usize, from_frame: usize, to_frame: usize, output_frames: usize, model: DriftOnnxModel },
+    CompleteFilmRife { job_id: usize },
+    QueuePhonemeDetect { audio_path: String, target_layer_id: usize, model: DriftOnnxModel },
+    CompletePhonemeDetect { job_id: usize, phonemes_detected: usize },
+    QueueStyleTransfer { layer_id: usize, style_prompt: String, strength: f32 },
+    CompleteStyleTransfer { job_id: usize },
+    QueueAiBgGen { prompt: String, width: u32, height: u32, steps: u32 },
+    CompleteAiBgGen { job_id: usize, output_layer_id: usize },
+    QueueAiScript { prompt: String },
+    CompleteAiScript { job_id: usize, code: String },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -778,6 +799,20 @@ pub struct App {
     // Batch 8 — Nested Timelines
     pub nested_timelines: Vec<NestedTimeline>,
     pub next_nested_timeline_id: usize,
+    // Batch 8: ONNX inference stubs
+    pub drift_onnx_models: Vec<DriftOnnxModelEntry>,
+    pub animatediff_jobs: Vec<AnimateDiffJob>,
+    pub next_animatediff_id: usize,
+    pub filmrife_jobs: Vec<FilmRifeJob>,
+    pub next_filmrife_id: usize,
+    pub phoneme_jobs: Vec<PhonemeDetectJob>,
+    pub next_phoneme_job_id: usize,
+    pub style_jobs: Vec<StyleTransferJob>,
+    pub next_style_job_id: usize,
+    pub bg_gen_jobs: Vec<AiBgGenJob>,
+    pub next_bg_gen_id: usize,
+    pub ai_script_jobs: Vec<AiScriptJob>,
+    pub next_ai_script_id: usize,
 }
 
 impl App {
@@ -972,6 +1007,20 @@ impl App {
             // Batch 8 — Nested Timelines
             nested_timelines: Vec::new(),
             next_nested_timeline_id: 1,
+            // Batch 8: ONNX inference stubs
+            drift_onnx_models: Vec::new(),
+            animatediff_jobs: Vec::new(),
+            next_animatediff_id: 1,
+            filmrife_jobs: Vec::new(),
+            next_filmrife_id: 1,
+            phoneme_jobs: Vec::new(),
+            next_phoneme_job_id: 1,
+            style_jobs: Vec::new(),
+            next_style_job_id: 1,
+            bg_gen_jobs: Vec::new(),
+            next_bg_gen_id: 1,
+            ai_script_jobs: Vec::new(),
+            next_ai_script_id: 1,
         };
         app.seed_easing_curves();
         app
@@ -1384,6 +1433,21 @@ impl App {
             | Action::SetNestedFrame { .. }
             | Action::SetNestedLoop { .. }
             | Action::DeleteNestedTimeline { .. } => self.apply_nested_timeline(action),
+            // Batch 8: ONNX inference stubs
+            Action::RegisterDriftModel { .. }
+            | Action::QueueAnimateDiff { .. }
+            | Action::CompleteAnimateDiff { .. }
+            | Action::FailAnimateDiff { .. }
+            | Action::QueueFilmRife { .. }
+            | Action::CompleteFilmRife { .. }
+            | Action::QueuePhonemeDetect { .. }
+            | Action::CompletePhonemeDetect { .. }
+            | Action::QueueStyleTransfer { .. }
+            | Action::CompleteStyleTransfer { .. }
+            | Action::QueueAiBgGen { .. }
+            | Action::CompleteAiBgGen { .. }
+            | Action::QueueAiScript { .. }
+            | Action::CompleteAiScript { .. } => self.apply_onnx_inference(&action),
 
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,

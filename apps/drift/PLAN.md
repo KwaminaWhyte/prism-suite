@@ -17,7 +17,7 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 | 5 | Export pipeline, Lottie, state machines, interactive | 80% | 650+ | Planned |
 | 6 | Polish: audio mixing, scripting, plugin API | 90% | 800+ | Planned |
 
-**Current overall parity: ~70%** — 421 tests passing.
+**Current overall parity: ~70%** — 427 tests passing.
 
 ### Batch 6 (done)
 - [x] 3D Layer Transforms — rotation X/Y, Z-position, vanishing point, projection mode (12 tests)

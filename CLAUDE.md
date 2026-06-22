@@ -12,8 +12,8 @@ Open-source creative suite: six desktop apps in Rust, each targeting ≥85–90%
 | **Contour** | Illustrator | CPU vector editor | ~77% |
 | **Pulse** | After Effects | CPU compositor / motion | ~72% |
 | **Reel** | Premiere Pro | NLE / video editor | ~62% |
-| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~30% |
-| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~20% |
+| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~70% |
+| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~70% |
 
 Architectural bet: raster, vector, video frames, comp layers all reduce to compositing tiles through a DAG in linear light, cached by what's dirty. See `SUITE.md` for vision, `RESEARCH.md` for suite-level research.
 
@@ -27,8 +27,8 @@ prism-suite/
     contour/               # [[bin]] — Contour (GPUI host + all vector logic inline, 712+ tests)
     pulse/                 # [[bin]] — Pulse (GPUI host + compositor + keyframe engine, 849+ tests)
     reel/                  # [[bin]] — Reel (GPUI host + NLE logic, 228+ tests)
-    drift/                 # [[bin]] — Drift (GPUI host + animation engine + AI stubs, 221+ tests)
-    tone/                  # [[bin]] — Tone (GPUI host + DAW engine + AI stubs, 288+ tests)
+    drift/                 # [[bin]] — Drift (GPUI host + animation engine + AI stubs, 427+ tests)
+    tone/                  # [[bin]] — Tone (GPUI host + DAW engine + AI stubs, 513+ tests)
   shared/
     prism-core/           # doc model, blend modes, adjustments, curves, shapes, histogram
     prism-canvas/         # wgpu GPU compositor: composite/display/dab/filter/selection passes
@@ -67,8 +67,8 @@ cargo test -p pigment          # 291: filters, lens, perspective, smart-object, 
 cargo test -p contour          # 712: document, path, boolean ops, graph, trace, image-trace, perspective-grid, artboards, variable fonts, blend, 3D, PDF
 cargo test -p pulse            # 849: compositor, keyframes, render, rotobrush, puppet-pin, camera-tracker, text-animator, mogrt, CC effects, motion paths, audio buses
 cargo test -p reel             # 228: timeline, effects, lumetri, captions, audio-mixer, titles, project-manager, media-browser, transitions, export presets
-cargo test -p drift            # 221: layers, keyframes, rig, IK/springs, scenes, frame-labels, library, swap-sets, vector, state-machine
-cargo test -p tone             # 288: tracks, clips, piano-roll, mixer, AI stubs, undo/redo, MIDI ops, clip ops, track groups, insert effects
+cargo test -p drift            # 427: layers, keyframes, rig, IK/springs, scenes, frame-labels, library, swap-sets, vector, state-machine, 3D, camera, mocap, scripting, beat sync
+cargo test -p tone             # 513: tracks, clips, piano-roll, mixer, AI stubs, undo/redo, MIDI ops, clip ops, track groups, automation, tempo map, step sequencer, chord tools, freeze
 
 # Subset by name
 cargo test flood_fill

@@ -29,6 +29,16 @@ pub struct MixerChannel {
     pub comp_enabled: bool,
     /// Parametric EQ bands for detailed EQ visualiser support.
     pub eq_bands: Vec<EqBand>,
+    /// Sends to bus tracks: list of (bus_track_id, send_level).
+    pub channel_sends: Vec<(usize, f32)>,
+    /// Pre-fader listen (solo-in-place) mode.
+    pub pre_fader_listen: bool,
+    /// Invert the phase of the signal.
+    pub phase_invert: bool,
+    /// Stereo width. 0.0 = mono, 1.0 = normal, 2.0 = extra wide. Clamped 0.0..=2.0.
+    pub stereo_width: f32,
+    /// Trim gain in dB before the fader. Clamped -6.0..=6.0.
+    pub trim_db: f32,
 }
 
 impl MixerChannel {
@@ -46,6 +56,11 @@ impl MixerChannel {
             comp_ratio: 4.0,
             comp_enabled: false,
             eq_bands: Vec::new(),
+            channel_sends: Vec::new(),
+            pre_fader_listen: false,
+            phase_invert: false,
+            stereo_width: 1.0,
+            trim_db: 0.0,
         }
     }
 }
@@ -115,6 +130,61 @@ impl App {
             }
             Action::ToggleMasterLimiter => {
                 self.master_limiter = !self.master_limiter;
+            }
+            // ── Extended mixer params ─────────────────────────────────────────
+            Action::AddChannelSend { channel_id, bus_id, level } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    if !m.channel_sends.iter().any(|(bid, _)| *bid == bus_id) {
+                        m.channel_sends.push((bus_id, level.clamp(0.0, 1.0)));
+                    }
+                }
+            }
+            Action::RemoveChannelSend { channel_id, bus_id } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    m.channel_sends.retain(|(bid, _)| *bid != bus_id);
+                }
+            }
+            Action::SetChannelSendLevel { channel_id, bus_id, level } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    if let Some(send) = m.channel_sends.iter_mut().find(|(bid, _)| *bid == bus_id) {
+                        send.1 = level.clamp(0.0, 1.0);
+                    }
+                }
+            }
+            Action::SetChannelPfl { channel_id, pfl } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    m.pre_fader_listen = pfl;
+                }
+            }
+            Action::SetChannelPhaseInvert { channel_id, invert } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    m.phase_invert = invert;
+                }
+            }
+            Action::SetStereoWidth { channel_id, width } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    m.stereo_width = width.clamp(0.0, 2.0);
+                }
+            }
+            Action::SetChannelTrim { channel_id, trim_db } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    m.trim_db = trim_db.clamp(-6.0, 6.0);
+                }
+            }
+            Action::ResetChannel { channel_id } => {
+                if let Some(m) = self.find_mixer_mut(channel_id) {
+                    m.eq_low = 0.0;
+                    m.eq_mid = 0.0;
+                    m.eq_high = 0.0;
+                    m.comp_threshold = -18.0;
+                    m.comp_ratio = 4.0;
+                    m.comp_enabled = false;
+                    m.stereo_width = 1.0;
+                    m.trim_db = 0.0;
+                    m.pre_fader_listen = false;
+                    m.phase_invert = false;
+                    m.channel_sends = Vec::new();
+                }
             }
             _ => {}
         }
@@ -379,5 +449,130 @@ mod tests {
         // Both bands at same freq with same gain → sum should be ~6 dB
         let resp = app.eq_response_db(tid, 1000.0);
         assert!((resp - 6.0).abs() < 0.5, "Expected ~6 dB from two 3dB bands, got {}", resp);
+    }
+
+    // ── Extended mixer param tests ────────────────────────────────────────────
+
+    #[test]
+    fn add_channel_send() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::AddTrack(super::super::tracks::TrackKind::Bus));
+        let bus = app.tracks.last().unwrap().id;
+        app.apply(Action::AddChannelSend { channel_id: tid, bus_id: bus, level: 0.7 });
+        let m = app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap();
+        assert_eq!(m.channel_sends.len(), 1);
+        assert_eq!(m.channel_sends[0].0, bus);
+        assert!((m.channel_sends[0].1 - 0.7).abs() < 0.001);
+    }
+
+    #[test]
+    fn add_channel_send_no_duplicates() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::AddChannelSend { channel_id: tid, bus_id: 99, level: 0.5 });
+        app.apply(Action::AddChannelSend { channel_id: tid, bus_id: 99, level: 0.8 });
+        let m = app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap();
+        assert_eq!(m.channel_sends.len(), 1);
+    }
+
+    #[test]
+    fn remove_channel_send() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::AddChannelSend { channel_id: tid, bus_id: 5, level: 0.5 });
+        app.apply(Action::RemoveChannelSend { channel_id: tid, bus_id: 5 });
+        let m = app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap();
+        assert!(m.channel_sends.is_empty());
+    }
+
+    #[test]
+    fn set_channel_send_level() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::AddChannelSend { channel_id: tid, bus_id: 5, level: 0.5 });
+        app.apply(Action::SetChannelSendLevel { channel_id: tid, bus_id: 5, level: 0.9 });
+        let m = app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap();
+        assert!((m.channel_sends[0].1 - 0.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_channel_pfl() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        assert!(!app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().pre_fader_listen);
+        app.apply(Action::SetChannelPfl { channel_id: tid, pfl: true });
+        assert!(app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().pre_fader_listen);
+    }
+
+    #[test]
+    fn set_channel_phase_invert() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::SetChannelPhaseInvert { channel_id: tid, invert: true });
+        assert!(app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().phase_invert);
+    }
+
+    #[test]
+    fn set_stereo_width_clamped() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::SetStereoWidth { channel_id: tid, width: 5.0 });
+        assert_eq!(app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().stereo_width, 2.0);
+        app.apply(Action::SetStereoWidth { channel_id: tid, width: -1.0 });
+        assert_eq!(app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().stereo_width, 0.0);
+    }
+
+    #[test]
+    fn set_channel_trim_clamped() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        app.apply(Action::SetChannelTrim { channel_id: tid, trim_db: 10.0 });
+        assert_eq!(app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().trim_db, 6.0);
+        app.apply(Action::SetChannelTrim { channel_id: tid, trim_db: -10.0 });
+        assert_eq!(app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap().trim_db, -6.0);
+    }
+
+    #[test]
+    fn reset_channel_restores_all_defaults() {
+        let mut app = fresh();
+        let tid = add_audio_track(&mut app);
+        // Modify everything
+        app.apply(Action::SetChannelEqLow { track_id: tid, gain_db: 6.0 });
+        app.apply(Action::SetChannelEqMid { track_id: tid, gain_db: -3.0 });
+        app.apply(Action::SetChannelEqHigh { track_id: tid, gain_db: 4.0 });
+        app.apply(Action::SetChannelCompThreshold { track_id: tid, threshold_db: -30.0 });
+        app.apply(Action::SetChannelCompRatio { track_id: tid, ratio: 8.0 });
+        app.apply(Action::ToggleChannelComp(tid));
+        app.apply(Action::SetStereoWidth { channel_id: tid, width: 1.5 });
+        app.apply(Action::SetChannelTrim { channel_id: tid, trim_db: 3.0 });
+        app.apply(Action::SetChannelPfl { channel_id: tid, pfl: true });
+        app.apply(Action::SetChannelPhaseInvert { channel_id: tid, invert: true });
+        app.apply(Action::AddChannelSend { channel_id: tid, bus_id: 5, level: 0.5 });
+        // Reset
+        app.apply(Action::ResetChannel { channel_id: tid });
+        let m = app.mixer_channels.iter().find(|m| m.track_id == tid).unwrap();
+        assert_eq!(m.eq_low, 0.0);
+        assert_eq!(m.eq_mid, 0.0);
+        assert_eq!(m.eq_high, 0.0);
+        assert_eq!(m.comp_threshold, -18.0);
+        assert_eq!(m.comp_ratio, 4.0);
+        assert!(!m.comp_enabled);
+        assert_eq!(m.stereo_width, 1.0);
+        assert_eq!(m.trim_db, 0.0);
+        assert!(!m.pre_fader_listen);
+        assert!(!m.phase_invert);
+        assert!(m.channel_sends.is_empty());
+    }
+
+    #[test]
+    fn mixer_channel_defaults_have_correct_new_fields() {
+        let app = fresh();
+        let m = app.mixer_channels.iter().find(|m| m.track_id == 0).unwrap();
+        assert!(m.channel_sends.is_empty());
+        assert!(!m.pre_fader_listen);
+        assert!(!m.phase_invert);
+        assert_eq!(m.stereo_width, 1.0);
+        assert_eq!(m.trim_db, 0.0);
     }
 }

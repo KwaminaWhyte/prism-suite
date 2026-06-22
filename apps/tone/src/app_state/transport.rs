@@ -43,6 +43,33 @@ impl App {
             Action::FastForward => {
                 self.playhead_beat += 4.0;
             }
+            // ── Loop region bar controls ───────────────────────────────────────
+            Action::SetLoopRegion { start_bar, end_bar } => {
+                if end_bar > start_bar && start_bar >= 0.0 {
+                    self.loop_start_bar = start_bar;
+                    self.loop_end_bar = end_bar;
+                }
+            }
+            Action::SetLoopBarEnabled(enabled) => {
+                self.loop_bar_enabled = enabled;
+            }
+            Action::MoveLoopRegion { delta_bars } => {
+                let new_start = (self.loop_start_bar + delta_bars).max(0.0);
+                let region_len = self.loop_end_bar - self.loop_start_bar;
+                self.loop_start_bar = new_start;
+                self.loop_end_bar = new_start + region_len;
+            }
+            Action::ResizeLoopStart { bar } => {
+                let clamped = bar.max(0.0);
+                if clamped < self.loop_end_bar - 0.0625 {
+                    self.loop_start_bar = clamped;
+                }
+            }
+            Action::ResizeLoopEnd { bar } => {
+                if bar > self.loop_start_bar + 0.0625 {
+                    self.loop_end_bar = bar;
+                }
+            }
             _ => {}
         }
     }
@@ -274,5 +301,99 @@ mod tests {
         assert_eq!(app.playhead_beat, 0.0);
         assert_eq!(app.loop_start, 0.0);
         assert_eq!(app.loop_end, 16.0);
+    }
+
+    // ── Loop region bar tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn loop_bar_defaults() {
+        let app = fresh();
+        assert!((app.loop_start_bar - 1.0).abs() < 0.001);
+        assert!((app.loop_end_bar - 5.0).abs() < 0.001);
+        assert!(!app.loop_bar_enabled);
+    }
+
+    #[test]
+    fn set_loop_region() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 2.0, end_bar: 6.0 });
+        assert!((app.loop_start_bar - 2.0).abs() < 0.001);
+        assert!((app.loop_end_bar - 6.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_loop_region_invalid_ignored() {
+        let mut app = fresh();
+        let prev_start = app.loop_start_bar;
+        let prev_end = app.loop_end_bar;
+        // end <= start should be ignored
+        app.apply(Action::SetLoopRegion { start_bar: 5.0, end_bar: 3.0 });
+        assert!((app.loop_start_bar - prev_start).abs() < 0.001);
+        assert!((app.loop_end_bar - prev_end).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_loop_bar_enabled() {
+        let mut app = fresh();
+        assert!(!app.loop_bar_enabled);
+        app.apply(Action::SetLoopBarEnabled(true));
+        assert!(app.loop_bar_enabled);
+        app.apply(Action::SetLoopBarEnabled(false));
+        assert!(!app.loop_bar_enabled);
+    }
+
+    #[test]
+    fn move_loop_region() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 2.0, end_bar: 6.0 });
+        app.apply(Action::MoveLoopRegion { delta_bars: 2.0 });
+        assert!((app.loop_start_bar - 4.0).abs() < 0.001);
+        assert!((app.loop_end_bar - 8.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn move_loop_region_clamps_at_zero() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 1.0, end_bar: 4.0 });
+        app.apply(Action::MoveLoopRegion { delta_bars: -5.0 });
+        // start clamped to 0, region length preserved
+        assert_eq!(app.loop_start_bar, 0.0);
+        assert!((app.loop_end_bar - 3.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn resize_loop_start() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 2.0, end_bar: 8.0 });
+        app.apply(Action::ResizeLoopStart { bar: 3.0 });
+        assert!((app.loop_start_bar - 3.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn resize_loop_start_bounds_enforced() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 2.0, end_bar: 8.0 });
+        // Trying to move start past (end - minimum gap) should be rejected
+        app.apply(Action::ResizeLoopStart { bar: 7.99 });
+        // Should remain at 2.0 since 7.99 is not < 8.0 - 0.0625
+        assert!((app.loop_start_bar - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn resize_loop_end() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 2.0, end_bar: 8.0 });
+        app.apply(Action::ResizeLoopEnd { bar: 10.0 });
+        assert!((app.loop_end_bar - 10.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn resize_loop_end_bounds_enforced() {
+        let mut app = fresh();
+        app.apply(Action::SetLoopRegion { start_bar: 4.0, end_bar: 8.0 });
+        // Trying to move end to before (start + minimum gap) should be rejected
+        app.apply(Action::ResizeLoopEnd { bar: 3.0 });
+        // Should remain at 8.0 since 3.0 is not > 4.0 + 0.0625
+        assert!((app.loop_end_bar - 8.0).abs() < 0.001);
     }
 }

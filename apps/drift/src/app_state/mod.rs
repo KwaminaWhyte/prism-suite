@@ -3,7 +3,9 @@
 //! `App` owns everything panels read or mutate: the document, layers, keyframes,
 //! transforms, puppet rigs, AI feature state, export config, state machines,
 //! vector paths, symbols, symbol instances, tweens, onion skin config, scenes,
-//! frame labels, library, grid/ruler config, IK chains, and spring dynamics.
+//! frame labels, library, grid/ruler config, IK chains, spring dynamics,
+//! mesh warps, bone weights, easing curves, audio tracks, lip-sync data,
+//! and Character Animator behaviors.
 //! Panels NEVER mutate `App` fields directly — they emit an [`Action`], and the
 //! root view routes it through [`App::apply`], the single mutation choke point.
 
@@ -26,6 +28,11 @@ pub mod scenes;
 pub mod frame_labels;
 pub mod library;
 pub mod swap_sets;
+pub mod mesh_warp;
+pub mod bone_weights;
+pub mod easing;
+pub mod audio_sync;
+pub mod behaviors;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -42,6 +49,11 @@ pub use scenes::Scene;
 pub use frame_labels::FrameLabel;
 pub use library::LibraryFolder;
 pub use swap_sets::{SwapSet, SwapSetItem};
+pub use mesh_warp::{MeshWarp, WarpPoint};
+pub use bone_weights::{BoneInfluence, LayerBoneWeights};
+pub use easing::{EasingCurve, EasingCurveKind, StepPosition};
+pub use audio_sync::{DriftAudioTrack, LipSyncData, PhonemeFrame, Phoneme};
+pub use behaviors::{Behavior, BehaviorKind};
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -248,6 +260,48 @@ pub enum Action {
     RemoveSwapItem { swap_set_id: usize, item_id: usize },
     ActivateSwapItem { swap_set_id: usize, item_id: usize },
     DeleteSwapSet { swap_set_id: usize },
+
+    // Mesh Warp (Phase 3)
+    AddMeshWarp { layer_id: usize, cols: u32, rows: u32 },
+    RemoveMeshWarp { layer_id: usize },
+    SetWarpPoint { layer_id: usize, col: u32, row: u32, dx: f32, dy: f32 },
+    ResetWarpPoints { layer_id: usize },
+    SetMeshWarpEnabled { layer_id: usize, enabled: bool },
+    SetMeshWarpGrid { layer_id: usize, cols: u32, rows: u32 },
+
+    // Bone Influence Weights (Phase 3)
+    SetBoneWeight { layer_id: usize, bone_id: usize, weight: f32 },
+    RemoveBoneWeight { layer_id: usize, bone_id: usize },
+    ClearBoneWeights { layer_id: usize },
+    NormalizeBoneWeights { layer_id: usize },
+    SetWeightPaintingActive(bool),
+    SetActiveWeightBone { bone_id: Option<usize> },
+    SetWeightBrushRadius(f32),
+
+    // Easing Curves Library (Phase 3)
+    AddEasingCurve { name: String, kind: EasingCurveKind },
+    RemoveEasingCurve { curve_id: usize },
+    RenameEasingCurve { curve_id: usize, name: String },
+    SetKeyframeEasingCurve { keyframe_id: usize, curve_id: usize },
+
+    // Audio Track + Lip Sync (Phase 3)
+    AddAudioTrack { name: String },
+    RemoveAudioTrack { id: usize },
+    SetAudioTrackPath { id: usize, path: String },
+    SetAudioTrackOffset { id: usize, frames: i32 },
+    SetAudioTrackVolume { id: usize, volume: f32 },
+    MuteAudioTrack { id: usize, muted: bool },
+    ToggleWaveformVisible { id: usize },
+    SetLipSyncData { audio_track_id: usize, rig_id: usize, phonemes: Vec<PhonemeFrame> },
+    ClearLipSyncData { audio_track_id: usize },
+
+    // Character Animator Behaviors (Phase 3)
+    AddBehavior { name: String, kind: BehaviorKind },
+    RemoveBehavior { id: usize },
+    ToggleBehavior { id: usize },
+    SetBehaviorPriority { id: usize, priority: i32 },
+    RenameBehavior { id: usize, name: String },
+    UpdateBehaviorKind { id: usize, kind: BehaviorKind },
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -343,13 +397,38 @@ pub struct App {
     pub swap_sets: Vec<SwapSet>,
     pub next_swap_set_id: usize,
     pub next_swap_item_id: usize,
+
+    // Phase 3: Mesh Warp  (layer_id → warp)
+    pub mesh_warps: HashMap<usize, MeshWarp>,
+    pub next_warp_id: usize,
+
+    // Phase 3: Bone Influence Weights  (layer_id → weights)
+    pub bone_weights: HashMap<usize, LayerBoneWeights>,
+    pub weight_painting_active: bool,
+    pub active_weight_bone: Option<usize>,
+    pub weight_brush_radius: f32,
+
+    // Phase 3: Easing Curves Library
+    pub easing_curves: Vec<EasingCurve>,
+    pub next_easing_id: usize,
+    /// Maps keyframe_id → easing_curve_id for per-keyframe curve overrides.
+    pub keyframe_easing_map: HashMap<usize, usize>,
+
+    // Phase 3: Audio Tracks + Lip Sync
+    pub audio_tracks: Vec<DriftAudioTrack>,
+    pub next_audio_track_id: usize,
+    pub lip_sync_data: Vec<LipSyncData>,
+
+    // Phase 3: Character Animator Behaviors
+    pub behaviors: Vec<Behavior>,
+    pub next_behavior_id: usize,
 }
 
 impl App {
     pub fn new() -> Self {
         let doc = DriftDocument::new();
         let out = doc.duration_frames;
-        Self {
+        let mut app = Self {
             document: doc,
             grid: GridConfig::new(),
             rulers: RulerConfig::new(),
@@ -409,7 +488,28 @@ impl App {
             swap_sets: Vec::new(),
             next_swap_set_id: 0,
             next_swap_item_id: 0,
-        }
+            // Phase 3: Mesh Warp
+            mesh_warps: HashMap::new(),
+            next_warp_id: 0,
+            // Phase 3: Bone Weights
+            bone_weights: HashMap::new(),
+            weight_painting_active: false,
+            active_weight_bone: None,
+            weight_brush_radius: 20.0,
+            // Phase 3: Easing Curves (seeded below)
+            easing_curves: Vec::new(),
+            next_easing_id: 0,
+            keyframe_easing_map: HashMap::new(),
+            // Phase 3: Audio / Lip Sync
+            audio_tracks: Vec::new(),
+            next_audio_track_id: 0,
+            lip_sync_data: Vec::new(),
+            // Phase 3: Behaviors
+            behaviors: Vec::new(),
+            next_behavior_id: 0,
+        };
+        app.seed_easing_curves();
+        app
     }
 
     /// The single mutation choke point. Every panel and keyboard handler routes
@@ -578,6 +678,48 @@ impl App {
             | Action::RemoveSwapItem { .. }
             | Action::ActivateSwapItem { .. }
             | Action::DeleteSwapSet { .. } => self.apply_swap_sets(action),
+
+            // Mesh Warp (Phase 3)
+            Action::AddMeshWarp { .. }
+            | Action::RemoveMeshWarp { .. }
+            | Action::SetWarpPoint { .. }
+            | Action::ResetWarpPoints { .. }
+            | Action::SetMeshWarpEnabled { .. }
+            | Action::SetMeshWarpGrid { .. } => self.apply_mesh_warp(action),
+
+            // Bone Weights (Phase 3)
+            Action::SetBoneWeight { .. }
+            | Action::RemoveBoneWeight { .. }
+            | Action::ClearBoneWeights { .. }
+            | Action::NormalizeBoneWeights { .. }
+            | Action::SetWeightPaintingActive(_)
+            | Action::SetActiveWeightBone { .. }
+            | Action::SetWeightBrushRadius(_) => self.apply_bone_weights(action),
+
+            // Easing Curves (Phase 3)
+            Action::AddEasingCurve { .. }
+            | Action::RemoveEasingCurve { .. }
+            | Action::RenameEasingCurve { .. }
+            | Action::SetKeyframeEasingCurve { .. } => self.apply_easing(action),
+
+            // Audio / Lip Sync (Phase 3)
+            Action::AddAudioTrack { .. }
+            | Action::RemoveAudioTrack { .. }
+            | Action::SetAudioTrackPath { .. }
+            | Action::SetAudioTrackOffset { .. }
+            | Action::SetAudioTrackVolume { .. }
+            | Action::MuteAudioTrack { .. }
+            | Action::ToggleWaveformVisible { .. }
+            | Action::SetLipSyncData { .. }
+            | Action::ClearLipSyncData { .. } => self.apply_audio_sync(action),
+
+            // Behaviors (Phase 3)
+            Action::AddBehavior { .. }
+            | Action::RemoveBehavior { .. }
+            | Action::ToggleBehavior { .. }
+            | Action::SetBehaviorPriority { .. }
+            | Action::RenameBehavior { .. }
+            | Action::UpdateBehaviorKind { .. } => self.apply_behaviors(action),
         }
     }
 }

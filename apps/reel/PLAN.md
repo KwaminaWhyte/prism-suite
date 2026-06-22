@@ -1,6 +1,16 @@
 # Reel — Open Source Premiere Pro Alternative
 
-> **Status: ~42% parity (Phases 0–5 done, 6–8 in progress). Target ≥85% by end of Phase 7.**
+> **Status: ~62% parity (Phases 0–8 done, Batch 5 wave 2 done). Target ≥85% by end of Phase 7.**
+
+## Batch 5 (wave 2) — Completed (2026-06-22)
+
+- [x] **Lumetri Scopes Config** — `LumetriScopesConfig` with 7 new enums; intensity clamped 10–300 (default 75); `scopes_config` on App; 10 new actions (`ToggleScopesPanel/SetScopeKind/SetScopeLayout/SetWaveformType/SetParadeType/SetVectorscopeType/SetHistogramChannel/SetScopeIntensity/SetScopeColorspace/SetScopeShowClipping`).
+- [x] **Project Bins & Media Manager** — `ProjectBin` + `MediaItem` + `BinColor/MediaKind` enums; 16 actions (bin CRUD, import/remove/move/relink/label/log-note/offline/proxy attach-detach); `project_bins/media_items/next_bin_id/next_media_item_id` on App.
+- [x] **Extended Transitions** — 15 new `TransitionKind` variants (Slide/Split/Swap/Zoom/SpinAway/PagePeel/PageTurn/Cube/Film/Luma/DipToBlack/DipToWhite/AdditiveDissolve/NonAdditiveDissolve/RandomInvert) + 7 direction enums in `timeline.rs`; `weights()` handles all new variants; 6 new transition actions.
+- [x] **Export Presets B5** — `ExportPresetB5` with 7 built-in presets (YouTube 1080p/4K, Twitter/X, Vimeo, ProRes 422, GIF, MP3 Audio); full CRUD; `ExportCategory/ExportContainer/VideoCodecB5/AudioCodecB5` enums; `export_presets_b5/active_export_preset_b5/next_preset_id` on App.
+- [x] **Sequence Settings B5 / Multi-sequence** — `SequenceSettingsB5` with id/name/size/frame_rate/field_order/timebase/working_color_space; `FieldOrder` enum; 6 actions (new/duplicate/delete/setActive/updateSettings/nest); delete guards last sequence; `sequences_b5/active_sequence_id/next_sequence_id` on App.
+- 64 tests added → **228 total**
+- New files: `reel_project.rs` (272 lines), `apply_batch5.rs` (338 lines), `tests_batch5.rs` (703 lines)
 
 ## Batch 8 — Completed (2026-06-20)
 

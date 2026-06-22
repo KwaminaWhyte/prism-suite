@@ -10,7 +10,8 @@
 // ─── Domain modules ──────────────────────────────────────────────────────────
 
 pub mod ai;
-pub mod automation;
+pub mod audio_engine;
+pub mod bus_routing;
 pub mod clips;
 pub mod export;
 pub mod history;
@@ -19,7 +20,10 @@ pub mod midi_control;
 pub mod mixer;
 pub mod plugins;
 pub mod project;
+pub mod recording;
 pub mod scenes;
+pub mod score_view;
+pub mod step_sequencer;
 pub mod tempo_map;
 pub mod track_groups;
 pub mod tracks;
@@ -28,7 +32,8 @@ pub mod transport;
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
-pub use automation::{AutomationLane, AutomationMode, AutomationParameter, AutomationPoint, SendParam};
+pub use audio_engine::{AudioEngineConfig, AudioInputDevice, AudioOutputDevice};
+pub use bus_routing::{BusTrack, MasterBus};
 pub use clips::{ClipKind, ToneClip};
 pub use export::{BounceConfig, BounceFormat};
 pub use history::HistoryEntry;
@@ -37,7 +42,10 @@ pub use midi_control::{MappingTarget, MidiDevice, MidiDeviceKind, MidiMapping};
 pub use mixer::{EqBand, MixerChannel};
 pub use plugins::{BuiltinSynth, BuiltinSynthKind, DrumKit, PluginFormat, PluginInstance, SamplerLoop};
 pub use project::ToneProject;
+pub use recording::{PunchConfig, RecordingSession, TakeInfo, TakeManager};
 pub use scenes::{ArrangementMode, FollowAction, Scene, SceneSlot};
+pub use score_view::{Clef, ChordQuality, ChordSymbol, QuantizeDisplay, ScoreView, StemDirection};
+pub use step_sequencer::{ChainPattern, StepCell, StepPattern};
 pub use tempo_map::{TempoEvent, TimeSigEvent};
 pub use track_groups::TrackGroup;
 pub use tracks::{InsertEffect, InsertEffectKind, ToneTrack, TrackKind, TrackSend};
@@ -398,7 +406,7 @@ pub enum Action {
 
     // ── Automation ─────────────────────────────────────────────────────────
     /// Create an automation lane for a parameter on the given track.
-    CreateAutomationLane { track_id: usize, parameter: AutomationParameter },
+    CreateAutomationLane { track_id: usize, parameter: automation::AutomationParameter },
     /// Delete an automation lane by id.
     DeleteAutomationLane { lane_id: usize },
     /// Add a control point to an automation lane (value clamped 0..=1).
@@ -414,7 +422,7 @@ pub enum Action {
     /// Show or hide an automation lane in the UI.
     SetAutomationLaneVisible { lane_id: usize, visible: bool },
     /// Set the global automation record mode.
-    SetAutomationMode(AutomationMode),
+    SetAutomationMode(automation::AutomationMode),
     /// Remove all control points from an automation lane.
     ClearAutomationLane { lane_id: usize },
 
@@ -495,7 +503,166 @@ pub enum Action {
     StopMidiLearn,
     /// Complete MIDI learn: create a mapping from the learned channel+cc to the pending target.
     CompleteMidiLearn { channel: u8, cc: u8 },
+
+    // ── Audio Engine (Batch 3) ─────────────────────────────────────────────
+    /// Set the audio input and/or output device by name.
+    SetAudioDevice { input: Option<String>, output: Option<String> },
+    /// Set the audio buffer size (clamped to 64/128/256/512/1024).
+    SetBufferSize(u32),
+    /// Set the audio sample rate (44100/48000/88200/96000).
+    SetAudioSampleRate(u32),
+    /// Enable or disable low-latency mode.
+    SetLowLatencyMode(bool),
+    /// Enable or disable exclusive audio device mode.
+    SetExclusiveMode(bool),
+    /// Start the audio engine.
+    StartAudioEngine,
+    /// Stop the audio engine.
+    StopAudioEngine,
+    /// Report an audio overload (xrun).
+    ReportAudioOverload,
+    /// Reset the overload counter.
+    ResetOverloadCount,
+    /// Register an audio input device.
+    AddInputDevice { name: String, channels: u32, is_default: bool },
+    /// Register an audio output device.
+    AddOutputDevice { name: String, channels: u32, is_default: bool },
+    /// Select the active input device by id.
+    SelectInputDevice { device_id: Option<usize> },
+    /// Select the active output device by id.
+    SelectOutputDevice { device_id: Option<usize> },
+
+    // ── Recording (Batch 3) ────────────────────────────────────────────────
+    /// Start recording on the given tracks.
+    StartRecording { track_ids: Vec<usize> },
+    /// Stop all active recording sessions.
+    StopRecording,
+    /// Configure punch-in point.
+    SetPunchIn { enabled: bool, beat: f32 },
+    /// Configure punch-out point.
+    SetPunchOut { enabled: bool, beat: f32 },
+    /// Enable or disable auto-punch.
+    SetAutoPunch(bool),
+    /// Configure count-in before recording.
+    SetCountIn { enabled: bool, bars: u32 },
+    /// Add a take for a track (associates a clip).
+    AddTake { track_id: usize, clip_id: usize },
+    /// Set the active take for a track.
+    SetActiveTake { track_id: usize, take_id: usize },
+    /// Mute or unmute a take.
+    MuteTake { track_id: usize, take_id: usize, muted: bool },
+    /// Delete a take.
+    DeleteTake { track_id: usize, take_id: usize },
+    /// Enable or disable comp mode on a take manager.
+    EnableCompMode { track_id: usize, enabled: bool },
+    /// Flatten to active take only.
+    FlattenTakes { track_id: usize },
+
+    // ── Step Sequencer (Batch 3) ───────────────────────────────────────────
+    /// Add a new step pattern.
+    AddPattern { name: String, track_id: usize, steps: u32 },
+    /// Delete a step pattern.
+    DeletePattern { pattern_id: usize },
+    /// Rename a step pattern.
+    RenamePattern { pattern_id: usize, name: String },
+    /// Set the number of steps (8/16/32 only).
+    SetPatternSteps { pattern_id: usize, steps: u32 },
+    /// Set the step length in beats.
+    SetPatternStepLength { pattern_id: usize, step_length: f32 },
+    /// Set the swing amount (0..=1).
+    SetPatternSwing { pattern_id: usize, swing: f32 },
+    /// Activate or deactivate a step.
+    SetStep { pattern_id: usize, step: usize, active: bool },
+    /// Set velocity for a step.
+    SetStepVelocity { pattern_id: usize, step: usize, velocity: u8 },
+    /// Set probability for a step.
+    SetStepProbability { pattern_id: usize, step: usize, prob: f32 },
+    /// Set accent for a step.
+    SetStepAccent { pattern_id: usize, step: usize, accent: bool },
+    /// Set skip flag for a step.
+    SetStepSkip { pattern_id: usize, step: usize, skip: bool },
+    /// Set retrigger count for a step.
+    SetStepRetrigger { pattern_id: usize, step: usize, retrigger: u32 },
+    /// Clear all active steps in a pattern.
+    ClearPattern { pattern_id: usize },
+    /// Fill every N steps as active.
+    FillPattern { pattern_id: usize, every_n: u32 },
+    /// Randomize pattern with given density (0..=1).
+    RandomizePattern { pattern_id: usize, density: f32 },
+    /// Set the currently active/playing pattern.
+    SetActivePattern { pattern_id: Option<usize> },
+    /// Add a chain of patterns.
+    AddChainPattern { pattern_ids: Vec<usize> },
+    /// Delete a chain pattern.
+    DeleteChainPattern { chain_id: usize },
+
+    // ── Score View (Batch 3) ───────────────────────────────────────────────
+    /// Toggle the score/notation view on or off.
+    ToggleScoreView,
+    /// Add a track to the score view.
+    AddTrackToScore { track_id: usize },
+    /// Remove a track from the score view.
+    RemoveTrackFromScore { track_id: usize },
+    /// Set horizontal zoom of the score view.
+    SetScoreZoom(f32),
+    /// Set the horizontal scroll position (in beats).
+    SetScoreScroll(f32),
+    /// Set the clef.
+    SetScoreClef(Clef),
+    /// Set the key signature (-7..=7 sharps/flats).
+    SetScoreKeySignature(i8),
+    /// Set the stem direction.
+    SetScoreStemDirection(StemDirection),
+    /// Set the quantize display resolution.
+    SetScoreQuantizeDisplay(QuantizeDisplay),
+    /// Toggle chord symbol visibility.
+    ToggleChordSymbols,
+    /// Add a chord symbol at a beat position.
+    AddChordSymbol { beat: f32, root: String, quality: ChordQuality, extension: Option<String> },
+    /// Remove chord symbol nearest to at_beat.
+    RemoveChordSymbol { at_beat: f32 },
+    /// Enable or disable print layout mode.
+    SetPrintLayout(bool),
+
+    // ── Bus / Return Track Routing (Batch 3) ──────────────────────────────
+    /// Add a bus/return track.
+    AddBusTrack { name: String },
+    /// Delete a bus track.
+    DeleteBusTrack { bus_id: usize },
+    /// Rename a bus track.
+    RenameBusTrack { bus_id: usize, name: String },
+    /// Set the volume of a bus track.
+    SetBusVolume { bus_id: usize, volume: f32 },
+    /// Set the pan of a bus track.
+    SetBusPan { bus_id: usize, pan: f32 },
+    /// Mute or unmute a bus track.
+    MuteBusTrack { bus_id: usize, muted: bool },
+    /// Add an insert effect to a bus track.
+    AddBusInsertEffect { bus_id: usize, kind: InsertEffectKind },
+    /// Remove an insert effect from a bus track.
+    RemoveBusInsertEffect { bus_id: usize, effect_id: usize },
+    /// Set the send level from a track into a bus.
+    SetSendToBus { from_track_id: usize, bus_id: usize, level: f32 },
+    /// Set the master bus volume.
+    SetMasterBusVolume(f32),
+    /// Set the master limiter threshold (dB).
+    SetMasterLimiterThreshold(f32),
+    /// Set the master limiter release time (ms).
+    SetMasterLimiterRelease(f32),
+    /// Configure master dither (bits must be 16 or 24).
+    SetMasterDither { enabled: bool, bits: u8 },
+    /// Enable or disable master auto-normalize.
+    SetMasterAutoNormalize(bool),
+    /// Add an insert effect to the master bus.
+    AddMasterInsertEffect(InsertEffectKind),
+    /// Remove an insert effect from the master bus by index.
+    RemoveMasterInsertEffect { index: usize },
 }
+
+// ─── Re-export automation types used in Action ────────────────────────────────
+
+pub mod automation;
+pub use automation::{AutomationLane, AutomationMode, AutomationParameter, AutomationPoint, SendParam};
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -610,6 +777,40 @@ pub struct App {
     pub next_device_id: usize,
     pub midi_learn_active: bool,
     pub midi_learn_target: Option<MappingTarget>,
+
+    // ── Audio Engine (Batch 3) ─────────────────────────────────────────────
+    pub audio_config: AudioEngineConfig,
+    pub input_devices: Vec<AudioInputDevice>,
+    pub output_devices: Vec<AudioOutputDevice>,
+    pub audio_engine_running: bool,
+    pub audio_overload_count: u32,
+    pub active_input_device_id: Option<usize>,
+    pub active_output_device_id: Option<usize>,
+
+    // ── Recording (Batch 3) ────────────────────────────────────────────────
+    pub recording_sessions: Vec<RecordingSession>,
+    pub punch_config: PunchConfig,
+    pub take_managers: Vec<TakeManager>,
+    pub next_session_id: usize,
+    pub count_in_bars: u32,
+    pub count_in_enabled: bool,
+
+    // ── Step Sequencer (Batch 3) ───────────────────────────────────────────
+    pub step_patterns: Vec<StepPattern>,
+    pub next_pattern_id: usize,
+    pub active_pattern_id: Option<usize>,
+    pub chain_patterns: Vec<ChainPattern>,
+    pub next_chain_id: usize,
+
+    // ── Score View (Batch 3) ───────────────────────────────────────────────
+    pub score_view: ScoreView,
+    pub chord_symbols: Vec<ChordSymbol>,
+    pub next_chord_id: usize,
+
+    // ── Bus / Return Track Routing (Batch 3) ──────────────────────────────
+    pub bus_tracks: Vec<BusTrack>,
+    pub master_bus: MasterBus,
+    pub next_bus_track_id: usize,
 }
 
 impl App {
@@ -683,6 +884,31 @@ impl App {
             next_device_id: 0,
             midi_learn_active: false,
             midi_learn_target: None,
+            // Batch 3 fields
+            audio_config: AudioEngineConfig::new(),
+            input_devices: Vec::new(),
+            output_devices: Vec::new(),
+            audio_engine_running: false,
+            audio_overload_count: 0,
+            active_input_device_id: None,
+            active_output_device_id: None,
+            recording_sessions: Vec::new(),
+            punch_config: PunchConfig::new(),
+            take_managers: Vec::new(),
+            next_session_id: 0,
+            count_in_bars: 1,
+            count_in_enabled: false,
+            step_patterns: Vec::new(),
+            next_pattern_id: 0,
+            active_pattern_id: None,
+            chain_patterns: Vec::new(),
+            next_chain_id: 0,
+            score_view: ScoreView::new(),
+            chord_symbols: Vec::new(),
+            next_chord_id: 0,
+            bus_tracks: Vec::new(),
+            master_bus: MasterBus::new(),
+            next_bus_track_id: 0,
         }
     }
 
@@ -940,6 +1166,88 @@ impl App {
             | Action::StartMidiLearn { .. }
             | Action::StopMidiLearn
             | Action::CompleteMidiLearn { .. } => self.apply_midi_control(action),
+
+            // ── Audio Engine ──────────────────────────────────────────────────
+            Action::SetAudioDevice { .. }
+            | Action::SetBufferSize(..)
+            | Action::SetAudioSampleRate(..)
+            | Action::SetLowLatencyMode(..)
+            | Action::SetExclusiveMode(..)
+            | Action::StartAudioEngine
+            | Action::StopAudioEngine
+            | Action::ReportAudioOverload
+            | Action::ResetOverloadCount
+            | Action::AddInputDevice { .. }
+            | Action::AddOutputDevice { .. }
+            | Action::SelectInputDevice { .. }
+            | Action::SelectOutputDevice { .. } => self.apply_audio_engine(action),
+
+            // ── Recording ─────────────────────────────────────────────────────
+            Action::StartRecording { .. }
+            | Action::StopRecording
+            | Action::SetPunchIn { .. }
+            | Action::SetPunchOut { .. }
+            | Action::SetAutoPunch(..)
+            | Action::SetCountIn { .. }
+            | Action::AddTake { .. }
+            | Action::SetActiveTake { .. }
+            | Action::MuteTake { .. }
+            | Action::DeleteTake { .. }
+            | Action::EnableCompMode { .. }
+            | Action::FlattenTakes { .. } => self.apply_recording(action),
+
+            // ── Step Sequencer ────────────────────────────────────────────────
+            Action::AddPattern { .. }
+            | Action::DeletePattern { .. }
+            | Action::RenamePattern { .. }
+            | Action::SetPatternSteps { .. }
+            | Action::SetPatternStepLength { .. }
+            | Action::SetPatternSwing { .. }
+            | Action::SetStep { .. }
+            | Action::SetStepVelocity { .. }
+            | Action::SetStepProbability { .. }
+            | Action::SetStepAccent { .. }
+            | Action::SetStepSkip { .. }
+            | Action::SetStepRetrigger { .. }
+            | Action::ClearPattern { .. }
+            | Action::FillPattern { .. }
+            | Action::RandomizePattern { .. }
+            | Action::SetActivePattern { .. }
+            | Action::AddChainPattern { .. }
+            | Action::DeleteChainPattern { .. } => self.apply_step_sequencer(action),
+
+            // ── Score View ────────────────────────────────────────────────────
+            Action::ToggleScoreView
+            | Action::AddTrackToScore { .. }
+            | Action::RemoveTrackFromScore { .. }
+            | Action::SetScoreZoom(..)
+            | Action::SetScoreScroll(..)
+            | Action::SetScoreClef(..)
+            | Action::SetScoreKeySignature(..)
+            | Action::SetScoreStemDirection(..)
+            | Action::SetScoreQuantizeDisplay(..)
+            | Action::ToggleChordSymbols
+            | Action::AddChordSymbol { .. }
+            | Action::RemoveChordSymbol { .. }
+            | Action::SetPrintLayout(..) => self.apply_score_view(action),
+
+            // ── Bus Routing ───────────────────────────────────────────────────
+            Action::AddBusTrack { .. }
+            | Action::DeleteBusTrack { .. }
+            | Action::RenameBusTrack { .. }
+            | Action::SetBusVolume { .. }
+            | Action::SetBusPan { .. }
+            | Action::MuteBusTrack { .. }
+            | Action::AddBusInsertEffect { .. }
+            | Action::RemoveBusInsertEffect { .. }
+            | Action::SetSendToBus { .. }
+            | Action::SetMasterBusVolume(..)
+            | Action::SetMasterLimiterThreshold(..)
+            | Action::SetMasterLimiterRelease(..)
+            | Action::SetMasterDither { .. }
+            | Action::SetMasterAutoNormalize(..)
+            | Action::AddMasterInsertEffect(..)
+            | Action::RemoveMasterInsertEffect { .. } => self.apply_bus_routing(action),
         }
     }
 }

@@ -6,7 +6,7 @@ use gpui::{
 };
 use prism_ui::{colors, font_size};
 
-use crate::app_state::{Action, App};
+use crate::app_state::{Action, App, ToneTool};
 use crate::Tone;
 
 pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
@@ -14,6 +14,7 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
     let recording = app.recording;
     let metronome = app.metronome_enabled;
     let bpm = app.project.bpm;
+    let active_tool = app.active_tool;
 
     div()
         .w_full()
@@ -232,6 +233,86 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                     cx.notify();
                 }))
                 .child("Metro"),
+        )
+        // Separator
+        .child(
+            div()
+                .w(px(1.0))
+                .h(px(28.0))
+                .bg(colors::surface_border()),
+        )
+        // Tool selection: Select / Draw / Erase
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .id("tool-select")
+                        .px_2()
+                        .h(px(28.0))
+                        .bg(if active_tool == ToneTool::Select {
+                            colors::accent()
+                        } else {
+                            colors::surface_overlay()
+                        })
+                        .rounded(px(3.0))
+                        .flex()
+                        .items_center()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _ev, _win, cx| {
+                            this.app.apply(Action::SetActiveTool(ToneTool::Select));
+                            cx.notify();
+                        }))
+                        .child("Select"),
+                )
+                .child(
+                    div()
+                        .id("tool-draw")
+                        .px_2()
+                        .h(px(28.0))
+                        .bg(if active_tool == ToneTool::Draw {
+                            colors::accent()
+                        } else {
+                            colors::surface_overlay()
+                        })
+                        .rounded(px(3.0))
+                        .flex()
+                        .items_center()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _ev, _win, cx| {
+                            this.app.apply(Action::SetActiveTool(ToneTool::Draw));
+                            cx.notify();
+                        }))
+                        .child("Draw"),
+                )
+                .child(
+                    div()
+                        .id("tool-erase")
+                        .px_2()
+                        .h(px(28.0))
+                        .bg(if active_tool == ToneTool::Erase {
+                            colors::accent()
+                        } else {
+                            colors::surface_overlay()
+                        })
+                        .rounded(px(3.0))
+                        .flex()
+                        .items_center()
+                        .text_size(px(font_size::XS))
+                        .text_color(colors::text_primary())
+                        .cursor_pointer()
+                        .on_click(cx.listener(|this, _ev, _win, cx| {
+                            this.app.apply(Action::SetActiveTool(ToneTool::Erase));
+                            cx.notify();
+                        }))
+                        .child("Erase"),
+                ),
         )
         // Spacer + key/scale
         .child(div().flex_1())

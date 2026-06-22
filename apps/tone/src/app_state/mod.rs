@@ -453,6 +453,22 @@ pub struct App {
     // ── Bounce ─────────────────────────────────────────────────────────────
     pub bounce_config: BounceConfig,
     pub bounce_in_progress: bool,
+
+    // ── History (Phase 2) ──────────────────────────────────────────────────
+    pub undo_stack: Vec<history::HistoryEntry>,
+    pub redo_stack: Vec<history::HistoryEntry>,
+
+    // ── MIDI clipboard (Phase 2) ───────────────────────────────────────────
+    pub clipboard_notes: Vec<MidiNote>,
+
+    // ── Track groups (Phase 2) ────────────────────────────────────────────
+    pub track_groups: Vec<TrackGroup>,
+    pub next_group_id: usize,
+
+    // ── Loop region bars (Phase 2) ────────────────────────────────────────
+    pub loop_start_bar: f32,
+    pub loop_end_bar: f32,
+    pub loop_bar_enabled: bool,
 }
 
 impl App {
@@ -497,6 +513,14 @@ impl App {
             ai_job_counter: 0,
             bounce_config: BounceConfig::new(),
             bounce_in_progress: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            clipboard_notes: Vec::new(),
+            track_groups: Vec::new(),
+            next_group_id: 0,
+            loop_start_bar: 1.0,
+            loop_end_bar: 5.0,
+            loop_bar_enabled: false,
         }
     }
 
@@ -562,7 +586,12 @@ impl App {
             | Action::AddTrackSend { .. }
             | Action::RemoveTrackSend { .. }
             | Action::SetSendLevel { .. }
-            | Action::ToggleSend { .. } => self.apply_tracks(action),
+            | Action::ToggleSend { .. }
+            | Action::AddInsertEffect { .. }
+            | Action::RemoveInsertEffect { .. }
+            | Action::ToggleInsertEffect { .. }
+            | Action::ReorderInsertEffect { .. }
+            | Action::SetInsertGain { .. } => self.apply_tracks(action),
 
             // ── Clips ────────────────────────────────────────────────────────
             Action::AddClip { .. }
@@ -576,7 +605,14 @@ impl App {
             | Action::SetClipMute { .. }
             | Action::SplitClip { .. }
             | Action::MergeClips { .. }
-            | Action::InvalidatePeakCache { .. } => self.apply_clips(action),
+            | Action::InvalidatePeakCache { .. }
+            | Action::DuplicateClip { .. }
+            | Action::ConsolidateClips { .. }
+            | Action::SetClipColor { .. }
+            | Action::TrimClipStart { .. }
+            | Action::TrimClipEnd { .. }
+            | Action::SetClipPitchF32 { .. }
+            | Action::SetClipGainDb { .. } => self.apply_clips(action),
 
             // ── MIDI / Piano Roll ─────────────────────────────────────────────
             Action::OpenPianoRoll(..)
@@ -594,7 +630,18 @@ impl App {
             | Action::AddMidiCC { .. }
             | Action::RemoveMidiCC { .. }
             | Action::SetMidiCCValue { .. }
-            | Action::MoveMidiCC { .. } => self.apply_midi(action),
+            | Action::MoveMidiCC { .. }
+            | Action::SelectNote { .. }
+            | Action::DeselectNote { .. }
+            | Action::DeselectAllNotes
+            | Action::CopySelectedNotes
+            | Action::PasteNotes { .. }
+            | Action::NudgeNotes { .. }
+            | Action::DeleteSelectedNotes
+            | Action::MoveSelectedNotes { .. }
+            | Action::ResizeSelectedNotes { .. }
+            | Action::SetSelectedNotesVelocity { .. }
+            | Action::QuantizeSelectedNotes { .. } => self.apply_midi(action),
 
             // ── Quantize ─────────────────────────────────────────────────────
             Action::SetQuantize { .. } => {
@@ -615,7 +662,15 @@ impl App {
             | Action::AddChannelEffect { .. }
             | Action::RemoveChannelEffect { .. }
             | Action::SetMasterVolume(..)
-            | Action::ToggleMasterLimiter => self.apply_mixer(action),
+            | Action::ToggleMasterLimiter
+            | Action::AddChannelSend { .. }
+            | Action::RemoveChannelSend { .. }
+            | Action::SetChannelSendLevel { .. }
+            | Action::SetChannelPfl { .. }
+            | Action::SetChannelPhaseInvert { .. }
+            | Action::SetStereoWidth { .. }
+            | Action::SetChannelTrim { .. }
+            | Action::ResetChannel { .. } => self.apply_mixer(action),
 
             // ── Transport ────────────────────────────────────────────────────
             Action::Play
@@ -627,7 +682,26 @@ impl App {
             | Action::SetLoopRange { .. }
             | Action::ToggleMetronome
             | Action::Rewind
-            | Action::FastForward => self.apply_transport(action),
+            | Action::FastForward
+            | Action::SetLoopRegion { .. }
+            | Action::SetLoopBarEnabled(..)
+            | Action::MoveLoopRegion { .. }
+            | Action::ResizeLoopStart { .. }
+            | Action::ResizeLoopEnd { .. } => self.apply_transport(action),
+
+            // ── History ──────────────────────────────────────────────────────
+            Action::Undo | Action::Redo | Action::PushUndoCheckpoint { .. } => {
+                self.apply_history(action)
+            }
+
+            // ── Track groups ─────────────────────────────────────────────────
+            Action::CreateTrackGroup { .. }
+            | Action::AddTrackToGroup { .. }
+            | Action::RemoveTrackFromGroup { .. }
+            | Action::CollapseGroup { .. }
+            | Action::DeleteTrackGroup { .. }
+            | Action::SetGroupColor { .. }
+            | Action::RenameTrackGroup { .. } => self.apply_track_groups(action),
 
             // ── AI ────────────────────────────────────────────────────────────
             Action::SetAiPrompt(..)

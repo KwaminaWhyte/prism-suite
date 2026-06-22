@@ -50,7 +50,6 @@ pub struct MidiCC {
 // ─── Apply methods ────────────────────────────────────────────────────────────
 
 use super::{Action, App, QuantizeGrid};
-use self::{NudgeDirection, NudgeAmount};
 
 impl App {
     pub(super) fn apply_midi(&mut self, action: Action) {

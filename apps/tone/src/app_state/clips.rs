@@ -75,7 +75,6 @@ impl ToneClip {
 // ─── Apply methods ────────────────────────────────────────────────────────────
 
 use super::{Action, App};
-use self::ToneClip;
 
 impl App {
     pub(super) fn apply_clips(&mut self, action: Action) {

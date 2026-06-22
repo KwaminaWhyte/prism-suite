@@ -71,11 +71,32 @@ impl App {
             Action::StartModelDownload { kind } => {
                 if let Some(m) = self.onnx_models.iter_mut().find(|m| m.kind == *kind) {
                     m.status = ModelDownloadStatus::Downloading;
+                    m.download_progress = 0.0;
+                } else {
+                    self.onnx_models.push(OnnxModelEntry {
+                        kind: kind.clone(),
+                        name: format!("{kind:?}"),
+                        url_hint: String::new(),
+                        size_mb: 0,
+                        local_path: None,
+                        status: ModelDownloadStatus::Downloading,
+                        download_progress: 0.0,
+                    });
                 }
             }
             Action::UpdateModelDownload { kind, progress } => {
                 if let Some(m) = self.onnx_models.iter_mut().find(|m| m.kind == *kind) {
                     m.download_progress = progress.clamp(0.0, 1.0);
+                } else {
+                    self.onnx_models.push(OnnxModelEntry {
+                        kind: kind.clone(),
+                        name: format!("{kind:?}"),
+                        url_hint: String::new(),
+                        size_mb: 0,
+                        local_path: None,
+                        status: ModelDownloadStatus::Downloading,
+                        download_progress: progress.clamp(0.0, 1.0),
+                    });
                 }
             }
             Action::CompleteModelDownload { kind, local_path } => {
@@ -83,6 +104,16 @@ impl App {
                     m.status = ModelDownloadStatus::Downloaded;
                     m.local_path = Some(local_path.clone());
                     m.download_progress = 1.0;
+                } else {
+                    self.onnx_models.push(OnnxModelEntry {
+                        kind: kind.clone(),
+                        name: format!("{kind:?}"),
+                        url_hint: String::new(),
+                        size_mb: 0,
+                        local_path: Some(local_path.clone()),
+                        status: ModelDownloadStatus::Downloaded,
+                        download_progress: 1.0,
+                    });
                 }
             }
             Action::RemoveOnnxModel { kind } => {
@@ -293,11 +324,12 @@ mod tests {
     }
 
     #[test]
-    fn start_download_on_missing_kind_is_noop() {
+    fn start_download_on_missing_kind_upserts() {
         let mut app = fresh();
-        // No panic — just ignored
         app.apply(Action::StartModelDownload { kind: OnnxModelKind::AiMasterNet });
-        assert!(app.onnx_models.is_empty());
+        assert_eq!(app.onnx_models.len(), 1);
+        assert_eq!(app.onnx_models[0].kind, OnnxModelKind::AiMasterNet);
+        assert_eq!(app.onnx_models[0].status, ModelDownloadStatus::Downloading);
     }
 
     #[test]

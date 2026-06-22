@@ -135,6 +135,13 @@ impl App {
             Action::UpdateDriftModelDownload { model, progress } => {
                 if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
                     e.download_progress = progress.clamp(0.0, 1.0);
+                } else {
+                    self.drift_onnx_models.push(DriftOnnxModelEntry {
+                        model: model.clone(),
+                        local_path: None,
+                        status: OnnxModelStatus::Downloading,
+                        download_progress: progress.clamp(0.0, 1.0),
+                    });
                 }
             }
             Action::CompleteDriftModelDownload { model, local_path } => {
@@ -142,11 +149,25 @@ impl App {
                     e.status = OnnxModelStatus::Ready;
                     e.download_progress = 1.0;
                     e.local_path = Some(local_path.clone());
+                } else {
+                    self.drift_onnx_models.push(DriftOnnxModelEntry {
+                        model: model.clone(),
+                        local_path: Some(local_path.clone()),
+                        status: OnnxModelStatus::Ready,
+                        download_progress: 1.0,
+                    });
                 }
             }
             Action::ErrorDriftModelDownload { model, message: _ } => {
                 if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
                     e.status = OnnxModelStatus::Error;
+                } else {
+                    self.drift_onnx_models.push(DriftOnnxModelEntry {
+                        model: model.clone(),
+                        local_path: None,
+                        status: OnnxModelStatus::Error,
+                        download_progress: 0.0,
+                    });
                 }
             }
             Action::QueueAnimateDiff { layer_id, prompt, num_frames, guidance_scale } => {

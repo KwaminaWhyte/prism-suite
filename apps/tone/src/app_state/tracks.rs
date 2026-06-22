@@ -30,6 +30,32 @@ impl TrackKind {
     }
 }
 
+/// The specific kind of an insert effect.
+#[derive(Clone, Debug)]
+pub enum InsertEffectKind {
+    Eq3Band,
+    Compressor,
+    Reverb { room_size: f32, wet: f32 },
+    Delay { time_ms: f32, feedback: f32, wet: f32 },
+    Chorus { rate: f32, depth: f32, wet: f32 },
+    Distortion { drive: f32, tone: f32 },
+    Gate { threshold_db: f32, attack_ms: f32, release_ms: f32 },
+    Limiter { ceiling_db: f32 },
+    PitchShift { semitones: f32 },
+}
+
+/// A single insert effect in a track's processing chain.
+#[derive(Clone, Debug)]
+pub struct InsertEffect {
+    pub id: usize,
+    pub effect_type: InsertEffectKind,
+    pub enabled: bool,
+    /// Pre-effect gain multiplier.
+    pub gain_in: f32,
+    /// Post-effect gain multiplier.
+    pub gain_out: f32,
+}
+
 /// A single track in the Tone session.
 #[derive(Clone, Debug)]
 pub struct ToneTrack {
@@ -54,6 +80,10 @@ pub struct ToneTrack {
     pub send_to_delay: f32,
     /// For Instrument / MIDI tracks: the loaded instrument name (e.g. "Grand Piano").
     pub instrument: Option<String>,
+    /// Insert effects chain for this track.
+    pub insert_effects: Vec<InsertEffect>,
+    /// Counter for assigning unique IDs to insert effects.
+    pub next_insert_id: usize,
 }
 
 impl ToneTrack {
@@ -71,6 +101,8 @@ impl ToneTrack {
             send_to_reverb: 0.0,
             send_to_delay: 0.0,
             instrument: None,
+            insert_effects: Vec::new(),
+            next_insert_id: 0,
         }
     }
 }
@@ -229,6 +261,49 @@ impl App {
             Action::ToggleSend { send_id } => {
                 if let Some(s) = self.track_sends.get_mut(send_id) {
                     s.enabled = !s.enabled;
+                }
+            }
+            // ── Insert effects ────────────────────────────────────────────────
+            Action::AddInsertEffect { track_id, kind } => {
+                if let Some(t) = self.find_track_mut(track_id) {
+                    let id = t.next_insert_id;
+                    t.next_insert_id += 1;
+                    t.insert_effects.push(InsertEffect {
+                        id,
+                        effect_type: kind,
+                        enabled: true,
+                        gain_in: 1.0,
+                        gain_out: 1.0,
+                    });
+                }
+            }
+            Action::RemoveInsertEffect { track_id, effect_id } => {
+                if let Some(t) = self.find_track_mut(track_id) {
+                    t.insert_effects.retain(|e| e.id != effect_id);
+                }
+            }
+            Action::ToggleInsertEffect { track_id, effect_id } => {
+                if let Some(t) = self.find_track_mut(track_id) {
+                    if let Some(e) = t.insert_effects.iter_mut().find(|e| e.id == effect_id) {
+                        e.enabled = !e.enabled;
+                    }
+                }
+            }
+            Action::ReorderInsertEffect { track_id, effect_id, new_index } => {
+                if let Some(t) = self.find_track_mut(track_id) {
+                    if let Some(pos) = t.insert_effects.iter().position(|e| e.id == effect_id) {
+                        let effect = t.insert_effects.remove(pos);
+                        let insert_at = new_index.min(t.insert_effects.len());
+                        t.insert_effects.insert(insert_at, effect);
+                    }
+                }
+            }
+            Action::SetInsertGain { track_id, effect_id, gain_in, gain_out } => {
+                if let Some(t) = self.find_track_mut(track_id) {
+                    if let Some(e) = t.insert_effects.iter_mut().find(|e| e.id == effect_id) {
+                        e.gain_in = gain_in;
+                        e.gain_out = gain_out;
+                    }
                 }
             }
             _ => {}
@@ -564,5 +639,152 @@ mod tests {
         assert_eq!(app.track_sends.len(), 1);
         app.apply(Action::DeleteTrack(from));
         assert!(app.track_sends.is_empty());
+    }
+
+    // ── Insert effects tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn add_insert_effect() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Compressor });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(t.insert_effects.len(), 1);
+        assert!(t.insert_effects[0].enabled);
+    }
+
+    #[test]
+    fn add_multiple_effects_and_verify_order() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Eq3Band });
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Compressor });
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Reverb { room_size: 0.5, wet: 0.3 } });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(t.insert_effects.len(), 3);
+        assert_eq!(t.insert_effects[0].id, 0);
+        assert_eq!(t.insert_effects[1].id, 1);
+        assert_eq!(t.insert_effects[2].id, 2);
+    }
+
+    #[test]
+    fn remove_insert_effect() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Compressor });
+        let eid = {
+            let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+            t.insert_effects[0].id
+        };
+        app.apply(Action::RemoveInsertEffect { track_id: tid, effect_id: eid });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert!(t.insert_effects.is_empty());
+    }
+
+    #[test]
+    fn toggle_insert_effect() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Eq3Band });
+        let eid = app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].id;
+        assert!(app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].enabled);
+        app.apply(Action::ToggleInsertEffect { track_id: tid, effect_id: eid });
+        assert!(!app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].enabled);
+        app.apply(Action::ToggleInsertEffect { track_id: tid, effect_id: eid });
+        assert!(app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].enabled);
+    }
+
+    #[test]
+    fn reorder_insert_effect() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Eq3Band });
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Compressor });
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Reverb { room_size: 0.5, wet: 0.3 } });
+        // Move first effect to last position
+        let eid0 = app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].id;
+        app.apply(Action::ReorderInsertEffect { track_id: tid, effect_id: eid0, new_index: 2 });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(t.insert_effects[2].id, eid0);
+    }
+
+    #[test]
+    fn set_insert_gain() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Compressor });
+        let eid = app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].id;
+        app.apply(Action::SetInsertGain { track_id: tid, effect_id: eid, gain_in: 0.8, gain_out: 1.2 });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert!((t.insert_effects[0].gain_in - 0.8).abs() < 0.001);
+        assert!((t.insert_effects[0].gain_out - 1.2).abs() < 0.001);
+    }
+
+    #[test]
+    fn reorder_effect_out_of_bounds_clamps() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Eq3Band });
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Compressor });
+        let eid0 = app.tracks.iter().find(|t| t.id == tid).unwrap().insert_effects[0].id;
+        // new_index of 100 should clamp to end
+        app.apply(Action::ReorderInsertEffect { track_id: tid, effect_id: eid0, new_index: 100 });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(t.insert_effects.len(), 2);
+        assert_eq!(t.insert_effects[1].id, eid0);
+    }
+
+    #[test]
+    fn remove_nonexistent_effect_is_noop() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Eq3Band });
+        // Remove non-existent effect_id
+        app.apply(Action::RemoveInsertEffect { track_id: tid, effect_id: 9999 });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(t.insert_effects.len(), 1);
+    }
+
+    #[test]
+    fn insert_effect_ids_increment() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        for _ in 0..5 {
+            app.apply(Action::AddInsertEffect { track_id: tid, kind: super::InsertEffectKind::Eq3Band });
+        }
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        for (i, effect) in t.insert_effects.iter().enumerate() {
+            assert_eq!(effect.id, i);
+        }
+    }
+
+    #[test]
+    fn insert_effects_on_unknown_track_is_noop() {
+        let mut app = fresh();
+        // Should not panic
+        app.apply(Action::AddInsertEffect { track_id: 9999, kind: super::InsertEffectKind::Compressor });
+        assert!(app.tracks.iter().all(|t| t.insert_effects.is_empty()));
+    }
+
+    #[test]
+    fn insert_effect_delay_kind() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddInsertEffect {
+            track_id: tid,
+            kind: super::InsertEffectKind::Delay { time_ms: 250.0, feedback: 0.4, wet: 0.3 },
+        });
+        let t = app.tracks.iter().find(|t| t.id == tid).unwrap();
+        assert_eq!(t.insert_effects.len(), 1);
     }
 }

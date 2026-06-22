@@ -12,9 +12,11 @@
 pub mod ai;
 pub mod clips;
 pub mod export;
+pub mod history;
 pub mod midi;
 pub mod mixer;
 pub mod project;
+pub mod track_groups;
 pub mod tracks;
 pub mod transport;
 
@@ -23,10 +25,12 @@ pub mod transport;
 pub use ai::{AiGenerationJob, AiGenerationStatus};
 pub use clips::{ClipKind, ToneClip};
 pub use export::{BounceConfig, BounceFormat};
-pub use midi::{MidiCC, MidiNote};
+pub use history::HistoryEntry;
+pub use midi::{MidiCC, MidiNote, NudgeAmount, NudgeDirection};
 pub use mixer::{EqBand, MixerChannel};
 pub use project::ToneProject;
-pub use tracks::{ToneTrack, TrackKind, TrackSend};
+pub use track_groups::TrackGroup;
+pub use tracks::{InsertEffect, InsertEffectKind, ToneTrack, TrackKind, TrackSend};
 
 // ─── Phase 2 types (data model only) ─────────────────────────────────────────
 
@@ -135,6 +139,18 @@ pub enum Action {
     /// Set the focused / active track (piano roll, inspector follow).
     SetActiveTrack(Option<usize>),
 
+    // ── Insert effects ─────────────────────────────────────────────────────
+    /// Add an insert effect to a track's chain.
+    AddInsertEffect { track_id: usize, kind: InsertEffectKind },
+    /// Remove an insert effect from a track's chain.
+    RemoveInsertEffect { track_id: usize, effect_id: usize },
+    /// Toggle an insert effect's enabled state.
+    ToggleInsertEffect { track_id: usize, effect_id: usize },
+    /// Reorder an insert effect to a new position.
+    ReorderInsertEffect { track_id: usize, effect_id: usize, new_index: usize },
+    /// Set the input and output gain for an insert effect.
+    SetInsertGain { track_id: usize, effect_id: usize, gain_in: f32, gain_out: f32 },
+
     // ── Send routing (Phase 2) ─────────────────────────────────────────────
     /// Add a send from a track to a bus with the given level (0.0..=1.0).
     AddTrackSend { from_track_id: usize, to_bus_id: usize, level: f32 },
@@ -176,6 +192,20 @@ pub enum Action {
     MergeClips { ids: Vec<usize> },
     /// Mark the peak cache for a clip as dirty (needs recompute for waveform display).
     InvalidatePeakCache { clip_id: usize },
+    /// Duplicate a clip, placing it immediately after the original.
+    DuplicateClip { clip_id: usize },
+    /// Consolidate a list of clips into a single spanning clip.
+    ConsolidateClips { clip_ids: Vec<usize> },
+    /// Set the display color of a clip.
+    SetClipColor { clip_id: usize, color: String },
+    /// Trim the start of a clip to a new beat position.
+    TrimClipStart { clip_id: usize, new_start: f32 },
+    /// Trim the end of a clip to a new beat position.
+    TrimClipEnd { clip_id: usize, new_end: f32 },
+    /// Set a fine-grained pitch shift (fractional semitones) on a clip.
+    SetClipPitchF32 { clip_id: usize, semitones: f32 },
+    /// Set the per-clip gain in dB (converted to linear gain and stored).
+    SetClipGainDb { clip_id: usize, gain_db: f32 },
 
     // ── Piano Roll / MIDI ──────────────────────────────────────────────────
     /// Open the piano roll editor focused on the given clip.
@@ -219,6 +249,30 @@ pub enum Action {
     /// Move a MIDI CC event to a new position.
     MoveMidiCC { cc_id: usize, position: f32 },
 
+    // ── Note editing operations (Phase 2) ─────────────────────────────────
+    /// Select (add to selection) a single MIDI note by id.
+    SelectNote { note_id: usize },
+    /// Deselect a single MIDI note by id.
+    DeselectNote { note_id: usize },
+    /// Clear the note selection.
+    DeselectAllNotes,
+    /// Delete all currently selected notes.
+    DeleteSelectedNotes,
+    /// Copy selected notes to clipboard.
+    CopySelectedNotes,
+    /// Paste clipboard notes into a clip at an offset.
+    PasteNotes { clip_id: usize, offset_beats: f32 },
+    /// Move all selected notes by delta_beats and/or delta_semitones.
+    MoveSelectedNotes { delta_beats: f32, delta_semitones: i32 },
+    /// Resize all selected notes to new_duration.
+    ResizeSelectedNotes { new_duration: f32 },
+    /// Set velocity on all selected notes.
+    SetSelectedNotesVelocity { velocity: u8 },
+    /// Nudge selected notes in a direction by a given amount.
+    NudgeNotes { direction: NudgeDirection, amount: NudgeAmount },
+    /// Quantize selected notes to the given grid.
+    QuantizeSelectedNotes { grid: QuantizeGrid },
+
     // ── Quantize panel (Phase 2) ───────────────────────────────────────────
     /// Set the quantize configuration (grid, swing, strength).
     SetQuantize { grid: QuantizeGrid, swing: f32, strength: f32 },
@@ -245,6 +299,24 @@ pub enum Action {
     /// Toggle the master limiter on/off.
     ToggleMasterLimiter,
 
+    // ── Extended mixer params (Phase 2) ────────────────────────────────────
+    /// Add a channel send (bus routing) to a mixer channel.
+    AddChannelSend { channel_id: usize, bus_id: usize, level: f32 },
+    /// Remove a channel send from a mixer channel.
+    RemoveChannelSend { channel_id: usize, bus_id: usize },
+    /// Set the send level for a bus in a channel's send list.
+    SetChannelSendLevel { channel_id: usize, bus_id: usize, level: f32 },
+    /// Set the pre-fader listen (PFL/solo-in-place) flag for a channel.
+    SetChannelPfl { channel_id: usize, pfl: bool },
+    /// Invert the phase of a channel.
+    SetChannelPhaseInvert { channel_id: usize, invert: bool },
+    /// Set the stereo width of a channel. Clamped 0.0..=2.0.
+    SetStereoWidth { channel_id: usize, width: f32 },
+    /// Set the trim gain (dB) before the fader. Clamped -6.0..=6.0.
+    SetChannelTrim { channel_id: usize, trim_db: f32 },
+    /// Reset a channel to default values.
+    ResetChannel { channel_id: usize },
+
     // ── Transport ──────────────────────────────────────────────────────────
     Play,
     Stop,
@@ -256,6 +328,42 @@ pub enum Action {
     ToggleMetronome,
     Rewind,
     FastForward,
+
+    // ── Loop region bar controls (Phase 2) ────────────────────────────────
+    /// Set the loop region in bars.
+    SetLoopRegion { start_bar: f32, end_bar: f32 },
+    /// Enable or disable the loop region.
+    SetLoopBarEnabled(bool),
+    /// Move the loop region by a delta in bars.
+    MoveLoopRegion { delta_bars: f32 },
+    /// Resize the loop region's start position.
+    ResizeLoopStart { bar: f32 },
+    /// Resize the loop region's end position.
+    ResizeLoopEnd { bar: f32 },
+
+    // ── History (Phase 2) ──────────────────────────────────────────────────
+    /// Undo the last operation.
+    Undo,
+    /// Redo the last undone operation.
+    Redo,
+    /// Push an undo checkpoint with a description.
+    PushUndoCheckpoint { description: String },
+
+    // ── Track groups (Phase 2) ────────────────────────────────────────────
+    /// Create a new track group containing the given tracks.
+    CreateTrackGroup { name: String, track_ids: Vec<usize> },
+    /// Add a track to an existing group.
+    AddTrackToGroup { group_id: usize, track_id: usize },
+    /// Remove a track from a group.
+    RemoveTrackFromGroup { group_id: usize, track_id: usize },
+    /// Collapse or expand a track group.
+    CollapseGroup { group_id: usize, collapsed: bool },
+    /// Delete a track group (does not delete the tracks).
+    DeleteTrackGroup { group_id: usize },
+    /// Set the display color of a track group.
+    SetGroupColor { group_id: usize, color: String },
+    /// Rename a track group.
+    RenameTrackGroup { group_id: usize, name: String },
 
     // ── AI Generation ──────────────────────────────────────────────────────
     SetAiPrompt(String),

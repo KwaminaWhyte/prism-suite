@@ -18,6 +18,23 @@ pub struct MidiNote {
     pub duration_beats: f32,
 }
 
+/// Direction for nudging notes in the piano roll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NudgeDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Amount to nudge notes by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NudgeAmount {
+    Fine,
+    Grid,
+    Octave,
+}
+
 /// A single MIDI CC (continuous controller) event inside a clip.
 #[derive(Clone, Debug)]
 pub struct MidiCC {
@@ -32,7 +49,8 @@ pub struct MidiCC {
 
 // ─── Apply methods ────────────────────────────────────────────────────────────
 
-use super::{Action, App};
+use super::{Action, App, QuantizeGrid};
+use self::{NudgeDirection, NudgeAmount};
 
 impl App {
     pub(super) fn apply_midi(&mut self, action: Action) {
@@ -124,6 +142,123 @@ impl App {
             Action::MoveMidiCC { cc_id, position } => {
                 if let Some(cc) = self.midi_cc.get_mut(cc_id) {
                     cc.position = position.max(0.0);
+                }
+            }
+            // ── Note editing operations ───────────────────────────────────────
+            Action::SelectNote { note_id } => {
+                if !self.selected_notes.contains(&note_id) {
+                    self.selected_notes.push(note_id);
+                }
+            }
+            Action::DeselectNote { note_id } => {
+                self.selected_notes.retain(|&n| n != note_id);
+            }
+            Action::DeselectAllNotes => {
+                self.selected_notes.clear();
+            }
+            Action::DeleteSelectedNotes => {
+                let selected = self.selected_notes.clone();
+                self.midi_notes.retain(|n| !selected.contains(&n.id));
+                self.selected_notes.clear();
+            }
+            Action::CopySelectedNotes => {
+                let selected = self.selected_notes.clone();
+                self.clipboard_notes = self.midi_notes.iter()
+                    .filter(|n| selected.contains(&n.id))
+                    .cloned()
+                    .collect();
+            }
+            Action::PasteNotes { clip_id, offset_beats } => {
+                let to_paste: Vec<MidiNote> = self.clipboard_notes.clone();
+                for note in to_paste {
+                    let new_id = self.next_note_id();
+                    self.midi_notes.push(MidiNote {
+                        id: new_id,
+                        clip_id,
+                        pitch: note.pitch,
+                        velocity: note.velocity,
+                        start_beat: note.start_beat + offset_beats,
+                        duration_beats: note.duration_beats,
+                    });
+                }
+            }
+            Action::MoveSelectedNotes { delta_beats, delta_semitones } => {
+                let selected = self.selected_notes.clone();
+                for note in self.midi_notes.iter_mut() {
+                    if selected.contains(&note.id) {
+                        note.start_beat = (note.start_beat + delta_beats).max(0.0);
+                        let new_pitch = (note.pitch as i32 + delta_semitones).clamp(0, 127);
+                        note.pitch = new_pitch as u8;
+                    }
+                }
+            }
+            Action::ResizeSelectedNotes { new_duration } => {
+                let selected = self.selected_notes.clone();
+                for note in self.midi_notes.iter_mut() {
+                    if selected.contains(&note.id) {
+                        note.duration_beats = new_duration.max(0.0625);
+                    }
+                }
+            }
+            Action::SetSelectedNotesVelocity { velocity } => {
+                let selected = self.selected_notes.clone();
+                let clamped = velocity.clamp(0, 127);
+                for note in self.midi_notes.iter_mut() {
+                    if selected.contains(&note.id) {
+                        note.velocity = clamped;
+                    }
+                }
+            }
+            Action::NudgeNotes { direction, amount } => {
+                let grid_beats = self.quantize_config.grid.beats();
+                let selected = self.selected_notes.clone();
+                for note in self.midi_notes.iter_mut() {
+                    if !selected.contains(&note.id) {
+                        continue;
+                    }
+                    match direction {
+                        NudgeDirection::Left => {
+                            let delta = match amount {
+                                NudgeAmount::Fine => 0.0625,
+                                NudgeAmount::Grid => grid_beats,
+                                NudgeAmount::Octave => grid_beats,
+                            };
+                            note.start_beat = (note.start_beat - delta).max(0.0);
+                        }
+                        NudgeDirection::Right => {
+                            let delta = match amount {
+                                NudgeAmount::Fine => 0.0625,
+                                NudgeAmount::Grid => grid_beats,
+                                NudgeAmount::Octave => grid_beats,
+                            };
+                            note.start_beat += delta;
+                        }
+                        NudgeDirection::Up => {
+                            let semitones = match amount {
+                                NudgeAmount::Fine | NudgeAmount::Grid => 1i32,
+                                NudgeAmount::Octave => 12,
+                            };
+                            let new_pitch = (note.pitch as i32 + semitones).clamp(0, 127);
+                            note.pitch = new_pitch as u8;
+                        }
+                        NudgeDirection::Down => {
+                            let semitones = match amount {
+                                NudgeAmount::Fine | NudgeAmount::Grid => 1i32,
+                                NudgeAmount::Octave => 12,
+                            };
+                            let new_pitch = (note.pitch as i32 - semitones).clamp(0, 127);
+                            note.pitch = new_pitch as u8;
+                        }
+                    }
+                }
+            }
+            Action::QuantizeSelectedNotes { grid } => {
+                let grid_beats = grid.beats();
+                let selected = self.selected_notes.clone();
+                for note in self.midi_notes.iter_mut() {
+                    if selected.contains(&note.id) {
+                        note.start_beat = (note.start_beat / grid_beats).round() * grid_beats;
+                    }
                 }
             }
             _ => {}
@@ -400,5 +535,208 @@ mod tests {
         app.apply(Action::AddMidiCC { clip_id: 9999, controller: 11, position: 0.0, value: 80 });
         assert_eq!(app.midi_cc.len(), 1);
         assert_eq!(app.midi_cc[0].clip_id, 9999);
+    }
+
+    // ── Note editing operation tests ──────────────────────────────────────────
+
+    use super::super::{QuantizeGrid};
+    use super::{NudgeDirection, NudgeAmount};
+
+    #[test]
+    fn select_single_note() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        assert!(app.selected_notes.contains(&nid));
+    }
+
+    #[test]
+    fn select_note_no_duplicates() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::SelectNote { note_id: nid });
+        assert_eq!(app.selected_notes.len(), 1);
+    }
+
+    #[test]
+    fn deselect_note() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::DeselectNote { note_id: nid });
+        assert!(!app.selected_notes.contains(&nid));
+    }
+
+    #[test]
+    fn deselect_all_notes() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        for pitch in [60u8, 62, 64] {
+            app.apply(Action::AddMidiNote { clip_id: cid, pitch, velocity: 80, start_beat: 0.0, duration_beats: 1.0 });
+        }
+        app.apply(Action::SelectAllNotesInClip(cid));
+        assert_eq!(app.selected_notes.len(), 3);
+        app.apply(Action::DeselectAllNotes);
+        assert!(app.selected_notes.is_empty());
+    }
+
+    #[test]
+    fn delete_selected_notes() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 62, velocity: 100, start_beat: 1.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::DeleteSelectedNotes);
+        assert_eq!(app.midi_notes.len(), 1);
+        assert!(app.selected_notes.is_empty());
+    }
+
+    #[test]
+    fn copy_paste_notes_verifies_count() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 62, velocity: 100, start_beat: 1.0, duration_beats: 1.0 });
+        app.apply(Action::SelectAllNotesInClip(cid));
+        app.apply(Action::CopySelectedNotes);
+        assert_eq!(app.clipboard_notes.len(), 2);
+        let before = app.midi_notes.len();
+        app.apply(Action::PasteNotes { clip_id: cid, offset_beats: 4.0 });
+        assert_eq!(app.midi_notes.len(), before + 2);
+    }
+
+    #[test]
+    fn move_selected_notes_left_right() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 2.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::MoveSelectedNotes { delta_beats: 1.0, delta_semitones: 0 });
+        assert!((app.midi_notes[0].start_beat - 3.0).abs() < 0.001);
+        app.apply(Action::MoveSelectedNotes { delta_beats: -2.0, delta_semitones: 0 });
+        assert!((app.midi_notes[0].start_beat - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn move_selected_notes_clamp_at_zero() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 1.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::MoveSelectedNotes { delta_beats: -5.0, delta_semitones: 0 });
+        assert_eq!(app.midi_notes[0].start_beat, 0.0);
+    }
+
+    #[test]
+    fn move_selected_notes_up_down_pitch() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::MoveSelectedNotes { delta_beats: 0.0, delta_semitones: 5 });
+        assert_eq!(app.midi_notes[0].pitch, 65);
+        app.apply(Action::MoveSelectedNotes { delta_beats: 0.0, delta_semitones: -3 });
+        assert_eq!(app.midi_notes[0].pitch, 62);
+    }
+
+    #[test]
+    fn resize_selected_notes() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::ResizeSelectedNotes { new_duration: 2.0 });
+        assert!((app.midi_notes[0].duration_beats - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_selected_notes_velocity() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::SetSelectedNotesVelocity { velocity: 64 });
+        assert_eq!(app.midi_notes[0].velocity, 64);
+    }
+
+    #[test]
+    fn nudge_fine_left() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 1.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::NudgeNotes { direction: NudgeDirection::Left, amount: NudgeAmount::Fine });
+        assert!((app.midi_notes[0].start_beat - 0.9375).abs() < 0.001);
+    }
+
+    #[test]
+    fn nudge_fine_right() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::NudgeNotes { direction: NudgeDirection::Right, amount: NudgeAmount::Fine });
+        assert!((app.midi_notes[0].start_beat - 0.0625).abs() < 0.001);
+    }
+
+    #[test]
+    fn nudge_octave_up() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::NudgeNotes { direction: NudgeDirection::Up, amount: NudgeAmount::Octave });
+        assert_eq!(app.midi_notes[0].pitch, 72);
+    }
+
+    #[test]
+    fn nudge_octave_down() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::NudgeNotes { direction: NudgeDirection::Down, amount: NudgeAmount::Octave });
+        assert_eq!(app.midi_notes[0].pitch, 48);
+    }
+
+    #[test]
+    fn quantize_selected_to_sixteenth() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.13, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::QuantizeSelectedNotes { grid: QuantizeGrid::Sixteenth });
+        let snapped = app.midi_notes[0].start_beat;
+        assert!((snapped - 0.25).abs() < 0.001 || snapped.abs() < 0.001);
+    }
+
+    #[test]
+    fn selected_notes_velocity_clamped() {
+        let mut app = fresh();
+        let (_tid, cid) = add_midi_clip(&mut app);
+        app.apply(Action::AddMidiNote { clip_id: cid, pitch: 60, velocity: 100, start_beat: 0.0, duration_beats: 1.0 });
+        let nid = app.midi_notes[0].id;
+        app.apply(Action::SelectNote { note_id: nid });
+        app.apply(Action::SetSelectedNotesVelocity { velocity: 200 });
+        assert_eq!(app.midi_notes[0].velocity, 127);
     }
 }

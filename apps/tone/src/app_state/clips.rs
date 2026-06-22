@@ -44,6 +44,8 @@ pub struct ToneClip {
     pub peak_cache: Vec<f32>,
     /// When true, the peak cache needs to be recomputed.
     pub peak_cache_dirty: bool,
+    /// Fine-grained pitch shift in fractional semitones. Clamped -24.0..=24.0.
+    pub pitch_shift_f32: f32,
 }
 
 impl ToneClip {
@@ -65,6 +67,7 @@ impl ToneClip {
             ai_prompt: None,
             peak_cache: Vec::new(),
             peak_cache_dirty: true,
+            pitch_shift_f32: 0.0,
         }
     }
 }
@@ -72,6 +75,7 @@ impl ToneClip {
 // ─── Apply methods ────────────────────────────────────────────────────────────
 
 use super::{Action, App};
+use self::ToneClip;
 
 impl App {
     pub(super) fn apply_clips(&mut self, action: Action) {
@@ -178,6 +182,79 @@ impl App {
             Action::InvalidatePeakCache { clip_id } => {
                 if let Some(c) = self.find_clip_mut(clip_id) {
                     c.peak_cache_dirty = true;
+                }
+            }
+            // ── New clip operations ───────────────────────────────────────────
+            Action::DuplicateClip { clip_id } => {
+                let Some(src) = self.clips.iter().find(|c| c.id == clip_id).cloned() else { return };
+                let new_id = self.next_clip_id();
+                let mut dup = src.clone();
+                dup.id = new_id;
+                dup.start_beat = src.start_beat + src.duration_beats;
+                self.clips.push(dup);
+            }
+            Action::ConsolidateClips { clip_ids } => {
+                if clip_ids.is_empty() { return; }
+                let to_merge: Vec<ToneClip> = self.clips.iter()
+                    .filter(|c| clip_ids.contains(&c.id))
+                    .cloned()
+                    .collect();
+                if to_merge.is_empty() { return; }
+                let earliest = to_merge.iter().map(|c| c.start_beat).fold(f32::MAX, f32::min);
+                let latest_end = to_merge.iter().map(|c| c.start_beat + c.duration_beats).fold(0.0f32, f32::max);
+                let survivor_id = to_merge.iter()
+                    .min_by(|a, b| a.start_beat.partial_cmp(&b.start_beat).unwrap())
+                    .map(|c| c.id)
+                    .unwrap();
+                let delete_ids: Vec<usize> = clip_ids.iter().copied().filter(|&i| i != survivor_id).collect();
+                for did in &delete_ids {
+                    let offset = to_merge.iter().find(|c| c.id == *did).map(|c| c.start_beat - earliest).unwrap_or(0.0);
+                    for note in self.midi_notes.iter_mut() {
+                        if note.clip_id == *did {
+                            note.clip_id = survivor_id;
+                            note.start_beat += offset;
+                        }
+                    }
+                }
+                self.clips.retain(|c| !delete_ids.contains(&c.id));
+                if let Some(c) = self.find_clip_mut(survivor_id) {
+                    c.start_beat = earliest;
+                    c.duration_beats = latest_end - earliest;
+                }
+            }
+            Action::SetClipColor { clip_id, color } => {
+                if let Some(c) = self.find_clip_mut(clip_id) {
+                    c.color = color;
+                }
+            }
+            Action::TrimClipStart { clip_id, new_start } => {
+                let Some(c) = self.clips.iter().find(|c| c.id == clip_id).cloned() else { return };
+                let clip_end = c.start_beat + c.duration_beats;
+                if new_start >= 0.0 && new_start < clip_end {
+                    if let Some(clip) = self.find_clip_mut(clip_id) {
+                        let trimmed = new_start - c.start_beat;
+                        clip.duration_beats -= trimmed;
+                        clip.start_beat = new_start;
+                    }
+                }
+            }
+            Action::TrimClipEnd { clip_id, new_end } => {
+                let Some(c) = self.clips.iter().find(|c| c.id == clip_id).cloned() else { return };
+                if new_end > c.start_beat {
+                    if let Some(clip) = self.find_clip_mut(clip_id) {
+                        clip.duration_beats = new_end - c.start_beat;
+                    }
+                }
+            }
+            Action::SetClipPitchF32 { clip_id, semitones } => {
+                if let Some(c) = self.find_clip_mut(clip_id) {
+                    c.pitch_shift_f32 = semitones.clamp(-24.0, 24.0);
+                }
+            }
+            Action::SetClipGainDb { clip_id, gain_db } => {
+                if let Some(c) = self.find_clip_mut(clip_id) {
+                    let clamped_db = gain_db.clamp(-60.0, 12.0);
+                    c.gain = 10f32.powf(clamped_db / 20.0);
                 }
             }
             _ => {}
@@ -397,5 +474,150 @@ mod tests {
         let mut app = fresh();
         // Should not panic
         app.apply(Action::InvalidatePeakCache { clip_id: 9999 });
+    }
+
+    // ── New clip operation tests ───────────────────────────────────────────────
+
+    #[test]
+    fn duplicate_clip_appears_at_correct_position() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 4.0, duration_beats: 8.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::DuplicateClip { clip_id: cid });
+        assert_eq!(app.clips.len(), 2);
+        let dup = app.clips.iter().find(|c| c.id != cid).unwrap();
+        assert!((dup.start_beat - 12.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn duplicate_clip_has_new_id() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::DuplicateClip { clip_id: cid });
+        assert_eq!(app.clips.len(), 2);
+        assert_ne!(app.clips[0].id, app.clips[1].id);
+    }
+
+    #[test]
+    fn consolidate_clips() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "a".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        app.apply(Action::AddClip { track_id: tid, name: "b".into(), kind: ClipKind::Audio, start_beat: 6.0, duration_beats: 4.0 });
+        let ids: Vec<usize> = app.clips.iter().map(|c| c.id).collect();
+        app.apply(Action::ConsolidateClips { clip_ids: ids });
+        assert_eq!(app.clips.len(), 1);
+        assert_eq!(app.clips[0].duration_beats, 10.0);
+    }
+
+    #[test]
+    fn set_clip_color() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::SetClipColor { clip_id: cid, color: "#FF5500".to_string() });
+        assert_eq!(app.clips[0].color, "#FF5500");
+    }
+
+    #[test]
+    fn trim_clip_start() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 8.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::TrimClipStart { clip_id: cid, new_start: 2.0 });
+        assert!((app.clips[0].start_beat - 2.0).abs() < 0.001);
+        assert!((app.clips[0].duration_beats - 6.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn trim_clip_start_bounds_check_past_end() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        // new_start past end should be ignored
+        app.apply(Action::TrimClipStart { clip_id: cid, new_start: 10.0 });
+        assert!((app.clips[0].start_beat - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn trim_clip_end() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 8.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::TrimClipEnd { clip_id: cid, new_end: 6.0 });
+        assert!((app.clips[0].duration_beats - 6.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn trim_clip_end_bounds_check_before_start() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 4.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        // new_end before clip start should be ignored
+        app.apply(Action::TrimClipEnd { clip_id: cid, new_end: 2.0 });
+        assert!((app.clips[0].duration_beats - 4.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_clip_pitch_f32_clamp() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::SetClipPitchF32 { clip_id: cid, semitones: 30.0 });
+        assert_eq!(app.clips[0].pitch_shift_f32, 24.0);
+        app.apply(Action::SetClipPitchF32 { clip_id: cid, semitones: -30.0 });
+        assert_eq!(app.clips[0].pitch_shift_f32, -24.0);
+    }
+
+    #[test]
+    fn set_clip_gain_db_conversion() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        // 0 dB = unity gain
+        app.apply(Action::SetClipGainDb { clip_id: cid, gain_db: 0.0 });
+        assert!((app.clips[0].gain - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn set_clip_gain_db_clamp() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        // Above max (+12 dB) should clamp
+        app.apply(Action::SetClipGainDb { clip_id: cid, gain_db: 100.0 });
+        let expected_max = 10f32.powf(12.0 / 20.0);
+        assert!((app.clips[0].gain - expected_max).abs() < 0.01);
+    }
+
+    #[test]
+    fn clip_pitch_shift_f32_default() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "c".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        assert_eq!(app.clips[0].pitch_shift_f32, 0.0);
     }
 }

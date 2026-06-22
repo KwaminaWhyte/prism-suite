@@ -29,6 +29,7 @@ use prism_ui::{colors, font_size};
 pub struct Drift {
     pub app: App,
     focus: FocusHandle,
+    last_tick: Option<std::time::Instant>,
 }
 
 impl Focusable for Drift {
@@ -44,12 +45,12 @@ impl Drift {
         if m.platform && !m.alt && !m.control {
             match ks.key.as_str() {
                 "z" if m.shift => {
-                    // Redo (future: wire to history)
+                    self.app.apply(Action::Redo);
                     cx.notify();
                     return;
                 }
                 "z" => {
-                    // Undo (future: wire to history)
+                    self.app.apply(Action::Undo);
                     cx.notify();
                     return;
                 }
@@ -66,6 +67,12 @@ impl Drift {
                         self.app.apply(Action::Play);
                     }
                     cx.notify();
+                }
+                "delete" | "backspace" => {
+                    if let Some(lid) = self.app.active_layer {
+                        self.app.apply(Action::DeleteLayer(lid));
+                        cx.notify();
+                    }
                 }
                 "left" => {
                     self.app.apply(Action::StepBackward);
@@ -91,6 +98,29 @@ impl Drift {
 
 impl Render for Drift {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // ── Transport tick ────────────────────────────────────────────────────
+        if self.app.playing {
+            let now = std::time::Instant::now();
+            if let Some(last) = self.last_tick {
+                let elapsed = now.duration_since(last).as_secs_f32();
+                let fps = self.app.document.fps as f32;
+                let frames = (elapsed * fps) as usize;
+                if frames > 0 {
+                    let max_frame = self.app.document.duration_frames.saturating_sub(1);
+                    let new_frame = self.app.current_frame + frames;
+                    if new_frame >= max_frame {
+                        self.app.current_frame = 0; // loop back
+                    } else {
+                        self.app.current_frame = new_frame;
+                    }
+                }
+            }
+            self.last_tick = Some(now);
+            cx.notify();
+        } else {
+            self.last_tick = None;
+        }
+
         let has_layers = !self.app.layers.is_empty();
         let stage_w = self.app.document.width as f32 * 0.5;
         let stage_h = self.app.document.height as f32 * 0.5;
@@ -567,7 +597,7 @@ fn main() {
                     let app = App::new();
                     let focus = cx.focus_handle();
                     window.focus(&focus);
-                    Drift { app, focus }
+                    Drift { app, focus, last_tick: None }
                 })
             },
         )

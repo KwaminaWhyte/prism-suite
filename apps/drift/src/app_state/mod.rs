@@ -63,6 +63,8 @@ pub mod drawing_tools;
 pub mod nested_timeline;
 // Batch 8: ONNX inference stubs
 pub mod onnx_inference;
+// Batch 8: Lottie builder, media export queue, JS runtime, web publish, CRDT
+pub mod export_web;
 
 // Re-exports so callers can use `app_state::{App, Action, ...}` directly.
 pub use document::{DriftDocument, GridConfig, RulerConfig, RulerUnit};
@@ -105,6 +107,11 @@ pub use nested_timeline::{NestedTimeline, NestedLayer, NestedKeyframe};
 pub use onnx_inference::{
     OnnxJobStatus, DriftOnnxModel, OnnxModelStatus, DriftOnnxModelEntry,
     AnimateDiffJob, FilmRifeJob, PhonemeDetectJob, StyleTransferJob, AiBgGenJob, AiScriptJob,
+pub use export_web::{
+    LottieJsonBuilder, LottieImportSession, LottieImportStatus,
+    MediaExportFormat, MediaExportStatus, MediaExportJob,
+    JsRuntimeConfig, WebPublishJob, WebPublishStatus,
+    WsLivePreviewConfig, CollabSession, CollabStatus,
 };
 
 // Tool enum and Action enum live in their own file.
@@ -495,6 +502,44 @@ pub enum Action {
     AddSyncGroup { name: String, layer_ids: Vec<usize> },
     RemoveSyncGroup { group_id: usize },
     SetSyncGroupLayers { group_id: usize, layer_ids: Vec<usize> },
+    // Batch 8 — Lottie JSON builder
+    BuildLottieJson { scene_id: usize, output_path: String },
+
+    // Batch 8 — Lottie import
+    StartLottieImport { source_path: String },
+    CompleteLottieImport { session_id: usize, layers_created: usize },
+    FailLottieImport { session_id: usize, error: String },
+
+    // Batch 8 — Media export queue
+    QueueMediaExport {
+        format: MediaExportFormat,
+        output_path: String,
+        fps: f32,
+        start_frame: usize,
+        end_frame: usize,
+        scale: f32,
+    },
+    StartMediaExport { job_id: usize },
+    UpdateMediaExportProgress { job_id: usize, progress: f32 },
+    CompleteMediaExport { job_id: usize },
+    FailMediaExport { job_id: usize, error: String },
+
+    // Batch 8 — JS runtime
+    SetJsRuntime { enabled: bool, bundle_path: String, auto_reload: bool },
+
+    // Batch 8 — Web publish
+    StartWebPublish { output_dir: String, include_player: bool, minify: bool },
+    CompleteWebPublish { job_id: usize },
+
+    // Batch 8 — WebSocket live preview
+    SetWsLivePreview { enabled: bool, port: u16 },
+    SetWsClientCount { count: usize },
+
+    // Batch 8 — CRDT collab
+    StartCollabSession { room_id: String },
+    CollabSessionConnected { peer_count: usize },
+    StopCollabSession,
+
     // Tool selection
     SetActiveTool(DriftTool),
 
@@ -813,6 +858,30 @@ pub struct App {
     pub next_bg_gen_id: usize,
     pub ai_script_jobs: Vec<AiScriptJob>,
     pub next_ai_script_id: usize,
+    // Batch 8: Lottie JSON builder
+    pub lottie_builds: Vec<LottieJsonBuilder>,
+    pub next_lottie_build_id: usize,
+
+    // Batch 8: Lottie import sessions
+    pub lottie_imports: Vec<LottieImportSession>,
+    pub next_lottie_import_id: usize,
+
+    // Batch 8: Media export queue
+    pub media_export_jobs: Vec<MediaExportJob>,
+    pub next_media_export_id: usize,
+
+    // Batch 8: JS runtime bridge
+    pub js_runtime: JsRuntimeConfig,
+
+    // Batch 8: Web publish jobs
+    pub web_publish_jobs: Vec<WebPublishJob>,
+    pub next_web_publish_id: usize,
+
+    // Batch 8: WebSocket live preview
+    pub ws_live_preview: WsLivePreviewConfig,
+
+    // Batch 8: CRDT collaboration session
+    pub collab_session: CollabSession,
 }
 
 impl App {
@@ -1021,6 +1090,18 @@ impl App {
             next_bg_gen_id: 1,
             ai_script_jobs: Vec::new(),
             next_ai_script_id: 1,
+            // Batch 8: Lottie / export / web / collab
+            lottie_builds: Vec::new(),
+            next_lottie_build_id: 1,
+            lottie_imports: Vec::new(),
+            next_lottie_import_id: 1,
+            media_export_jobs: Vec::new(),
+            next_media_export_id: 1,
+            js_runtime: JsRuntimeConfig::default(),
+            web_publish_jobs: Vec::new(),
+            next_web_publish_id: 1,
+            ws_live_preview: WsLivePreviewConfig::default(),
+            collab_session: CollabSession::default(),
         };
         app.seed_easing_curves();
         app
@@ -1448,6 +1529,24 @@ impl App {
             | Action::CompleteAiBgGen { .. }
             | Action::QueueAiScript { .. }
             | Action::CompleteAiScript { .. } => self.apply_onnx_inference(&action),
+            // Batch 8: Lottie / export / web / collab
+            Action::BuildLottieJson { .. }
+            | Action::StartLottieImport { .. }
+            | Action::CompleteLottieImport { .. }
+            | Action::FailLottieImport { .. }
+            | Action::QueueMediaExport { .. }
+            | Action::StartMediaExport { .. }
+            | Action::UpdateMediaExportProgress { .. }
+            | Action::CompleteMediaExport { .. }
+            | Action::FailMediaExport { .. }
+            | Action::SetJsRuntime { .. }
+            | Action::StartWebPublish { .. }
+            | Action::CompleteWebPublish { .. }
+            | Action::SetWsLivePreview { .. }
+            | Action::SetWsClientCount { .. }
+            | Action::StartCollabSession { .. }
+            | Action::CollabSessionConnected { .. }
+            | Action::StopCollabSession => self.apply_export_web(&action),
 
             // Tool selection
             Action::SetActiveTool(t) => self.active_tool = *t,

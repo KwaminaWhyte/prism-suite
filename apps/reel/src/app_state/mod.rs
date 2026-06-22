@@ -28,6 +28,11 @@ mod multicam;
 mod proxy;
 pub mod timeline;
 
+// --- Batch 5 modules ---------------------------------------------------------
+pub mod reel_project;
+mod apply_batch5;
+#[cfg(test)] mod tests_batch5;
+
 // --- Domain trait imports (used in apply dispatcher) -------------------------
 
 use audio::AppAudioExt;
@@ -40,6 +45,7 @@ use media::AppMediaExt;
 use multicam::AppMulticamExt;
 use proxy::AppProxyExt;
 use timeline::AppTimelineExt;
+use apply_batch5::AppBatch5Ext;
 
 // --- Public re-exports -------------------------------------------------------
 
@@ -88,9 +94,10 @@ pub use proxy::{ClipProxy, ProxyFormat, ProxySettings};
 // Timeline domain — all the big domain types + constants defined there
 pub use timeline::{
     AudioSource, Bin, BinClip, BinClipType, Clip, ClipBlendMode, ClipEffect, ClipEffectKind,
-    ClipSource, ColorGrade, DIP_BLACK, DIP_WHITE, HslSecondaryGrade, MulticamGroup, Project,
-    SceneEditResult, ScopeData, SpeedCurve, Tool, Track, Transition, TransitionKind, VideoSource,
-    WipeDir,
+    ClipSource, ColorGrade, CubeDirection, DIP_BLACK, DIP_WHITE, FilmPattern, HslSecondaryGrade,
+    MulticamGroup, PagePeelDirection, Project, SceneEditResult, ScopeData, SlideDirection,
+    SpeedCurve, SpinDirection, SplitDirection, SwapDirection, Tool, Track, Transition,
+    TransitionKind, VideoSource, WipeDir,
 };
 
 // --- Constants defined here (timeline.rs imports via `super::`) --------------
@@ -799,6 +806,68 @@ pub enum Action {
     AddMediaBrowserEntry(MediaBrowserEntry),
     ToggleMediaBrowserFavorite(String),
     ImportFromMediaBrowser { path: String },
+
+    // --- Batch 5 (new): Lumetri Scopes State ---------------------------------
+    ToggleScopesPanel,
+    SetScopeKind(reel_project::ScopeKind),
+    SetScopeLayout(reel_project::ScopeLayout),
+    SetWaveformType(reel_project::WaveformType),
+    SetParadeType(reel_project::ParadeType),
+    SetVectorscopeType(reel_project::VectorscopeType),
+    SetHistogramChannel(reel_project::HistogramChannel),
+    SetScopeIntensity(f32),
+    SetScopeColorspace(reel_project::ScopeColorspace),
+    SetScopeShowClipping(bool),
+
+    // --- Batch 5 (new): Project Bins -----------------------------------------
+    CreateBin { name: String, parent_id: Option<usize> },
+    RenameBin { bin_id: usize, name: String },
+    DeleteBin { bin_id: usize },
+    SetBinColor { bin_id: usize, color: reel_project::BinColor },
+    ToggleBinExpanded { bin_id: usize },
+    ImportMedia2 { path: String, bin_id: Option<usize> },
+    RemoveMedia { item_id: usize },
+    MoveMediaToBin { item_id: usize, bin_id: Option<usize> },
+    SetMediaLabel { item_id: usize, label: reel_project::BinColor },
+    SetMediaLogNote { item_id: usize, note: String },
+    SetMediaOffline { item_id: usize, offline: bool },
+    RelinkMedia { item_id: usize, new_path: String },
+    SetProjectSearch(String),
+    SetMediaBrowserPath2(String),
+    AttachMediaProxy { item_id: usize, proxy_path: String },
+    DetachMediaProxy { item_id: usize },
+
+    // --- Batch 5 (new): Transitions ------------------------------------------
+    SetTransitionKind { transition_id: usize, kind: TransitionKind },
+    AddWipeTransition { clip_id: usize, direction: timeline::SlideDirection, duration_s: f64 },
+    AddPagePeelTransition { clip_id: usize, direction: timeline::PagePeelDirection },
+    AddZoomTransition { clip_id: usize, grow: bool },
+    AddDipTransition { clip_id: usize, color: String },
+    AddCubeTransition { clip_id: usize, direction: timeline::CubeDirection },
+
+    // --- Batch 5 (new): Export Presets B5 ------------------------------------
+    SelectExportPresetB5 { preset_id: usize },
+    AddCustomExportPresetB5 { preset: reel_project::ExportPresetB5 },
+    DeleteCustomExportPresetB5 { preset_id: usize },
+    DuplicateExportPresetB5 { preset_id: usize },
+    SetExportWidthB5(u32),
+    SetExportHeightB5(u32),
+    SetExportFrameRateB5(f64),
+    SetExportVideoBitrateB5(u32),
+    SetExportAudioBitrateB5(u32),
+    SetExportContainerB5(reel_project::ExportContainer),
+    SetExportVideoCodecB5(reel_project::VideoCodecB5),
+    SetExportAudioCodecB5(reel_project::AudioCodecB5),
+    SetExportTwoPassB5(bool),
+    SetExportHardwareEncodeB5(bool),
+
+    // --- Batch 5 (new): Sequences B5 -----------------------------------------
+    NewSequenceB5 { name: String, width: u32, height: u32, frame_rate: f64 },
+    DuplicateSequenceB5 { sequence_id: usize },
+    DeleteSequenceB5 { sequence_id: usize },
+    SetActiveSequenceB5 { sequence_id: usize },
+    UpdateSequenceSettingsB5 { sequence_id: usize, width: Option<u32>, height: Option<u32>, frame_rate: Option<f64> },
+    NestSequenceB5 { sequence_id: usize, into_sequence_id: usize, at_time_s: f64 },
 }
 
 // --- App struct --------------------------------------------------------------
@@ -1029,6 +1098,27 @@ pub struct App {
 
     // --- Batch 11: MediaBrowser ---
     pub media_browser: MediaBrowser,
+
+    // --- Batch 5 (new): Lumetri Scopes Config --------------------------------
+    pub scopes_config: reel_project::LumetriScopesConfig,
+
+    // --- Batch 5 (new): Project Bins & Media Items ---------------------------
+    pub project_bins: Vec<reel_project::ProjectBin>,
+    pub media_items: Vec<reel_project::MediaItem>,
+    pub next_bin_id: usize,
+    pub next_media_item_id: usize,
+    pub project_search_query: String,
+    pub media_browser_path: String,
+
+    // --- Batch 5 (new): Export Presets B5 ------------------------------------
+    pub export_presets_b5: Vec<reel_project::ExportPresetB5>,
+    pub active_export_preset_b5: Option<usize>,
+    pub next_preset_id: usize,
+
+    // --- Batch 5 (new): Sequences B5 ----------------------------------------
+    pub sequences_b5: Vec<reel_project::SequenceSettingsB5>,
+    pub active_sequence_id: usize,
+    pub next_sequence_id: usize,
 }
 
 impl App {
@@ -1172,6 +1262,32 @@ impl App {
             project_manager_result: None,
             project_manager_open: false,
             media_browser: MediaBrowser::new(),
+            // --- Batch 5 (new) -----------------------------------------------
+            scopes_config: reel_project::LumetriScopesConfig::default(),
+            project_bins: vec![reel_project::ProjectBin {
+                id: 0, name: "Project".into(), parent_id: None,
+                color_label: reel_project::BinColor::None,
+                item_ids: Vec::new(), expanded: true,
+            }],
+            media_items: Vec::new(),
+            next_bin_id: 1,
+            next_media_item_id: 0,
+            project_search_query: String::new(),
+            media_browser_path: String::new(),
+            export_presets_b5: vec![
+                reel_project::ExportPresetB5::youtube_1080p(),
+                reel_project::ExportPresetB5::youtube_4k(),
+                reel_project::ExportPresetB5::twitter(),
+                reel_project::ExportPresetB5::vimeo_1080p(),
+                reel_project::ExportPresetB5::prores_422(),
+                reel_project::ExportPresetB5::gif(),
+                reel_project::ExportPresetB5::mp3_audio(),
+            ],
+            active_export_preset_b5: Some(1),
+            next_preset_id: 8,
+            sequences_b5: vec![reel_project::SequenceSettingsB5::default_1080p(0, "Sequence 01")],
+            active_sequence_id: 0,
+            next_sequence_id: 1,
         }
     }
 
@@ -1447,6 +1563,62 @@ impl App {
             | Action::ToggleProxyPlayback
             | Action::DeleteProxies { .. } => {
                 self.apply_proxy(action);
+            }
+
+            // --- Batch 5 (new) -----------------------------------------------
+            Action::ToggleScopesPanel
+            | Action::SetScopeKind(_)
+            | Action::SetScopeLayout(_)
+            | Action::SetWaveformType(_)
+            | Action::SetParadeType(_)
+            | Action::SetVectorscopeType(_)
+            | Action::SetHistogramChannel(_)
+            | Action::SetScopeIntensity(_)
+            | Action::SetScopeColorspace(_)
+            | Action::SetScopeShowClipping(_)
+            | Action::CreateBin { .. }
+            | Action::RenameBin { .. }
+            | Action::DeleteBin { .. }
+            | Action::SetBinColor { .. }
+            | Action::ToggleBinExpanded { .. }
+            | Action::ImportMedia2 { .. }
+            | Action::RemoveMedia { .. }
+            | Action::MoveMediaToBin { .. }
+            | Action::SetMediaLabel { .. }
+            | Action::SetMediaLogNote { .. }
+            | Action::SetMediaOffline { .. }
+            | Action::RelinkMedia { .. }
+            | Action::SetProjectSearch(_)
+            | Action::SetMediaBrowserPath2(_)
+            | Action::AttachMediaProxy { .. }
+            | Action::DetachMediaProxy { .. }
+            | Action::SetTransitionKind { .. }
+            | Action::AddWipeTransition { .. }
+            | Action::AddPagePeelTransition { .. }
+            | Action::AddZoomTransition { .. }
+            | Action::AddDipTransition { .. }
+            | Action::AddCubeTransition { .. }
+            | Action::SelectExportPresetB5 { .. }
+            | Action::AddCustomExportPresetB5 { .. }
+            | Action::DeleteCustomExportPresetB5 { .. }
+            | Action::DuplicateExportPresetB5 { .. }
+            | Action::SetExportWidthB5(_)
+            | Action::SetExportHeightB5(_)
+            | Action::SetExportFrameRateB5(_)
+            | Action::SetExportVideoBitrateB5(_)
+            | Action::SetExportAudioBitrateB5(_)
+            | Action::SetExportContainerB5(_)
+            | Action::SetExportVideoCodecB5(_)
+            | Action::SetExportAudioCodecB5(_)
+            | Action::SetExportTwoPassB5(_)
+            | Action::SetExportHardwareEncodeB5(_)
+            | Action::NewSequenceB5 { .. }
+            | Action::DuplicateSequenceB5 { .. }
+            | Action::DeleteSequenceB5 { .. }
+            | Action::SetActiveSequenceB5 { .. }
+            | Action::UpdateSequenceSettingsB5 { .. }
+            | Action::NestSequenceB5 { .. } => {
+                self.apply_batch5(action);
             }
 
             // --- Timeline domain (catch-all for remaining actions) ------------

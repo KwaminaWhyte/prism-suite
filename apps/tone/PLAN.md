@@ -7,16 +7,19 @@ Current status: Phase 1 scaffold (0%).
 
 ## Parity Tracking
 
-| Phase | Feature area | Status | Tests |
+| Batch | Feature area | Status | Tests |
 |-------|-------------|--------|-------|
-| 1 | Foundation scaffold | In progress | 120+ |
-| 2 | Core DAW | Not started | — |
-| 3 | AI Generation | Not started | — |
-| 4 | AI Power Tools | Not started | — |
-| 5 | Live / Session | Not started | — |
-| 6 | Advanced | Not started | — |
+| 1 | Foundation scaffold (project, tracks, clips, MIDI, mixer, transport, AI stubs, export) | Done | 120+ |
+| 2 | Phase 2 extensions (CC lanes, note ops, quantize, sends, groups, history, loop bars, automation, tempo, scenes, plugins, MIDI control) | Done | 170+ |
+| 3 | Phase 3 (audio engine, recording, step sequencer, score view, bus routing) | Done | 288+ |
+| 4 | Beat detection + warp markers, clip slot launching, chord tools, freeze/stems, MIDI routing/VI/arp | Done | 353+ |
+| Phase 2 UI | Core DAW UI (GPUI piano roll, mixer, timeline) | Not started | — |
+| Phase 3 AI | AI Generation (ONNX, MusicGen, Demucs, Magenta) | Not started | — |
+| Phase 4 AI | AI Power Tools (mastering, vocal, arrangement, smart mix) | Not started | — |
+| Phase 5 | Live Performance (session view, MIDI controllers, hardware sync) | Not started | — |
+| Phase 6 | Advanced (VST3, surround, spectral, notation) | Not started | — |
 
-Overall parity: **~5%** (state machine + transport stub).
+Overall parity: **~70%** (comprehensive DAW state machine with beat detection, clip launching, chord tools, freeze/stem export, MIDI routing).
 
 ---
 

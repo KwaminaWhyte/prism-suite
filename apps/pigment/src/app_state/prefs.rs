@@ -386,3 +386,104 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+
+// ---------------------------------------------------------------------------
+// Minimal launch-critical persisted prefs (`AppPrefs`).
+//
+// Moved verbatim out of `app_state/mod.rs` (pure mechanical refactor). This is
+// the small window-size + recent-files state that must load cheaply at startup;
+// the richer pane state lives in `PigmentPreferences` above. Re-exported from
+// `mod.rs` so callers still reach it as `crate::app_state::AppPrefs`.
+// ---------------------------------------------------------------------------
+
+// ---- Saveable Preferences ------------------------------------------------
+
+/// Persistent per-user preferences written to
+/// `~/.config/prism/pigment_prefs.json` (XDG config dir on Linux/macOS, or
+/// `%APPDATA%\prism\pigment_prefs.json` on Windows; `dirs::config_dir()` is
+/// used to resolve the path). All fields have sensible defaults so an absent
+/// or partially-written file is safely recoverable.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AppPrefs {
+    /// Last window width in logical pixels (saved on exit, restored on launch).
+    #[serde(default = "default_window_width")]
+    pub window_width: u32,
+    /// Last window height in logical pixels.
+    #[serde(default = "default_window_height")]
+    pub window_height: u32,
+    /// Path of the most-recently saved/opened document.
+    #[serde(default)]
+    pub last_document: Option<std::path::PathBuf>,
+    /// MRU list of recently-opened files (up to 10). May overlap with
+    /// `App::recent_files` which is the in-session list; prefs persists it.
+    #[serde(default)]
+    pub recent_files: Vec<std::path::PathBuf>,
+}
+
+fn default_window_width()  -> u32 { 1600 }
+fn default_window_height() -> u32 { 1000 }
+fn default_spot_heal_radius() -> f32 { 20.0 }
+
+impl Default for AppPrefs {
+    fn default() -> Self {
+        Self {
+            window_width: default_window_width(),
+            window_height: default_window_height(),
+            last_document: None,
+            recent_files: Vec::new(),
+        }
+    }
+}
+
+impl AppPrefs {
+    /// Resolve the preferences file path.
+    /// Priority: `$XDG_CONFIG_HOME/prism/pigment_prefs.json` → `~/.config/prism/…`
+    pub fn path() -> std::path::PathBuf {
+        let base = dirs::config_dir()
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join(".config")
+            });
+        base.join("prism").join("pigment_prefs.json")
+    }
+
+    /// Load from disk. Returns `AppPrefs::default()` on any error so the app
+    /// always starts with sensible values.
+    pub fn load() -> Self {
+        let path = Self::path();
+        match std::fs::read_to_string(&path) {
+            Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
+                log::warn!("prefs parse error ({path:?}): {e} — using defaults");
+                AppPrefs::default()
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppPrefs::default(),
+            Err(e) => {
+                log::warn!("prefs read error ({path:?}): {e} — using defaults");
+                AppPrefs::default()
+            }
+        }
+    }
+
+    /// Persist to disk. Creates parent directories if needed. Logs on failure
+    /// (non-fatal — a prefs write failure must never crash the app).
+    pub fn save(&self) {
+        let path = Self::path();
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                log::warn!("prefs dir create failed ({parent:?}): {e}");
+                return;
+            }
+        }
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(&path, json) {
+                    log::warn!("prefs write failed ({path:?}): {e}");
+                }
+            }
+            Err(e) => log::warn!("prefs serialize failed: {e}"),
+        }
+    }
+}

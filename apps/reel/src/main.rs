@@ -26,7 +26,9 @@ mod app_state;
 mod canvas_host;
 mod export;
 mod export_codecs;
+mod export_window;
 mod panels;
+mod preferences_window;
 mod program_frame;
 mod waveform;
 mod welcome;
@@ -112,6 +114,44 @@ impl Reel {
             status: export::JobStatus::Rendering { done: 0, total },
         });
         true
+    }
+
+    /// Open the floating Preferences window. It receives a `WeakEntity<Reel>`
+    /// so its controls dispatch Actions back into this view and read its state.
+    /// Like every child window it uses `WindowKind::Floating` (CLAUDE.md).
+    fn open_preferences_window(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let bounds = Bounds::centered(None, size(px(440.0), px(560.0)), cx);
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus: FocusHandle = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| preferences_window::PreferencesView::new(focus, weak))
+            },
+        );
+    }
+
+    /// Open the floating Export Settings (codec matrix) window.
+    fn open_export_window(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let bounds = Bounds::centered(None, size(px(720.0), px(560.0)), cx);
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus: FocusHandle = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| export_window::ExportView::new(focus, weak))
+            },
+        );
     }
 }
 
@@ -249,6 +289,12 @@ impl Render for Reel {
         } else {
             None
         };
+        let graphics_panel = if app.mogr_library_open {
+            Some(panels::graphics::render(app, cx))
+        } else {
+            None
+        };
+        let render_bar = panels::render_bar::render(app, cx);
         let tracks = panels::tracks::render(app, cx);
         let timeline = panels::timeline::render(app, cx);
 
@@ -459,9 +505,12 @@ impl Render for Reel {
                             .children(captions_panel)
                             .children(markers_panel)
                             .children(export_presets_panel)
+                            .children(graphics_panel)
                             .child(tracks),
                     ),
             )
+            // Render-status + proxy bar (full width, above the timeline).
+            .child(render_bar)
             // Bottom timeline placeholder strip (full width).
             .child(
                 div()

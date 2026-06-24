@@ -127,6 +127,53 @@ pub fn render(
         move |root, _ev, _win, cx| { root.app.apply(Action::ToggleDualViewer); cx.notify(); }
     );
 
+    // Essential Graphics (MOGRT) library toggle.
+    let graphics_on = app.mogr_library_open;
+    let graphics_btn = div()
+        .id("graphics-btn")
+        .px_2().py_1()
+        .rounded_md()
+        .flex().items_center()
+        .bg(if graphics_on { colors::accent() } else { colors::surface_overlay() })
+        .text_color(colors::text_primary())
+        .text_size(px(10.0))
+        .cursor_pointer()
+        .on_click(cx.listener(move |root, _ev, _win, cx| {
+            root.app.apply(Action::ToggleMogrLibrary);
+            cx.notify();
+        }))
+        .child("Graphics");
+
+    // Open the floating codec-matrix Export Settings window.
+    let export_settings_btn = div()
+        .id("export-settings-btn")
+        .px_2().py_1()
+        .rounded_md()
+        .flex().items_center()
+        .bg(colors::surface_overlay())
+        .text_color(colors::text_primary())
+        .text_size(px(10.0))
+        .cursor_pointer()
+        .on_click(cx.listener(move |root, _ev, _win, cx| {
+            root.open_export_window(cx);
+        }))
+        .child("Export\u{2026}");
+
+    // Open the floating Preferences window.
+    let prefs_btn = div()
+        .id("prefs-btn")
+        .px_2().py_1()
+        .rounded_md()
+        .flex().items_center()
+        .bg(colors::surface_overlay())
+        .text_color(colors::text_primary())
+        .text_size(px(10.0))
+        .cursor_pointer()
+        .on_click(cx.listener(move |root, _ev, _win, cx| {
+            root.open_preferences_window(cx);
+        }))
+        .child("Prefs");
+
     let exporting = export_label.is_some();
     let default_name = format!("{}.mp4", crate::export::sanitize_stem(&app.project.name));
     let export = div()
@@ -227,16 +274,22 @@ pub fn render(
         .child(sep())
         .child(import)
         .child(sep())
+        // Workspaces switcher (panel-layout presets).
+        .child(crate::panels::workspaces::render(app, cx))
+        .child(sep())
         .child(mixer_btn)
         .child(scopes_btn)
         .child(dual_btn)
         .child(bins_btn)
+        .child(graphics_btn)
         .child(sep())
         .child(seq_settings_btn)
         .child(cc_btn)
         .child(markers_btn)
         .child(sep())
         .child(export_presets_btn)
+        .child(export_settings_btn)
+        .child(prefs_btn)
         .child(sep())
         .children(fmt_btns)
         .child(sep())

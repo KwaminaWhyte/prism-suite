@@ -54,15 +54,18 @@ pub mod captions;
 pub mod color_wheels;
 pub mod curves;
 pub mod export_presets;
+pub mod graphics;
 pub mod inspector;
 pub mod markers;
 pub mod mixer;
+pub mod render_bar;
 pub mod scopes;
 pub mod sequence_settings;
 pub mod timeline;
 pub mod toolbar;
 pub mod tracks;
 pub mod viewer;
+pub mod workspaces;
 
 use gpui::{div, px, IntoElement, ParentElement, Styled};
 use prism_ui::colors;

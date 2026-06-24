@@ -229,6 +229,41 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                     cx.notify();
                 })),
         )
+        .child(div().w(px(1.0)).h(px(18.0)).bg(colors::surface_border()))
+        // Wave 4 panel toggles: Expression editor, Output modules, Preferences, Keying & Lights.
+        .child(toggle_btn(cx, "expr-editor-btn", "Expr", app.expr_editor_open,
+            |root| root.app.expr_editor_open = !root.app.expr_editor_open))
+        .child(toggle_btn(cx, "output-module-btn", "Output", app.output_module_open,
+            |root| root.app.output_module_open = !root.app.output_module_open))
+        .child(toggle_btn(cx, "prefs-btn", "Prefs", app.preferences_open,
+            |root| root.app.apply(Action::TogglePreferences)))
+        .child(toggle_btn(cx, "keylight-btn", "Key/Light", app.keylight_open,
+            |root| root.app.keylight_open = !root.app.keylight_open))
+}
+
+/// A compact text toolbar toggle that highlights when `active` and runs `toggle`
+/// on the root view (then requests a redraw).
+fn toggle_btn(
+    cx: &mut Context<Pulse>,
+    id: &'static str,
+    label: &'static str,
+    active: bool,
+    toggle: fn(&mut Pulse),
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .px_2().h(px(26.0))
+        .flex().items_center()
+        .rounded(px(prism_ui::radius::MD))
+        .bg(if active { rgb(0x37c8c0u32) } else { colors::surface_raised() })
+        .text_color(if active { rgb(0x1a1a2eu32) } else { colors::text_secondary() })
+        .text_size(px(10.0))
+        .cursor_pointer()
+        .child(label)
+        .on_click(cx.listener(move |root, _ev, _win, cx| {
+            toggle(root);
+            cx.notify();
+        }))
 }
 
 /// A simple inline progress bar for the synchronous MP4 encode (0..100%).

@@ -168,6 +168,20 @@ impl Render for Pulse {
         let render_queue = panels::render_queue::render(app, cx);
         let comp_settings = panels::comp_settings::render(app, cx);
         let timeline = panels::timeline::render(app, cx);
+        // Wave 4 panels — built only when their toggle is on, so they cost
+        // nothing when hidden and stack into the right dock when shown.
+        let expr_editor = app
+            .expr_editor_open
+            .then(|| panels::expr_editor::render(app, cx).into_any_element());
+        let output_module = app
+            .output_module_open
+            .then(|| panels::output_module::render(app, cx).into_any_element());
+        let preferences = app
+            .preferences_open
+            .then(|| panels::preferences::render(app, cx).into_any_element());
+        let keying_lights = app
+            .keylight_open
+            .then(|| panels::keying_lights::render(app, cx).into_any_element());
 
         div()
             .track_focus(&self.focus)
@@ -258,6 +272,11 @@ impl Render for Pulse {
                             .flex()
                             .flex_col()
                             .overflow_y_scroll()
+                            // Wave 4 floating-config panels (shown when toggled).
+                            .children(expr_editor)
+                            .children(output_module)
+                            .children(preferences)
+                            .children(keying_lights)
                             .child(comp_settings)
                             .child(properties)
                             .child(effects)

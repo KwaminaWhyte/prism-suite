@@ -489,6 +489,16 @@ pub struct App {
     pub trim_paths: TrimPathsMap,
     /// The current render-output spec (codec / fps / quality).
     pub render_spec: RenderSpec,
+
+    // --- Wave 4 panel UI: visibility toggles for the new floating panels ---
+    /// Output Module dialog (render-output config) open.
+    pub output_module_open: bool,
+    /// Expression editor pop-out open.
+    pub expr_editor_open: bool,
+    /// The property name the expression editor is bound to on the selected layer.
+    pub expr_editor_prop: String,
+    /// Keying + Lights inspector section open.
+    pub keylight_open: bool,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -645,6 +655,10 @@ impl App {
             repeaters: HashMap::new(),
             trim_paths: HashMap::new(),
             render_spec: RenderSpec::default(),
+            output_module_open: false,
+            expr_editor_open: false,
+            expr_editor_prop: "X".to_string(),
+            keylight_open: false,
         }
     }
 

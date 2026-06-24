@@ -10,7 +10,7 @@ pub use components::{
     badge, card, divider, icon, icon_colored, label, section_header, tool_button,
 };
 pub use asset_source::PrismAssets;
-pub use text_input::{TextField, TextInputState};
+pub use text_input::{TextArea, TextField, TextInputState};
 
 /// Initialize prism-ui global state.
 /// Call this inside `Application::run` before opening any window.

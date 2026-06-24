@@ -243,6 +243,138 @@ impl TextInputState {
         self.after_move(extend);
     }
 
+    // ── Multi-line API (additive) ─────────────────────────────────────────
+    //
+    // These helpers treat the buffer as a sequence of lines split on `'\n'`
+    // (the `'\n'` itself is *not* part of any line). They are used by the
+    // multi-line `TextArea` view and leave all single-line behavior above
+    // untouched. Every offset they produce lands on a UTF-8 char boundary.
+
+    /// Byte offset of the start of the line containing `byte`.
+    ///
+    /// This is one past the previous `'\n'`, or 0 when `byte` is on the first
+    /// line. `byte` is clamped into `0..=text.len()`.
+    pub fn line_start(&self, byte: usize) -> usize {
+        let byte = byte.min(self.text.len());
+        match self.text[..byte].rfind('\n') {
+            Some(nl) => nl + 1,
+            None => 0,
+        }
+    }
+
+    /// Byte offset of the end of the line containing `byte` — i.e. the offset
+    /// of the next `'\n'`, or `text.len()` when this is the last line. The
+    /// returned offset points *at* the newline, never past it.
+    pub fn line_end(&self, byte: usize) -> usize {
+        let byte = byte.min(self.text.len());
+        match self.text[byte..].find('\n') {
+            Some(rel) => byte + rel,
+            None => self.text.len(),
+        }
+    }
+
+    /// Number of lines in the buffer (always ≥ 1). Equals one plus the count
+    /// of `'\n'` characters; a trailing newline yields a final empty line.
+    pub fn line_count(&self) -> usize {
+        self.text.bytes().filter(|&b| b == b'\n').count() + 1
+    }
+
+    /// Iterate the buffer's lines (the text between newlines, excluding the
+    /// `'\n'`s). A trailing newline yields a final empty `""` line, matching
+    /// the semantics of [`line_count`](Self::line_count) and the renderer.
+    pub fn lines(&self) -> impl Iterator<Item = &str> {
+        // `str::split('\n')` already yields a trailing "" after a final '\n'
+        // and a single "" for an empty buffer — exactly what we want.
+        self.text.split('\n')
+    }
+
+    /// The visual column of the cursor: the number of *chars* (not bytes)
+    /// between the start of the cursor's line and the cursor itself.
+    pub fn column(&self) -> usize {
+        let ls = self.line_start(self.cursor);
+        self.text[ls..self.cursor].chars().count()
+    }
+
+    /// Move the cursor to the start of its current line. Distinct from
+    /// [`home`](Self::home) (which goes to offset 0 of the whole buffer) so
+    /// that single-line callers keep their existing `home`/`end` behavior.
+    pub fn line_home(&mut self, extend: bool) {
+        self.before_move(extend);
+        self.cursor = self.line_start(self.cursor);
+        self.after_move(extend);
+    }
+
+    /// Move the cursor to the end of its current line (before any `'\n'`).
+    pub fn line_end_move(&mut self, extend: bool) {
+        self.before_move(extend);
+        self.cursor = self.line_end(self.cursor);
+        self.after_move(extend);
+    }
+
+    /// Insert a newline at the cursor, splitting the current line. Identical to
+    /// `insert_char('\n')`; provided as an explicit, self-documenting helper
+    /// for the multi-line editor.
+    pub fn insert_newline(&mut self) {
+        self.insert_char('\n');
+    }
+
+    /// Move the cursor up one visual line, preserving its column (char count
+    /// from the line start), clamped to the target line's length.
+    ///
+    /// At the first line this is a no-op for the line position, but it still
+    /// honors `extend` (collapsing or extending the selection as appropriate).
+    pub fn move_up(&mut self, extend: bool) {
+        self.before_move(extend);
+        let col = self.column();
+        let cur_start = self.line_start(self.cursor);
+        if cur_start == 0 {
+            // Already on the first line: clamp to its start (mirrors editors
+            // where Up on line 1 moves to the very beginning).
+            self.cursor = 0;
+        } else {
+            // The previous line ends at the '\n' just before our line start.
+            let prev_end = cur_start - 1; // offset of that '\n'
+            let prev_start = self.line_start(prev_end);
+            self.cursor = self.offset_for_column(prev_start, prev_end, col);
+        }
+        self.after_move(extend);
+    }
+
+    /// Move the cursor down one visual line, preserving its column (char count
+    /// from the line start), clamped to the target line's length.
+    ///
+    /// At the last line this clamps the cursor to the line's end while still
+    /// honoring `extend`.
+    pub fn move_down(&mut self, extend: bool) {
+        self.before_move(extend);
+        let col = self.column();
+        let cur_end = self.line_end(self.cursor);
+        if cur_end >= self.text.len() {
+            // Already on the last line: clamp to its end.
+            self.cursor = self.text.len();
+        } else {
+            // The next line starts just past the '\n' at `cur_end`.
+            let next_start = cur_end + 1;
+            let next_end = self.line_end(next_start);
+            self.cursor = self.offset_for_column(next_start, next_end, col);
+        }
+        self.after_move(extend);
+    }
+
+    /// Resolve the byte offset for the `col`-th char within the line
+    /// `[start, end]`, clamped to the line's length. `start` and `end` must be
+    /// char boundaries delimiting one line (no interior `'\n'`).
+    fn offset_for_column(&self, start: usize, end: usize, col: usize) -> usize {
+        let mut offset = start;
+        for _ in 0..col {
+            if offset >= end {
+                return end;
+            }
+            offset = self.next_boundary(offset);
+        }
+        offset.min(end)
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────
 
     /// Called before a motion: if extending and no anchor is set, drop an
@@ -365,376 +497,9 @@ impl TextInputState {
     }
 }
 
+/// Unit tests live in a sibling file (`state_tests.rs`) to keep this source
+/// file under the ~1000-line limit, while remaining the `tests` child module
+/// of `state` so they retain access to private items via `use super::*`.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── Construction ──────────────────────────────────────────────────────
-
-    #[test]
-    fn new_is_empty() {
-        let s = TextInputState::new();
-        assert_eq!(s.text(), "");
-        assert_eq!(s.cursor(), 0);
-        assert!(s.is_empty());
-        assert!(!s.has_selection());
-    }
-
-    #[test]
-    fn with_text_places_cursor_at_end() {
-        let s = TextInputState::with_text("hello");
-        assert_eq!(s.text(), "hello");
-        assert_eq!(s.cursor(), 5);
-        assert!(!s.has_selection());
-    }
-
-    // ── Insert ────────────────────────────────────────────────────────────
-
-    #[test]
-    fn insert_char_at_end() {
-        let mut s = TextInputState::with_text("ab");
-        s.insert_char('c');
-        assert_eq!(s.text(), "abc");
-        assert_eq!(s.cursor(), 3);
-    }
-
-    #[test]
-    fn insert_char_in_middle() {
-        let mut s = TextInputState::with_text("ac");
-        s.move_left(false); // cursor between a and c
-        s.insert_char('b');
-        assert_eq!(s.text(), "abc");
-        assert_eq!(s.cursor(), 2);
-    }
-
-    #[test]
-    fn insert_str_appends() {
-        let mut s = TextInputState::new();
-        s.insert_str("hello");
-        assert_eq!(s.text(), "hello");
-        assert_eq!(s.cursor(), 5);
-    }
-
-    #[test]
-    fn insert_replaces_selection() {
-        let mut s = TextInputState::with_text("hello world");
-        s.home(false);
-        for _ in 0..5 {
-            s.move_right(true); // select exactly "hello"
-        }
-        assert_eq!(s.selected_text(), Some("hello"));
-        s.insert_str("hi");
-        assert_eq!(s.text(), "hi world");
-        assert_eq!(s.cursor(), 2);
-        assert!(!s.has_selection());
-    }
-
-    // ── Backspace ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn backspace_at_end() {
-        let mut s = TextInputState::with_text("abc");
-        s.backspace();
-        assert_eq!(s.text(), "ab");
-        assert_eq!(s.cursor(), 2);
-    }
-
-    #[test]
-    fn backspace_in_middle() {
-        let mut s = TextInputState::with_text("abc");
-        s.move_left(false); // between b and c
-        s.backspace(); // remove b
-        assert_eq!(s.text(), "ac");
-        assert_eq!(s.cursor(), 1);
-    }
-
-    #[test]
-    fn backspace_at_start_is_noop() {
-        let mut s = TextInputState::with_text("abc");
-        s.home(false);
-        s.backspace();
-        assert_eq!(s.text(), "abc");
-        assert_eq!(s.cursor(), 0);
-    }
-
-    #[test]
-    fn backspace_deletes_selection() {
-        let mut s = TextInputState::with_text("abcdef");
-        s.home(false);
-        s.move_right(true);
-        s.move_right(true);
-        s.move_right(true); // select "abc"
-        s.backspace();
-        assert_eq!(s.text(), "def");
-        assert_eq!(s.cursor(), 0);
-    }
-
-    // ── Delete forward ──────────────────────────────────────────────────────
-
-    #[test]
-    fn delete_forward_at_start() {
-        let mut s = TextInputState::with_text("abc");
-        s.home(false);
-        s.delete_forward();
-        assert_eq!(s.text(), "bc");
-        assert_eq!(s.cursor(), 0);
-    }
-
-    #[test]
-    fn delete_forward_at_end_is_noop() {
-        let mut s = TextInputState::with_text("abc");
-        s.delete_forward();
-        assert_eq!(s.text(), "abc");
-        assert_eq!(s.cursor(), 3);
-    }
-
-    #[test]
-    fn delete_forward_deletes_selection() {
-        let mut s = TextInputState::with_text("abcdef");
-        s.home(false);
-        s.end(true); // select all via shift-end
-        s.delete_forward();
-        assert_eq!(s.text(), "");
-    }
-
-    // ── Cursor motion ───────────────────────────────────────────────────────
-
-    #[test]
-    fn move_left_right_clamp() {
-        let mut s = TextInputState::with_text("ab");
-        s.home(false);
-        s.move_left(false); // clamp at 0
-        assert_eq!(s.cursor(), 0);
-        s.end(false);
-        s.move_right(false); // clamp at len
-        assert_eq!(s.cursor(), 2);
-    }
-
-    #[test]
-    fn move_left_collapses_selection_to_start() {
-        let mut s = TextInputState::with_text("abcdef");
-        s.home(false);
-        s.move_right(true);
-        s.move_right(true);
-        s.move_right(true); // select "abc", cursor at 3
-        s.move_left(false); // should collapse to start (0), not move to 2
-        assert_eq!(s.cursor(), 0);
-        assert!(!s.has_selection());
-    }
-
-    #[test]
-    fn move_right_collapses_selection_to_end() {
-        let mut s = TextInputState::with_text("abcdef");
-        s.home(false);
-        s.move_right(true);
-        s.move_right(true); // select "ab", cursor at 2
-        s.move_right(false); // collapse to end (2)
-        assert_eq!(s.cursor(), 2);
-        assert!(!s.has_selection());
-    }
-
-    #[test]
-    fn home_and_end() {
-        let mut s = TextInputState::with_text("hello");
-        s.home(false);
-        assert_eq!(s.cursor(), 0);
-        s.end(false);
-        assert_eq!(s.cursor(), 5);
-    }
-
-    // ── Word motion ───────────────────────────────────────────────────────
-
-    #[test]
-    fn word_right_across_spaces() {
-        let mut s = TextInputState::with_text("foo bar baz");
-        s.home(false);
-        s.move_word_right(false);
-        assert_eq!(s.cursor(), 4); // start of "bar"
-        s.move_word_right(false);
-        assert_eq!(s.cursor(), 8); // start of "baz"
-        s.move_word_right(false);
-        assert_eq!(s.cursor(), 11); // end of buffer
-    }
-
-    #[test]
-    fn word_left_across_spaces() {
-        let mut s = TextInputState::with_text("foo bar baz");
-        s.end(false);
-        s.move_word_left(false);
-        assert_eq!(s.cursor(), 8); // start of "baz"
-        s.move_word_left(false);
-        assert_eq!(s.cursor(), 4); // start of "bar"
-        s.move_word_left(false);
-        assert_eq!(s.cursor(), 0); // start of "foo"
-    }
-
-    #[test]
-    fn word_motion_stops_at_punctuation() {
-        let mut s = TextInputState::with_text("foo.bar");
-        s.home(false);
-        s.move_word_right(false);
-        // Stops after "foo" (punctuation is a separate class).
-        assert_eq!(s.cursor(), 3);
-        s.move_word_right(false);
-        // Crosses the "." separator run, lands at start of "bar".
-        assert_eq!(s.cursor(), 4);
-    }
-
-    // ── Selection ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn shift_select_then_type() {
-        let mut s = TextInputState::with_text("hello");
-        s.home(false);
-        s.move_right(true);
-        s.move_right(true); // select "he"
-        assert_eq!(s.selected_text(), Some("he"));
-        s.insert_char('X');
-        assert_eq!(s.text(), "Xllo");
-        assert_eq!(s.cursor(), 1);
-    }
-
-    #[test]
-    fn select_all_then_delete() {
-        let mut s = TextInputState::with_text("anything here");
-        s.select_all();
-        assert_eq!(s.selected_text(), Some("anything here"));
-        s.delete_selection();
-        assert_eq!(s.text(), "");
-        assert_eq!(s.cursor(), 0);
-        assert!(!s.has_selection());
-    }
-
-    #[test]
-    fn select_all_then_backspace() {
-        let mut s = TextInputState::with_text("clobber me");
-        s.select_all();
-        s.backspace();
-        assert_eq!(s.text(), "");
-    }
-
-    #[test]
-    fn selection_range_is_ordered_when_reversed() {
-        let mut s = TextInputState::with_text("abcdef");
-        s.end(false);
-        s.move_left(true);
-        s.move_left(true); // anchor at 6, cursor at 4 (reversed)
-        assert_eq!(s.selection_range(), Some((4, 6)));
-        assert_eq!(s.selected_text(), Some("ef"));
-    }
-
-    #[test]
-    fn clear_selection_keeps_cursor() {
-        let mut s = TextInputState::with_text("abcdef");
-        s.select_all();
-        let c = s.cursor();
-        s.clear_selection();
-        assert!(!s.has_selection());
-        assert_eq!(s.cursor(), c);
-    }
-
-    #[test]
-    fn empty_selection_is_not_a_selection() {
-        let mut s = TextInputState::with_text("abc");
-        s.move_left(true); // cursor 2, anchor 3 -> non-empty
-        assert!(s.has_selection());
-        s.move_right(true); // back to 3, anchor 3 -> empty -> cleared
-        assert!(!s.has_selection());
-    }
-
-    // ── set_text / clear ──────────────────────────────────────────────────
-
-    #[test]
-    fn set_text_moves_cursor_to_end_and_clears_selection() {
-        let mut s = TextInputState::with_text("old");
-        s.select_all();
-        s.set_text("brand new");
-        assert_eq!(s.text(), "brand new");
-        assert_eq!(s.cursor(), 9);
-        assert!(!s.has_selection());
-    }
-
-    #[test]
-    fn clear_resets_everything() {
-        let mut s = TextInputState::with_text("stuff");
-        s.select_all();
-        s.clear();
-        assert_eq!(s.text(), "");
-        assert_eq!(s.cursor(), 0);
-        assert!(!s.has_selection());
-    }
-
-    // ── UTF-8 safety ────────────────────────────────────────────────────────
-
-    #[test]
-    fn utf8_cursor_never_splits_multibyte_char() {
-        // "café" — the 'é' is 2 bytes (0xC3 0xA9), total len 5.
-        let mut s = TextInputState::with_text("café");
-        assert_eq!(s.text().len(), 5);
-        s.move_left(false); // skip over 'é' as a unit -> offset 3
-        assert_eq!(s.cursor(), 3);
-        assert!(s.text().is_char_boundary(s.cursor()));
-        s.move_left(false); // -> 2 ('f')
-        assert_eq!(s.cursor(), 2);
-        assert!(s.text().is_char_boundary(s.cursor()));
-    }
-
-    #[test]
-    fn utf8_backspace_removes_whole_char() {
-        let mut s = TextInputState::with_text("café");
-        s.backspace(); // removes 'é' (2 bytes), not half of it
-        assert_eq!(s.text(), "caf");
-        assert_eq!(s.cursor(), 3);
-    }
-
-    #[test]
-    fn utf8_delete_forward_removes_whole_char() {
-        let mut s = TextInputState::with_text("café!");
-        s.home(false);
-        s.move_right(false);
-        s.move_right(false);
-        s.move_right(false); // before 'é'
-        assert_eq!(s.cursor(), 3);
-        s.delete_forward(); // remove 'é'
-        assert_eq!(s.text(), "caf!");
-    }
-
-    #[test]
-    fn emoji_cursor_moves_never_panic() {
-        // Each emoji here is a 4-byte scalar value.
-        let mut s = TextInputState::with_text("a😀b😀c");
-        // Walk fully left, char by char, asserting boundaries each step.
-        for _ in 0..10 {
-            s.move_left(false);
-            assert!(s.text().is_char_boundary(s.cursor()));
-        }
-        assert_eq!(s.cursor(), 0);
-        // Walk fully right.
-        for _ in 0..10 {
-            s.move_right(false);
-            assert!(s.text().is_char_boundary(s.cursor()));
-        }
-        assert_eq!(s.cursor(), s.text().len());
-    }
-
-    #[test]
-    fn emoji_insert_and_backspace() {
-        let mut s = TextInputState::new();
-        s.insert_char('😀');
-        assert_eq!(s.text(), "😀");
-        assert_eq!(s.cursor(), 4);
-        s.backspace();
-        assert_eq!(s.text(), "");
-        assert_eq!(s.cursor(), 0);
-    }
-
-    #[test]
-    fn utf8_word_motion_safe() {
-        let mut s = TextInputState::with_text("héllo wörld");
-        s.home(false);
-        s.move_word_right(false);
-        assert!(s.text().is_char_boundary(s.cursor()));
-        // Lands at the start of "wörld".
-        assert_eq!(&s.text()[s.cursor()..], "wörld");
-    }
-}
+#[path = "state_tests.rs"]
+mod tests;

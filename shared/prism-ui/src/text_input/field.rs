@@ -227,7 +227,11 @@ impl TextField {
 
 /// Extract printable text from a key event, filtering out control keys and
 /// newlines. Returns `None` when the event carries no insertable character.
-fn printable_text(ev: &KeyDownEvent) -> Option<String> {
+///
+/// Shared with the multi-line [`TextArea`](super::area::TextArea), which uses
+/// it for the same printable-char extraction (newlines are inserted via a
+/// dedicated Enter key arm, never through this filter).
+pub(crate) fn printable_text(ev: &KeyDownEvent) -> Option<String> {
     let ks = &ev.keystroke;
     // `key_char` is set by GPUI to the character that would be typed (honoring
     // shift and keyboard layout). When absent, accept a bare single-char key.

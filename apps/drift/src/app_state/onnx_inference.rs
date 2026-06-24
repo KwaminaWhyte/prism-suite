@@ -367,7 +367,10 @@ mod tests {
         });
         assert_eq!(a.animatediff_jobs.len(), 1);
         assert_eq!(a.animatediff_jobs[0].prompt, "walk cycle");
-        assert_eq!(a.animatediff_jobs[0].status, OnnxJobStatus::Queued);
+        // The stub completes synchronously: queuing an AnimateDiff job adds the
+        // motion keyframes immediately and marks the job Done so the UI leaves
+        // its "Generating…" state as soon as the action fires.
+        assert_eq!(a.animatediff_jobs[0].status, OnnxJobStatus::Done);
         assert!(a.animatediff_jobs[0].error.is_none());
     }
 

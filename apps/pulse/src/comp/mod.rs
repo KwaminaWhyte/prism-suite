@@ -67,7 +67,7 @@ pub use distort::{apply_distort_effects, apply_displacement_map, DistortEffect, 
 pub use effect::{
     apply_effects, apply_effects_masked, blend_masked, Effect, EffectMask, LayerKind,
 };
-pub use effect_browser::{filter_grouped, BrowserEntry, NewEffect, Stack};
+pub use effect_browser::{filter_grouped, BrowserEntry, Category as EffectCategory, NewEffect, Stack, REGISTRY as EFFECT_REGISTRY};
 pub use expr::{last_error as expr_last_error, ExprCtx};
 pub use fonts::{families as font_families, is_available as font_is_available};
 pub use footage::{

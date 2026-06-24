@@ -51,9 +51,13 @@
 pub mod comp_settings;
 pub mod effects;
 pub mod expr_controls;
+pub mod expr_editor;
 pub mod expressions;
 pub mod graph;
+pub mod keying_lights;
 pub mod layers;
+pub mod output_module;
+pub mod preferences;
 pub mod preview_panel;
 pub mod properties;
 pub mod render_queue;

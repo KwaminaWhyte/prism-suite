@@ -39,6 +39,8 @@ mod keyframes;
 mod effects_chain;
 mod effects_apply;
 mod render;
+mod render_types;
+mod tool;
 mod tracking;
 mod expressions;
 mod precomp;
@@ -63,14 +65,15 @@ mod shape_repeater;
 mod render_formats;
 
 pub use actions::Action;
+pub use tool::Tool;
 
 pub use expressions::{ExprControlKind, ExprControlValue, ExprControl};
 pub use text_anim::{TextAnimPreset, TextAnimProperty, TextAnimRange, TextAnimator, MogrParamKind, MogrParam, MogrTemplate};
 pub use tracking::{TrackPoint, CameraTracker, MotionSketchStroke, MotionSketchConfig, StabilizeResult, StabilizeMethod, StabilizeFraming, WarpStabConfig, CameraTrackStatus, CameraTrackPoint, CameraTrackSolve};
 pub use puppeting::{MorphMode, CorrespondenceMode, ShapeMorphKeyframe, ShapeMorphConfig, PuppetPinMode, PuppetPin, PuppetMesh};
-pub use render::{BrainstormVariation, BrainstormState, PreRenderStatus, AudioVisMode, AudioVisSide, AudioSpectrumConfig, RenderStatus, RenderOutputFormat, RenderQueueItem};
+pub use render_types::{BrainstormVariation, BrainstormState, PreRenderStatus, AudioVisMode, AudioVisSide, AudioSpectrumConfig, RenderStatus, RenderOutputFormat, RenderQueueItem};
 pub use precomp::{MatteMode, TrackMatteConfig, PrecompConfig, PrecompInfo};
-pub use render::{RenderJobStatus, RenderFormat, RenderJob, OutputPreset, SubComp};
+pub use render_types::{RenderJobStatus, RenderFormat, RenderJob, OutputPreset, SubComp};
 pub use composition::{PendingCompSettings, IrisShape, DepthOfField, CollectFilesConfig, Layer3DConfig};
 pub use effects_chain::{
     MoGrtControl, MotionGraphicTemplate, EchoConfig,
@@ -116,38 +119,8 @@ const UNDO_LIMIT: usize = 64;
 /// view the geometry it needs without the root view re-deriving the flex layout.
 pub type TrackBounds = Rc<Cell<Option<Bounds<Pixels>>>>;
 
-/// The editing tools. A starter subset mirroring the egui app's transport/edit
-/// modes; the GPUI host wires behavior per wave. (Pulse's egui app is modal —
-/// select/scrub — rather than a brush palette like Pigment.)
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Tool {
-    /// Select / move layers in the preview.
-    Select,
-    /// Scrub the playhead (transport).
-    Hand,
-    /// Pen / mask authoring (placeholder this pass).
-    Pen,
-    /// Reposition a layer's anchor point (pivot for transforms).
-    AnchorPoint,
-    /// Puppet warp: place/move deformation pins on the selected layer.
-    Puppet,
-}
-
-impl Tool {
-    /// Short label for the toolbar / tools strip.
-    pub fn label(self) -> &'static str {
-        match self {
-            Tool::Select => "Select",
-            Tool::Hand => "Hand",
-            Tool::Pen => "Pen",
-            Tool::AnchorPoint => "Anchor",
-            Tool::Puppet => "Puppet",
-        }
-    }
-
-    /// Stable ordering for the tools strip.
-    pub const ALL: [Tool; 5] = [Tool::Select, Tool::Hand, Tool::Pen, Tool::AnchorPoint, Tool::Puppet];
-}
+// The editing-`Tool` enum lives in `tool.rs` (extracted for the workspace size
+// rule); re-exported below so `crate::app_state::Tool` keeps resolving.
 
 // Action enum is defined in actions.rs and re-exported above as `pub use actions::Action;`.
 

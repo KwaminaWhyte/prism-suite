@@ -6,6 +6,22 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+### Added — UI (GPUI)
+- **Preferences** floating window (Performance/Color/Interface/File-Handling) →
+  `SetPref*` / `SavePreferences` / `LoadPreferences` / `ResetPreferences`.
+- **Keyboard-Shortcuts editor** floating window — click-to-capture remap with
+  conflict highlight → `RemapShortcut` / `UnbindShortcut` / `ResetShortcuts`.
+- **Navigator panel + multi-doc tab bar** → `OpenDocTab` / `ActivateDocTab` /
+  `CloseDocTab` / `NavigatorZoom` / `NavigatorPan`.
+- **Guides + rulers** — guides painted over the canvas from guide state; View menu
+  to add/clear/toggle guides, snapping, smart guides, ruler units.
+- **Color menu** → `SetWorkingColorMode` / `AssignWorkingSpace` /
+  `ConvertWorkingSpace` / `SetEmbedColorProfile`.
+- All child windows use `WindowKind::Floating`; UI-only (emits existing 0.9.0
+  actions, no new state).
+
 ## [0.9.0] - 2026-06-24
 
 ### Added — Feature waves 1–3 (parity push)

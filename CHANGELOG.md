@@ -9,6 +9,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+UI wiring for the 0.9.0 engine features + real ONNX inference scaffolding. All
+app-local; shared engine crates unchanged. Full workspace suite green: Pigment
+439, Contour 813, Pulse 1027, Reel 349, Drift 651, Tone 734 (+ shared-crate tests).
+
+### Added — UI panels
+- **Pigment** (GPUI) — Preferences + Keyboard-Shortcuts floating windows, Navigator
+  panel + multi-doc tab bar, guides/rulers rendering + View menu, Color-management
+  menu.
+- **Contour** (GPUI) — Document Setup, Export, Color Picker, Preferences floating
+  windows.
+- **Pulse** (GPUI) — Expression editor, Output Module dialog, Preferences,
+  Keying+Lights panels.
+- **Reel** (GPUI) — Workspaces switcher, Preferences window, Essential Graphics
+  panel, render-bar + proxy status, Export (codec-matrix) window.
+- Every child window uses the mandatory `WindowKind::Floating`; all panels emit
+  pre-existing actions and read existing state (no dead UI, no new state added).
+
+### Added — ONNX inference (Drift, Tone)
+- Inference abstraction (`InferenceBackend`: `Stub` | `Ort`) + a `ModelRegistry`
+  over each app's AI model families (Drift: AnimateDiff/FILM-RIFE/Whisper/scripting;
+  Tone: MusicGen/Demucs/Magenta/mastering/vocal). Real `ort` 2.x session load + run +
+  tensor I/O behind an **optional `onnx` cargo feature** (off by default, so the
+  default build/tests pull no native runtime); the deterministic stub remains the
+  default backend and the fallback when the feature is off or a model file is
+  absent.
+
+### Notes
+- Contour and Pulse are GPUI hosts — the suite table's "eframe/egui" labels for them
+  are stale; child windows follow the `WindowKind::Floating` rule.
+
 ## [0.9.0] - 2026-06-24
 
 Three parallel feature waves across the four lower-parity apps (Pigment, Contour,

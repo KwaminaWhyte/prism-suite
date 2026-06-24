@@ -8,6 +8,18 @@ Versioning follows the workspace `version` in the root `Cargo.toml`.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+### Added — Real ONNX inference layer
+- `onnx_runtime.rs` — `Inference` trait + `InferenceBackend` (`Stub` | `Ort`) over
+  AnimateDiff (motion), FILM/RIFE (interpolate), Whisper/wav2vec2 (phonemes), AI
+  scripting; a `ModelRegistry` mapping `DriftOnnxModel` → path + load state.
+- Real `ort` 2.x session load/run/tensor-IO under the optional `onnx` feature
+  (`apps/drift/Cargo.toml`: `ort = { version = "=2.0.0-rc.10", optional = true }`,
+  `[features] onnx = ["dep:ort"]`). Default build pulls no `ort`; the deterministic
+  stub stays default and is the fallback when the feature is off or a model file is
+  missing. `QueueAnimateDiff` now sources keyframes through the backend. +16 tests.
+
 ## [0.9.0] - 2026-06-24
 
 ### Fixed

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+### Added — UI (GPUI)
+- **Workspaces switcher** (top bar) — Editing/Color/Audio/Effects/Graphics layouts
+  driven by the existing panel-toggle actions.
+- **Preferences** floating window — autosave + read-only keybinding list.
+- **Essential Graphics** panel — list/select/edit/instantiate MOGRT templates.
+- **Render bar + proxy status** — work-area render region + proxy toggle/queue.
+- **Export** floating window — codec-matrix (container/video/audio/depth/bitrate/
+  two-pass/hardware) preset editor.
+- All child windows use `WindowKind::Floating`; UI-only (emits existing actions).
+
 ## [0.9.0] - 2026-06-24
 
 ### Added — Feature waves 1–3 (parity push)

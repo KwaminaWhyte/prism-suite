@@ -7,6 +7,17 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+### Added — UI (GPUI panels)
+- **Expression editor** — property selector + preset-expression chips →
+  `SetExpression`, "Evaluate" → `EvaluateExpression`, shows result/errors.
+- **Output Module dialog** → `AddOutputModule` / `SetOutputModule*`, lists modules.
+- **Preferences** panel → `SetPref*` + disk-cache dir/purge controls with a live
+  usage bar.
+- **Keying + Lights** inspector — per-layer keyers + comp 3D lights.
+- UI-only (emits existing 0.9.0 actions, no new state); 8 helper/round-trip tests.
+
 ## [0.9.0] - 2026-06-24
 
 ### Added — Feature waves 1–3 (parity push)

@@ -7,6 +7,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+### Added — Real ONNX inference layer
+- `inference.rs` — `InferenceBackend` (`Stub` | `Ort`) + `ModelRegistry` over Tone's
+  AI families (MusicGen, Demucs, MelodyRnn, MusicTransformer, AudioSr, AiMasterNet,
+  VocalAutoTune, VocalIsolate). `run_inference()` prefers the real `ort` path only
+  when backend=`Ort` + feature on + a registered model exists, and never errors
+  (falls back to the deterministic stub).
+- Real `ort` 2.x session load/run/tensor-IO under the optional `onnx` feature
+  (`apps/tone/Cargo.toml`: `ort = { version = "=2.0.0-rc.10", optional = true }`,
+  `[features] onnx = ["dep:ort"]`). Default build pulls no `ort`. +31 tests.
+
 ## [0.9.0] - 2026-06-24
 
 ### Added

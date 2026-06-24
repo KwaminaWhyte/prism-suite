@@ -7,6 +7,18 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-24
+
+### Added — UI (GPUI floating windows)
+- **Document Setup** window — width/height/unit/color-mode/bleed →
+  `SetDocSetup*` + `NewDocumentFromSetup`.
+- **Export** window — PNG/SVG/EPS/PDF format picker + path → `ExportDocument`.
+- **Color Picker** window — RGB/HSB/CMYK/Hex bound to the picker state via
+  `SetPicker*`; "Apply to Selection" → `ApplyPickerToSelection`.
+- **Preferences** window — undo/snap/grid/unit → `SetPref*`.
+- All child windows use `WindowKind::Floating`; UI-only (emits existing 0.9.0
+  actions, no new state).
+
 ## [0.9.0] - 2026-06-24
 
 ### Added — Feature waves 1–3 (parity push)

@@ -11,7 +11,9 @@
 
 mod app_state;
 mod model_manager;
+mod numeric;
 mod panels;
+mod text_fields;
 mod view_input;
 mod view_render;
 mod welcome;
@@ -19,40 +21,30 @@ mod welcome;
 use prism_ui::PrismAssets;
 
 use app_state::{Action, App, DriftTool, DriftOnnxModel, Fill, Stroke, StrokeCap, StrokeJoin};
+use text_fields::TextFields;
 use view_render::{animated_transform, render_vector_paths};
 use gpui::{
-    div, px, size, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
     WindowBounds, WindowKind, WindowOptions,
 };
 use gpui::prelude::FluentBuilder;
-use prism_ui::{colors, font_size, TextField};
-
-/// Which inspector numeric field is being edited inline.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum InspectorField {
-    PositionX,
-    PositionY,
-    ScaleX,
-    ScaleY,
-    Rotation,
-    Opacity,
-}
+use prism_ui::{colors, font_size};
 
 /// The GPUI root view. Owns the shared [`App`]; panels read it and route their
 /// mutations back through `app.apply` inside `cx.listener` callbacks.
 pub struct Drift {
     pub app: App,
     focus: FocusHandle,
-    /// Inspector field currently being typed into (None = not editing).
-    pub editing_field: Option<InspectorField>,
-    /// Keystroke buffer for the inspector field being edited.
-    pub field_buffer: String,
+    /// Numeric field currently being edited inline via its real [`TextField`]
+    /// (None = not editing). Drives whether the inspector / properties rows show
+    /// the static value or swap in the editable field.
+    pub editing_numeric: Option<text_fields::NumericField>,
     /// Currently selected vector path id (None = nothing selected).
     pub selected_path_id: Option<usize>,
     /// Real editable text fields (lazily created on first render once the
     /// `Drift` entity handle is available). All live here on the root view;
-    /// panels are stateless and receive clones.
+    /// panels are stateless and receive clones. See [`text_fields`].
     pub text_fields: Option<TextFields>,
     /// Layer currently being renamed inline (None = no rename in progress).
     pub renaming_layer: Option<usize>,
@@ -65,121 +57,6 @@ pub struct Drift {
 impl Focusable for Drift {
     fn focus_handle(&self, _cx: &gpui::App) -> FocusHandle {
         self.focus.clone()
-    }
-}
-
-/// The set of real, focusable editable text inputs owned by the root view.
-/// Created once via [`Drift::ensure_text_fields`]; each routes its edits back
-/// into [`App::apply`] through a `WeakEntity<Drift>` captured in its callbacks.
-pub struct TextFields {
-    /// AnimateDiff motion prompt — typed input that drives `QueueAnimateDiff`.
-    pub motion_prompt: Entity<TextField>,
-    /// Natural-language prompt for AI script generation (`SetAiScriptPrompt`).
-    pub script_prompt: Entity<TextField>,
-    /// Editable script source — wired to `SetScriptSource` for the active script.
-    pub script_source: Entity<TextField>,
-    /// Inline layer-rename field — wired to `RenameLayer`.
-    pub layer_rename: Entity<TextField>,
-}
-
-impl Drift {
-    /// Lazily create the editable [`TextField`]s on first render. This must run
-    /// during `render` (not `Drift::new`) because each field's callbacks capture
-    /// a `WeakEntity<Drift>`, which only exists once the entity is created.
-    fn ensure_text_fields(&mut self, cx: &mut Context<Self>) {
-        if self.text_fields.is_some() {
-            return;
-        }
-        let weak = cx.entity().downgrade();
-
-        // ── Motion prompt — keeps `app.ai_motion_prompt` in sync as you type ──
-        let w = weak.clone();
-        let motion_prompt = cx.new(|cx| {
-            TextField::new(cx)
-                .placeholder("Describe the motion…")
-                .initial_value(self.app.ai_motion_prompt.clone())
-                .on_change(move |text, _win, cx| {
-                    if let Some(d) = w.upgrade() {
-                        let t = text.to_string();
-                        d.update(cx, |d, cx| {
-                            d.app.apply(Action::SetAiMotionPrompt(t));
-                            cx.notify();
-                        });
-                    }
-                })
-        });
-
-        // ── AI script generation prompt — syncs `app.ai_script_prompt` ──
-        let w = weak.clone();
-        let script_prompt = cx.new(|cx| {
-            TextField::new(cx)
-                .placeholder("Describe a script to generate…")
-                .initial_value(self.app.ai_script_prompt.clone())
-                .on_change(move |text, _win, cx| {
-                    if let Some(d) = w.upgrade() {
-                        let t = text.to_string();
-                        d.update(cx, |d, cx| {
-                            d.app.apply(Action::SetAiScriptPrompt(t));
-                            cx.notify();
-                        });
-                    }
-                })
-        });
-
-        // ── Script source editor — edits the active (or first) script's source ──
-        let w = weak.clone();
-        let initial_src = self.app.scripts.first().map(|s| s.source.clone()).unwrap_or_default();
-        let script_source = cx.new(|cx| {
-            TextField::new(cx)
-                .placeholder("// script source")
-                .initial_value(initial_src)
-                .on_change(move |text, _win, cx| {
-                    if let Some(d) = w.upgrade() {
-                        let t = text.to_string();
-                        d.update(cx, |d, cx| {
-                            // Ensure a script exists, then set its source.
-                            if d.app.scripts.is_empty() {
-                                d.app.apply(Action::AddScript {
-                                    name: "Generated Script".to_string(),
-                                    language: app_state::ScriptLanguage::JavaScript,
-                                });
-                            }
-                            if let Some(id) = d.app.scripts.first().map(|s| s.id) {
-                                d.app.apply(Action::SetScriptSource { script_id: id, source: t });
-                            }
-                            cx.notify();
-                        });
-                    }
-                })
-        });
-
-        // ── Inline layer-rename field — commits to the active rename target ──
-        let w = weak.clone();
-        let layer_rename = cx.new(|cx| {
-            TextField::new(cx)
-                .placeholder("Layer name")
-                .on_submit(move |text, win, cx| {
-                    if let Some(d) = w.upgrade() {
-                        let t = text.to_string();
-                        d.update(cx, |d, cx| {
-                            if let Some(id) = d.renaming_layer.take() {
-                                if !t.trim().is_empty() {
-                                    d.app.apply(Action::RenameLayer { id, name: t });
-                                }
-                            }
-                            cx.notify();
-                        });
-                    }
-                    win.refresh();
-                })
-        });
-
-        self.text_fields = Some(TextFields {
-            motion_prompt,
-            script_prompt,
-            script_source,
-            layer_rename,
-        });
     }
 }
 
@@ -466,8 +343,8 @@ impl Render for Drift {
                             )
                             .child(panels::render_inspector(
                                 &self.app,
-                                self.editing_field.as_ref(),
-                                &self.field_buffer,
+                                self.editing_numeric,
+                                ai_fields,
                                 cx,
                             )),
                     )
@@ -817,7 +694,7 @@ impl Render for Drift {
                     )
                     )
                     // Right: AI panel only — inspector lives in the left column
-                    .child(panels::render_ai_panel(&self.app, ai_fields, cx)),
+                    .child(panels::render_ai_panel(&self.app, self.editing_numeric, ai_fields, cx)),
             )
             // Bottom: Timeline
             .child(panels::render_timeline(&self.app, f32::from(window.viewport_size().width), cx))
@@ -864,8 +741,7 @@ fn main() {
                     Drift {
                         app,
                         focus,
-                        editing_field: None,
-                        field_buffer: String::new(),
+                        editing_numeric: None,
                         selected_path_id: None,
                         text_fields: None,
                         renaming_layer: None,

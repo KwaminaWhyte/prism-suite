@@ -1,16 +1,20 @@
-//! Property Inspector panel — shows and edits the active layer's transform values.
+//! Property Inspector panel — shows and edits the active layer's transform.
 //!
-//! Each numeric row is clickable: clicking enters an edit mode where keystrokes
-//! accumulate in `Drift::field_buffer`.  Press Enter to apply, Escape to cancel.
+//! Each numeric row is clickable: clicking swaps the static value for a real,
+//! focusable [`prism_ui::TextField`] seeded with the current value. Type a new
+//! value and press Enter to commit (the field's `on_submit` parses + dispatches
+//! the matching `Action::Set*`); the field reverts to the static readout. The
+//! `KeyframeValue` row writes an opacity keyframe at the current playhead.
 
 use crate::app_state::App;
-use crate::{Drift, InspectorField};
+use crate::text_fields::{NumericField, TextFields};
+use crate::Drift;
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use gpui::prelude::FluentBuilder;
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 /// Color swatch colors keyed by layer index (matches the main canvas palette).
 fn layer_color_hex(idx: usize) -> (u32, &'static str) {
@@ -26,8 +30,8 @@ fn layer_color_hex(idx: usize) -> (u32, &'static str) {
 
 pub fn render_inspector(
     app: &App,
-    editing_field: Option<&InspectorField>,
-    field_buffer: &str,
+    editing: Option<NumericField>,
+    fields: &TextFields,
     cx: &mut Context<Drift>,
 ) -> impl IntoElement {
     // Resolve the active layer index (for color lookup).
@@ -64,8 +68,8 @@ pub fn render_inspector(
                         .child("INSPECTOR"),
                 ),
         )
-        // Body (layer name, transforms)
-        .child(inspector_body(app, editing_field, field_buffer, cx))
+        // Body (layer name, transforms, keyframe value)
+        .child(inspector_body(app, editing, fields, cx))
         // Fill Color row
         .child(
             div()
@@ -104,22 +108,19 @@ pub fn render_inspector(
         )
         // Edit hint
         .child(
-            div()
-                .px_3()
-                .py(px(2.0))
-                .child(
-                    div()
-                        .text_size(px(font_size::XS))
-                        .text_color(colors::text_disabled())
-                        .child("Click a value to edit · Enter to apply"),
-                ),
+            div().px_3().py(px(2.0)).child(
+                div()
+                    .text_size(px(font_size::XS))
+                    .text_color(colors::text_disabled())
+                    .child("Click a value to type · Enter to apply"),
+            ),
         )
 }
 
 fn inspector_body(
     app: &App,
-    editing_field: Option<&InspectorField>,
-    field_buffer: &str,
+    editing: Option<NumericField>,
+    fields: &TextFields,
     cx: &mut Context<Drift>,
 ) -> impl IntoElement {
     if let Some(layer_id) = app.active_layer {
@@ -134,6 +135,7 @@ fn inspector_body(
         let (x, y, sx, sy, rot, opacity) = t
             .map(|t| (t.x, t.y, t.scale_x, t.scale_y, t.rotation, t.opacity))
             .unwrap_or((0.0, 0.0, 1.0, 1.0, 0.0, 1.0));
+        let kf_value = NumericField::KeyframeValue.current_value(app);
 
         div()
             .flex()
@@ -141,74 +143,22 @@ fn inspector_body(
             .px_3()
             .py_2()
             .gap_1()
-            // Layer name (read-only)
             .child(prop_row("Layer", layer_name))
-            // Position X — editable
-            .child(editable_row(
-                "Pos X",
-                format!("{x:.1}"),
-                InspectorField::PositionX,
-                editing_field == Some(&InspectorField::PositionX),
-                field_buffer,
-                cx,
-            ))
-            // Position Y — editable
-            .child(editable_row(
-                "Pos Y",
-                format!("{y:.1}"),
-                InspectorField::PositionY,
-                editing_field == Some(&InspectorField::PositionY),
-                field_buffer,
-                cx,
-            ))
-            // Scale X — editable
-            .child(editable_row(
-                "Scale X",
-                format!("{sx:.2}"),
-                InspectorField::ScaleX,
-                editing_field == Some(&InspectorField::ScaleX),
-                field_buffer,
-                cx,
-            ))
-            // Scale Y — editable
-            .child(editable_row(
-                "Scale Y",
-                format!("{sy:.2}"),
-                InspectorField::ScaleY,
-                editing_field == Some(&InspectorField::ScaleY),
-                field_buffer,
-                cx,
-            ))
-            // Rotation — editable
-            .child(editable_row(
-                "Rotation",
-                format!("{rot:.1}°"),
-                InspectorField::Rotation,
-                editing_field == Some(&InspectorField::Rotation),
-                field_buffer,
-                cx,
-            ))
-            // Opacity — editable (displayed as 0–100 %)
-            .child(editable_row(
-                "Opacity",
-                format!("{:.0}%", opacity * 100.0),
-                InspectorField::Opacity,
-                editing_field == Some(&InspectorField::Opacity),
-                field_buffer,
-                cx,
-            ))
+            .child(editable_row("Pos X", format!("{x:.1}"), NumericField::PositionX, editing, fields, cx))
+            .child(editable_row("Pos Y", format!("{y:.1}"), NumericField::PositionY, editing, fields, cx))
+            .child(editable_row("Scale X", format!("{sx:.2}"), NumericField::ScaleX, editing, fields, cx))
+            .child(editable_row("Scale Y", format!("{sy:.2}"), NumericField::ScaleY, editing, fields, cx))
+            .child(editable_row("Rotation", format!("{rot:.1}°"), NumericField::Rotation, editing, fields, cx))
+            .child(editable_row("Opacity", format!("{:.0}%", opacity * 100.0), NumericField::Opacity, editing, fields, cx))
+            // Keyframe value at the current playhead (opacity property).
+            .child(editable_row("KF Value", kf_value, NumericField::KeyframeValue, editing, fields, cx))
     } else {
-        div()
-            .flex()
-            .flex_col()
-            .px_3()
-            .py_2()
-            .child(
-                div()
-                    .text_size(px(font_size::XS))
-                    .text_color(colors::text_disabled())
-                    .child("Select a layer to inspect"),
-            )
+        div().flex().flex_col().px_3().py_2().child(
+            div()
+                .text_size(px(font_size::XS))
+                .text_color(colors::text_disabled())
+                .child("Select a layer to inspect"),
+        )
     }
 }
 
@@ -234,22 +184,21 @@ fn prop_row(label: &'static str, value: String) -> impl IntoElement {
         )
 }
 
-/// An editable label + value row.  Click to enter edit mode; text is highlighted
-/// in amber and shows a blinking-style `|` cursor.  Press Enter/Esc in `on_key`
-/// to commit or cancel (handled in `Drift::on_key`).
-fn editable_row(
+/// An editable label + value row backed by a real [`TextField`].
+///
+/// When `field` is the one being edited, the row swaps in the live `TextField`;
+/// otherwise it shows the static `display_value` and a click seeds + focuses
+/// the field, entering edit mode.
+pub(super) fn editable_row(
     label: &'static str,
     display_value: String,
-    field: InspectorField,
-    is_editing: bool,
-    buffer: &str,
+    field: NumericField,
+    editing: Option<NumericField>,
+    fields: &TextFields,
     cx: &mut Context<Drift>,
 ) -> impl IntoElement {
-    let shown = if is_editing {
-        format!("{buffer}|")
-    } else {
-        display_value
-    };
+    let is_editing = editing == Some(field);
+    let entity: Entity<TextField> = fields.numeric(field).clone();
 
     div()
         .w_full()
@@ -263,36 +212,27 @@ fn editable_row(
                 .text_color(colors::text_secondary())
                 .child(label),
         )
-        .child(
-            div()
-                .id(SharedString::from(format!("insp-{label}")))
-                .text_size(px(font_size::XS))
-                .text_color(if is_editing {
-                    gpui::rgb(0xfbbf24) // amber
-                } else {
-                    colors::text_primary()
-                })
-                .when(is_editing, |el| el.bg(gpui::rgba(0xfbbf2422)))
-                .px(px(4.0))
-                .rounded(px(2.0))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _ev, _win, cx| {
-                    // Pre-fill the buffer with the current value.
-                    let pre = this.app.active_layer
-                        .and_then(|lid| this.app.transforms.get(&lid))
-                        .map(|t| match field {
-                            InspectorField::PositionX => format!("{:.1}", t.x),
-                            InspectorField::PositionY => format!("{:.1}", t.y),
-                            InspectorField::ScaleX    => format!("{:.2}", t.scale_x),
-                            InspectorField::ScaleY    => format!("{:.2}", t.scale_y),
-                            InspectorField::Rotation  => format!("{:.1}", t.rotation),
-                            InspectorField::Opacity   => format!("{:.0}", t.opacity * 100.0),
-                        })
-                        .unwrap_or_default();
-                    this.editing_field = Some(field);
-                    this.field_buffer = pre;
-                    cx.notify();
-                }))
-                .child(shown),
-        )
+        .when(is_editing, |el| el.child(div().w(px(96.0)).child(entity.clone())))
+        .when(!is_editing, |el| {
+            let seed = entity.clone();
+            el.child(
+                div()
+                    .id(SharedString::from(format!("insp-{label}")))
+                    .text_size(px(font_size::XS))
+                    .text_color(colors::text_primary())
+                    .px(px(4.0))
+                    .rounded(px(2.0))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _ev, win, cx| {
+                        // Seed the field with the current value, mark it as the
+                        // active editing target, and focus it.
+                        let pre = field.current_value(&this.app);
+                        seed.update(cx, |f, cx| f.set_text(pre, win, cx));
+                        this.editing_numeric = Some(field);
+                        win.focus(&seed.focus_handle(cx));
+                        cx.notify();
+                    }))
+                    .child(display_value),
+            )
+        })
 }

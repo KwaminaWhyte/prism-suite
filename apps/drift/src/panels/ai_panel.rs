@@ -2,9 +2,11 @@
 
 use crate::app_state::{self, Action, App, DriftOnnxModel, OnnxModelStatus};
 use crate::model_manager::{self, DriftModelId};
-use crate::{Drift, TextFields};
+use crate::panels::inspector::editable_row;
+use crate::text_fields::{NumericField, TextFields};
+use crate::Drift;
 use gpui::{div, px, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
-use prism_ui::{colors, font_size, TextField};
+use prism_ui::{colors, font_size, TextArea};
 
 fn animatediff_status(app: &App) -> OnnxModelStatus {
     app.drift_onnx_models.iter()
@@ -21,10 +23,12 @@ fn animatediff_progress(app: &App) -> f32 {
 
 /// Full AI panel with outer shell (width, border, background). Used when the
 /// panel is rendered standalone in the flex row. `fields` carries the root
-/// view's real editable [`TextField`]s (motion prompt, AI script prompt,
-/// script source editor).
+/// view's real editable inputs: the motion prompt, AI-script prompt, and script
+/// source editor (all multi-line [`prism_ui::TextArea`]s), plus the document
+/// numeric [`prism_ui::TextField`]s (fps / width / height / duration).
 pub fn render_ai_panel(
     app: &App,
+    editing: Option<NumericField>,
     fields: &TextFields,
     cx: &mut Context<Drift>,
 ) -> impl IntoElement {
@@ -199,34 +203,12 @@ pub fn render_ai_panel(
                         .text_color(colors::text_secondary())
                         .child("PROPERTIES"),
                 )
-                .child(prop_row("Width", &format!("{}px", app.document.width)))
-                .child(prop_row("Height", &format!("{}px", app.document.height)))
-                .child(prop_row("FPS", &format!("{}", app.document.fps)))
-                .child(prop_row(
-                    "Duration",
-                    &format!("{} frames", app.document.duration_frames),
-                )),
-        )
-}
-
-fn prop_row(label: &str, value: &str) -> impl IntoElement {
-    div()
-        .w_full()
-        .h(px(22.0))
-        .flex()
-        .items_center()
-        .justify_between()
-        .child(
-            div()
-                .text_size(px(font_size::XS))
-                .text_color(colors::text_secondary())
-                .child(label.to_string()),
-        )
-        .child(
-            div()
-                .text_size(px(font_size::XS))
-                .text_color(colors::text_primary())
-                .child(value.to_string()),
+                // Editable document numeric fields — click a value to type a new
+                // one; Enter commits via SetDocument*.
+                .child(editable_row("Width", format!("{}px", app.document.width), NumericField::DocWidth, editing, fields, cx))
+                .child(editable_row("Height", format!("{}px", app.document.height), NumericField::DocHeight, editing, fields, cx))
+                .child(editable_row("FPS", format!("{:.0}", app.document.fps), NumericField::DocFps, editing, fields, cx))
+                .child(editable_row("Duration", format!("{} frames", app.document.duration_frames), NumericField::DocDuration, editing, fields, cx)),
         )
 }
 
@@ -313,7 +295,7 @@ fn animdiff_action_button(
 /// `source_field` so the user immediately sees (and can edit) the result.
 fn generate_script_button(
     cx: &mut gpui::Context<Drift>,
-    source_field: Entity<TextField>,
+    source_field: Entity<TextArea>,
 ) -> impl IntoElement {
     div()
         .id("ai-script-generate-btn")

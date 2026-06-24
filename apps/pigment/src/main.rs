@@ -20,6 +20,7 @@ mod app_state;
 mod canvas_host;
 mod content_aware;
 mod filters;
+mod filters_extra;
 mod lens_correction;
 mod panels;
 mod perspective_warp;

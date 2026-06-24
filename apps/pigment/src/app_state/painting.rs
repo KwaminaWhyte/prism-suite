@@ -213,7 +213,7 @@ impl App {
                 self.last_spot_heal = Some((center, radius));
             }
             Action::RedEye { center, radius, darken } => {
-                self.last_red_eye = Some((center, radius, darken));
+                self.apply_red_eye(center, radius, darken);
             }
             Action::SetLiquifyTool(t) => {
                 self.liquify_tool = t;

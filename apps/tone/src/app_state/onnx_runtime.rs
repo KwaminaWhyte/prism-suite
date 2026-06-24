@@ -115,9 +115,13 @@ impl App {
                         download_progress: 1.0,
                     });
                 }
+                // Bridge the downloaded path into the real inference registry so
+                // the model becomes loadable by the `ort` backend immediately.
+                self.sync_registry_on_download(kind, local_path);
             }
             Action::RemoveOnnxModel { kind } => {
                 self.onnx_models.retain(|m| m.kind != *kind);
+                self.sync_registry_on_remove(kind);
             }
             Action::QueueOnnxInference { model_kind, input_desc } => {
                 let id = self.next_onnx_job_id;

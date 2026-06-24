@@ -525,6 +525,11 @@ impl App {
             | Action::CompleteOnnxInference { .. }
             | Action::FailOnnxInference { .. } => self.apply_onnx_runtime(&action),
 
+            // ── Real inference layer (backend + registry path) ────────────────
+            Action::RegisterModelPath { .. }
+            | Action::ClearModelPath { .. }
+            | Action::SetInferenceBackend { .. } => self.apply_inference(&action),
+
             // ── Waveform Peak Cache ───────────────────────────────────────────
             Action::InvalidateWaveform { .. }
             | Action::SetWaveformPeaks { .. }

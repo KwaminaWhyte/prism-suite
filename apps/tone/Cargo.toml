@@ -22,6 +22,19 @@ rfd.workspace = true
 dirs.workspace = true
 ureq.workspace = true
 
+# Real ONNX Runtime inference, OFF by default. The default build does NOT pull
+# `ort` or any native runtime — see `src/app_state/inference.rs`. Enable with
+# `cargo build -p tone --features onnx` once model weights are available.
+# `ort` 2.x is published on crates.io only as prereleases; pin the rc exactly
+# so the optional `onnx` build is reproducible (the API shifts between rcs).
+ort = { version = "=2.0.0-rc.10", optional = true }
+
+[features]
+default = []
+# Enables the real `ort`-backed inference path. Without it, Tone falls back to
+# the deterministic stub backend.
+onnx = ["dep:ort"]
+
 [package.metadata.bundle]
 name = "Tone"
 identifier = "com.prism-suite.tone"

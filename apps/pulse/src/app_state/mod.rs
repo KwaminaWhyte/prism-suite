@@ -31,9 +31,13 @@ use crate::gpui_effects::{GpuiEffect, GpuiEffectKind};
 use crate::render::RenderRange;
 
 mod actions;
+mod actions_undoable;
+mod dispatch;
 mod composition;
+mod composition_layers;
 mod keyframes;
 mod effects_chain;
+mod effects_apply;
 mod render;
 mod tracking;
 mod expressions;
@@ -45,6 +49,10 @@ mod shape_groups;
 mod audio_mixer;
 mod apply_batch5;
 mod tests_batch5;
+mod masks;
+mod effects_noise;
+mod motion_blur;
+mod time_stretch;
 
 pub use actions::Action;
 
@@ -69,6 +77,8 @@ pub use crate::comp::Handle as GizmoHandle2;
 pub use motion_paths::{MotionPath, MotionPathPoint, MotionEasing};
 pub use shape_groups::{ShapeLayerGroup, ShapeGroupTransform, ShapeItemKind, MergeMode, TrimMultiple};
 pub use audio_mixer::AudioBus;
+pub use effects_noise::{FractalNoiseConfig, TurbulentDisplaceConfig, FractalNoiseMap, TurbulentDisplaceMap};
+pub use motion_blur::LayerMotionBlur;
 
 const UNDO_LIMIT: usize = 64;
 
@@ -405,6 +415,18 @@ pub struct App {
     pub master_volume: f32,
     pub master_pan: f32,
     pub next_bus_id: usize,
+
+    // --- AE feature pass: Fractal Noise / Turbulent Displace (effects_noise.rs) ---
+    /// Per-layer Fractal Noise generator configs (app-side; not in the engine
+    /// effect stacks). Keyed by layer index.
+    pub fractal_noise: FractalNoiseMap,
+    /// Per-layer Turbulent Displace configs (app-side). Keyed by layer index.
+    pub turbulent_displace: TurbulentDisplaceMap,
+
+    // --- AE feature pass: Per-layer motion blur (motion_blur.rs) ---
+    /// Per-layer motion-blur shutter overrides (app-side). Keyed by layer index;
+    /// a layer with no entry inherits the comp shutter.
+    pub layer_motion_blur: HashMap<usize, LayerMotionBlur>,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -541,6 +563,9 @@ impl App {
             master_volume: 1.0,
             master_pan: 0.0,
             next_bus_id: 0,
+            fractal_noise: HashMap::new(),
+            turbulent_displace: HashMap::new(),
+            layer_motion_blur: HashMap::new(),
         }
     }
 
@@ -627,312 +652,7 @@ impl App {
         if action.is_undoable() {
             self.push_undo();
         }
-        match action {
-            // --- Keyframes ---
-            a @ (Action::MoveKeyframe { .. }
-            | Action::ToggleGraph
-            | Action::ToggleGraphProp(_)
-            | Action::ClearGraphProps
-            | Action::SetInterp { .. }
-            | Action::MoveKeyframeXY { .. }
-            | Action::GizmoKeys { .. }) => self.apply_keyframes(a),
-
-            // --- Effects chain ---
-            a @ (Action::ToggleEffectBrowser
-            | Action::SetEffectQuery(_)
-            | Action::AddEffect(_)
-            | Action::RemoveEffect { .. }
-            | Action::SetEffectParam { .. }
-            | Action::AddGpuiEffect(_)
-            | Action::RemoveGpuiEffect(_)
-            | Action::SetMosaicBlock { .. }
-            | Action::SetChromaOffset { .. }
-            | Action::SetEffectIntensity { .. }
-            | Action::SetVignetteRadius { .. }
-            | Action::ToggleGpuiEffectExpand(_)
-            | Action::SetColorBalanceShadows { .. }
-            | Action::SetColorBalanceMidtones { .. }
-            | Action::SetColorBalanceHighlights { .. }
-            | Action::SetLevelsInBlack { .. }
-            | Action::SetLevelsInWhite { .. }
-            | Action::SetLevelsGamma { .. }
-            | Action::SetLevelsOutBlack { .. }
-            | Action::SetLevelsOutWhite { .. }
-            | Action::SetHueShift { .. }
-            | Action::SetSaturation { .. }
-            | Action::SetLightness { .. }
-            | Action::SetNoiseFrequency { .. }
-            | Action::SetNoiseEvolution { .. }
-            | Action::AddDisplacementMap { .. }
-            | Action::SetDisplaceScale { .. }
-            | Action::AddTextAnimator(_)
-            | Action::RemoveTextAnimator(_)
-            | Action::SetTextAnimatorRange { .. }
-            | Action::SetTextAnimatorOffsetX { .. }
-            | Action::SetTextAnimatorOffsetY { .. }
-            | Action::SetTextAnimatorRotation { .. }
-            | Action::SetTextAnimatorScale { .. }
-            | Action::SetTextAnimatorOpacity { .. }
-            | Action::SetShapeTrimPaths { .. }
-            | Action::ClearShapeTrimPaths(_)
-            | Action::AddShapeRepeater(_)
-            | Action::RemoveShapeRepeater(_)
-            | Action::SetRepeaterCopies { .. }
-            | Action::SetRepeaterOffset { .. }
-            | Action::SetRepeaterRotation { .. }
-            | Action::SetRepeaterScale { .. }
-            | Action::SetRepeaterOpacity { .. }
-            | Action::AddLumetriColor(_)
-            | Action::RemoveLumetriColor(_)
-            | Action::SetLumetriParam { .. }
-            | Action::ToggleLumetriEnabled(_)
-            | Action::ResetLumetriColor(_)
-            | Action::AddColorFinesse(_)
-            | Action::RemoveColorFinesse(_)
-            | Action::SetColorFinesseEnabled { .. }
-            | Action::SetColorFinesseParam { .. }
-            | Action::ResetColorFinesse(_)) => self.apply_effects_chain(a),
-
-            // --- Render / export ---
-            a @ (Action::ExportMp4(_)
-            | Action::ExportGif(_)
-            | Action::ToggleAudioPreview
-            | Action::SetAudioVolume(_)
-            | Action::AddToRenderQueue
-            | Action::RenderAll
-            | Action::RemoveFromRenderQueue(_)
-            | Action::ToggleCompSettings
-            | Action::SetPendingCompWidth(_)
-            | Action::SetPendingCompHeight(_)
-            | Action::SetPendingCompFps(_)
-            | Action::SetPendingCompDuration(_)
-            | Action::SetPendingCompBgColor(_)
-            | Action::ApplyCompSettings
-            | Action::BuildRamPreview
-            | Action::PlayRamPreview
-            | Action::PurgeRamPreview
-            | Action::ClearRamPreview
-            | Action::ExportProRes(_)
-            | Action::ExportDnxHD(_)
-            | Action::SaveOutputPreset(_)
-            | Action::LoadOutputPreset(_)
-            | Action::DeleteOutputPreset(_)
-            | Action::AddAllCompsToQueue
-            | Action::ToggleLiveOutput
-            | Action::StartPreRender
-            | Action::CancelPreRender
-            | Action::SetPreRenderProgress { .. }
-            | Action::PreRenderComplete { .. }
-            | Action::PreRenderFailed(_)
-            | Action::ClearPreRenderCache
-            | Action::ToggleUsePreRender
-            | Action::ToggleRenderQueue
-            | Action::AddRenderQueueItem(_)
-            | Action::RemoveRenderQueueItem(_)
-            | Action::SetRenderItemFormat { .. }
-            | Action::SetRenderItemOutput { .. }
-            | Action::SetRenderItemRange { .. }
-            | Action::SetRenderItemProxy { .. }
-            | Action::StartRenderQueue
-            | Action::StopRenderQueue
-            | Action::RenderQueueItemComplete { .. }
-            | Action::SkipRenderItem(_)
-            | Action::DuplicateRenderItem(_)
-            | Action::ToggleBrainstorm
-            | Action::GenerateBrainstormVariations { .. }
-            | Action::SelectBrainstormVariation(_)
-            | Action::ApplyBrainstormVariation(_)
-            | Action::SetBrainstormGrid { .. }
-            | Action::SetBrainstormVariationCount(_)
-            | Action::ExportBrainstormVariation { .. }
-            | Action::CompareBrainstormVariations { .. }
-            | Action::LockBrainstormVariation(_)
-            | Action::ToggleCollectFilesPanel
-            | Action::SetCollectDestination(_)
-            | Action::SetCollectIncludeFootage(_)
-            | Action::SetCollectIncludeProxies(_)
-            | Action::SetCollectGenerateReport(_)
-            | Action::SetCollectReduceProject(_)
-            | Action::RunCollectFiles) => self.apply_render(a),
-
-            // --- Tracking / rotobrush / motion sketch ---
-            a @ (Action::ToggleCameraTracker
-            | Action::AddTrackPoint { .. }
-            | Action::RemoveTrackPoint(_)
-            | Action::MoveTrackPoint { .. }
-            | Action::SolveCameraTrack
-            | Action::CreateCameraFromTrack
-            | Action::SetCameraTrackerProgress(_)
-            | Action::ClearCameraTrack
-            | Action::SetRotobrushMode { .. }
-            | Action::SetRotobrushRadius(_)
-            | Action::AddRotobrushStroke { .. }
-            | Action::ClearRotobrushStrokes { .. }
-            | Action::PropagateRotobrush { .. }
-            | Action::SetWarpStabResult(_)
-            | Action::SetWarpStabSmoothness(_)
-            | Action::SetWarpStabMethod(_)
-            | Action::SetWarpStabFraming(_)
-            | Action::SetWarpStabCropSmooth(_)
-            | Action::SetWarpStabDetailedAnalysis(_)
-            | Action::SetWarpStabRollingShutter(_)
-            | Action::AnalyzeWarpStab { .. }
-            | Action::WarpStabAnalysisComplete
-            | Action::SetMotionSketchCaptureSpeed(_)
-            | Action::SetMotionSketchSmoothing(_)
-            | Action::SetMotionSketchShowWireframe(_)
-            | Action::ToggleMotionSketchRecord
-            | Action::ApplyMotionSketchStroke(_)
-            | Action::ClearMotionSketchStrokes
-            | Action::ApplyMotionSketchToLayer { .. }
-            | Action::StartCameraTrackSolve { .. }
-            | Action::SolveCameraTrackExt { .. }
-            | Action::SelectTrackPoints { .. }
-            | Action::CreateSolvedCamera { .. }
-            | Action::DeleteCameraTrackSolve { .. }) => self.apply_tracking(a),
-
-            // --- Expressions ---
-            a @ (Action::AddExpressionControl(_)
-            | Action::SetExprControlValue { .. }
-            | Action::SetExpressionEnabled { .. }
-            | Action::AddExpressionError { .. }
-            | Action::ClearExpressionErrors { .. }
-            | Action::SetExpressionLanguage(_)
-            | Action::EvaluateExpression { .. }) => self.apply_expressions(a),
-
-            // --- Precomp / track matte / 3D layers ---
-            a @ (Action::SetTrackMatte { .. }
-            | Action::SetTrackMatteMode { .. }
-            | Action::SetTrackMatteSource { .. }
-            | Action::ToggleTrackMatteInvert { .. }
-            | Action::SetTrackMattePreserveTransparency { .. }
-            | Action::ClearTrackMatte { .. }
-            | Action::ToggleTrackMattePanel
-            | Action::SetPrecompName(_)
-            | Action::SetPrecompMoveAttribs(_)
-            | Action::SetPrecompAdjustDuration(_)
-            | Action::PrecomposeSelected
-            | Action::OpenPrecomp(_)
-            | Action::ClosePrecomp
-            | Action::ReturnToMain
-            | Action::RenamePrecomp { .. }
-            | Action::DeletePrecomp(_)
-            | Action::CollapseTransformations { .. }
-            | Action::Enable3DLayer { .. }
-            | Action::Set3DPosition { .. }
-            | Action::Set3DLayerRotation { .. }
-            | Action::Set3DOrientation { .. }
-            | Action::Set3DScale { .. }
-            | Action::Set3DAnchor { .. }
-            | Action::Set3DShadows { .. }
-            | Action::Set3DMaterial { .. }
-            | Action::Reset3DLayer { .. }) => self.apply_precomp(a),
-
-            // --- Puppeting / morphing ---
-            a @ (Action::AddPuppetPin { .. }
-            | Action::MovePuppetPin { .. }
-            | Action::RemovePuppetPin { .. }
-            | Action::SetPuppetPinStiffness { .. }
-            | Action::TogglePuppetPinStiff { .. }
-            | Action::SetPuppetMeshDensity { .. }
-            | Action::SetShapeMorphEnabled(_)
-            | Action::AddMorphKeyframe(_)
-            | Action::RemoveMorphKeyframe(_)
-            | Action::SetMorphMode { .. }
-            | Action::SetCorrespondenceMode(_)
-            | Action::SetMorphPreviewTime(_)
-            | Action::PreviewMorphAtTime(_)
-            | Action::ClearMorphKeyframes
-            | Action::ActivatePuppetTool(_)
-            | Action::AddPuppetPinExt { .. }
-            | Action::MovePuppetPinExt { .. }
-            | Action::SetPuppetPinStiffnessExt { .. }
-            | Action::DeletePuppetPin(_)
-            | Action::SetPuppetMeshDensityExt { .. }
-            | Action::SetPuppetMeshExpansion { .. }) => self.apply_puppeting(a),
-
-            // --- Text animation / MoGrt / audio spectrum ---
-            a @ (Action::ToggleMoGrtPanel
-            | Action::AddMoGrtTemplate(_)
-            | Action::RemoveMoGrtTemplate(_)
-            | Action::SelectMoGrtTemplate(_)
-            | Action::AddMoGrtControl { .. }
-            | Action::RemoveMoGrtControl { .. }
-            | Action::SetMoGrtTextValue { .. }
-            | Action::SetMoGrtColorValue { .. }
-            | Action::SetMoGrtSliderValue { .. }
-            | Action::ExportMoGrt { .. }
-            | Action::SetAudioVisMode(_)
-            | Action::SetAudioVisLayer(_)
-            | Action::SetAudioStartFreq(_)
-            | Action::SetAudioEndFreq(_)
-            | Action::SetAudioMaxHeight(_)
-            | Action::SetAudioVisSide(_)
-            | Action::SetAudioSoftness(_)
-            | Action::SetAudioMirror(_)
-            | Action::SetAudioDisplayedSamples(_)
-            | Action::SetAudioFrequencyBands(_)
-            | Action::SetAudioThickness(_)
-            | Action::SetAudioDigital(_)
-            | Action::ApplyAudioSpectrumEffect { .. }
-            | Action::AddTextAnimatorExt { .. }
-            | Action::RemoveTextAnimatorExt(_)
-            | Action::ApplyTextAnimPreset { .. }
-            | Action::SetTextAnimRange { .. }
-            | Action::SetTextAnimRangeUnits { .. }
-            | Action::SetTextAnimBasedOn { .. }
-            | Action::OpenEssentialGraphics
-            | Action::CloseEssentialGraphics
-            | Action::CreateMogrTemplate { .. }
-            | Action::AddMogrParam { .. }
-            | Action::SetMogrParamValue { .. }
-            | Action::ExportMogrt { .. }
-            | Action::DeleteMogrTemplate(_)) => self.apply_text_anim(a),
-
-            // --- Batch 5 new features ---
-            a @ (Action::AddMotionBlurEffect { .. }
-            | Action::AddGlowEffect { .. }
-            | Action::AddCcRepeTileEffect { .. }
-            | Action::AddPosterizeTime { .. }
-            | Action::AddCellPattern { .. }
-            | Action::AddCheckerboard { .. }
-            | Action::AddGradientEffect { .. }
-            | Action::AddGridEffect { .. }
-            | Action::AddStrokeEffect { .. }
-            | Action::SetMotionBlur { .. }
-            | Action::RemoveBatch5Effect { .. }
-            | Action::CreateMotionPath { .. }
-            | Action::AddMotionPathPoint { .. }
-            | Action::RemoveMotionPathPoint { .. }
-            | Action::SetMotionPathPoint { .. }
-            | Action::SetMotionPathEasing { .. }
-            | Action::SetAutoOrient { .. }
-            | Action::DeleteMotionPath { .. }
-            | Action::AddShapeGroup { .. }
-            | Action::AddShapeItemToGroup { .. }
-            | Action::RemoveShapeItemFromGroup { .. }
-            | Action::SetShapeGroupTransform { .. }
-            | Action::SetShapeStar { .. }
-            | Action::AddRepeaterToGroup { .. }
-            | Action::AddTrimPath { .. }
-            | Action::AddMergeShapes { .. }
-            | Action::DeleteShapeGroup { .. }
-            | Action::AddAudioBus { .. }
-            | Action::RemoveAudioBus { .. }
-            | Action::SetBusVolume { .. }
-            | Action::SetBusPan { .. }
-            | Action::MuteBus { .. }
-            | Action::SoloBus { .. }
-            | Action::AddBusSend { .. }
-            | Action::RemoveBusSend { .. }
-            | Action::SetBusEq { .. }
-            | Action::SetBusCompressor { .. }
-            | Action::SetMasterVolume(_)
-            | Action::SetMasterPan(_)) => self.apply_batch5(a),
-
-            // --- Everything else: composition, transport, layer management, 3D camera, history ---
-            a => self.apply_composition(a),
-        }
+        self.dispatch(action);
     }
 
     fn push_undo(&mut self) {

@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use crate::comp::{BrowserEntry, Interp, Prop};
+use crate::comp::{BrowserEntry, Interp, MaskMode, Prop};
 use crate::effect_params::EffectStack;
 use crate::gpui_effects::GpuiEffectKind;
 use crate::gizmo::Handle as GizmoHandle;
@@ -763,163 +763,84 @@ pub enum Action {
     SetBusCompressor { bus_id: usize, threshold: f32, ratio: f32 },
     SetMasterVolume(f32),
     SetMasterPan(f32),
-}
 
-impl Action {
-    /// Whether applying this action mutates the [`Project`] document (so the
-    /// undo stack should snapshot the pre-state before it runs). Pure transport /
-    /// selection / UI-toggle actions — and the history actions themselves — are
-    /// NOT snapshotted (they don't change the document, or they manage the stack
-    /// directly).
-    pub(super) fn is_undoable(&self) -> bool {
-        matches!(
-            self,
-            Action::ToggleLayerVisible(_)
-                | Action::SetTransform(_, _)
-                | Action::ToggleKeyframe(_)
-                | Action::MoveKeyframe { .. }
-                | Action::AddEffect(_)
-                | Action::RemoveEffect { .. }
-                | Action::SetEffectParam { .. }
-                | Action::SetWorkAreaStart(_)
-                | Action::SetWorkAreaEnd(_)
-                | Action::ResetWorkArea
-                | Action::SetInterp { .. }
-                | Action::MoveKeyframeXY { .. }
-                | Action::GizmoKeys { .. }
-                | Action::SetLayer3D(_, _)
-                | Action::SetPositionZ(_, _)
-                | Action::Set3DRotation(_, _, _, _)
-                | Action::DuplicateLayer(_)
-                | Action::SetExpression { .. }
-                | Action::AddGpuiEffect(_)
-                | Action::RemoveGpuiEffect(_)
-                | Action::SetMosaicBlock { .. }
-                | Action::SetChromaOffset { .. }
-                | Action::SetEffectIntensity { .. }
-                | Action::SetVignetteRadius { .. }
-                | Action::ApplyCompSettings
-                | Action::SetParent(_, _)
-                | Action::ClearParent(_)
-                | Action::PreCompose(_, _)
-                | Action::AddNullLayer
-                | Action::AddGuideLayer
-                | Action::AddSolidLayer(_)
-                | Action::AddAdjustmentLayer
-                | Action::SetFootageVideo { .. }
-                | Action::SetColorBalanceShadows { .. }
-                | Action::SetColorBalanceMidtones { .. }
-                | Action::SetColorBalanceHighlights { .. }
-                | Action::SetLevelsInBlack { .. }
-                | Action::SetLevelsInWhite { .. }
-                | Action::SetLevelsGamma { .. }
-                | Action::SetLevelsOutBlack { .. }
-                | Action::SetLevelsOutWhite { .. }
-                | Action::SetHueShift { .. }
-                | Action::SetSaturation { .. }
-                | Action::SetLightness { .. }
-                | Action::SetNoiseFrequency { .. }
-                | Action::SetNoiseEvolution { .. }
-                | Action::AddCompMarker { .. }
-                | Action::RemoveCompMarker(_)
-                | Action::AddLayerMarker { .. }
-                | Action::RemoveLayerMarker { .. }
-                | Action::SetCameraPosition(_)
-                | Action::SetCameraFov(_)
-                | Action::SetParentLayer { .. }
-                | Action::SetTimeRemapEnabled { .. }
-                | Action::SetTimeRemapKey { .. }
-                | Action::SetLayerMatte { .. }
-                | Action::AddPuppetPin { .. }
-                | Action::MovePuppetPin { .. }
-                | Action::RemovePuppetPin { .. }
-                | Action::ToggleSolo(_)
-                | Action::AddLight(_)
-                | Action::RemoveLight(_)
-                | Action::UpdateLight { .. }
-                | Action::SetMotionBlurEnabled(_)
-                | Action::SetMotionBlurAngle(_)
-                | Action::SetMotionBlurPhase(_)
-                | Action::SetMotionBlurSamples(_)
-                | Action::ToggleLayerMotionBlur(_)
-                | Action::AddTextAnimator(_)
-                | Action::RemoveTextAnimator(_)
-                | Action::SetTextAnimatorRange { .. }
-                | Action::SetTextAnimatorOffsetX { .. }
-                | Action::SetTextAnimatorOffsetY { .. }
-                | Action::SetTextAnimatorRotation { .. }
-                | Action::SetTextAnimatorScale { .. }
-                | Action::SetTextAnimatorOpacity { .. }
-                | Action::SetShapeTrimPaths { .. }
-                | Action::ClearShapeTrimPaths(_)
-                | Action::AddShapeRepeater(_)
-                | Action::RemoveShapeRepeater(_)
-                | Action::SetRepeaterCopies { .. }
-                | Action::SetRepeaterOffset { .. }
-                | Action::SetRepeaterRotation { .. }
-                | Action::SetRepeaterScale { .. }
-                | Action::SetRepeaterOpacity { .. }
-                | Action::AddLumetriColor(_)
-                | Action::RemoveLumetriColor(_)
-                | Action::SetLumetriParam { .. }
-                | Action::ToggleLumetriEnabled(_)
-                | Action::ResetLumetriColor(_)
-                | Action::SplitLayer(_)
-                | Action::SplitLayerAt { .. }
-                | Action::AddColorFinesse(_)
-                | Action::RemoveColorFinesse(_)
-                | Action::SetColorFinesseEnabled { .. }
-                | Action::SetColorFinesseParam { .. }
-                | Action::ResetColorFinesse(_)
-                | Action::AddRotobrushStroke { .. }
-                | Action::ClearRotobrushStrokes { .. }
-                | Action::PropagateRotobrush { .. }
-                | Action::SetLayerTimeStretch { .. }
-                | Action::SetLayerAudioFade { .. }
-                | Action::SetPuppetPinStiffness { .. }
-                | Action::TogglePuppetPinStiff { .. }
-                | Action::SetPuppetMeshDensity { .. }
-                | Action::SetLayerEcho { .. }
-                | Action::ClearLayerEcho { .. }
-                | Action::AddMotionBlurEffect { .. }
-                | Action::AddGlowEffect { .. }
-                | Action::AddCcRepeTileEffect { .. }
-                | Action::AddPosterizeTime { .. }
-                | Action::AddCellPattern { .. }
-                | Action::AddCheckerboard { .. }
-                | Action::AddGradientEffect { .. }
-                | Action::AddGridEffect { .. }
-                | Action::AddStrokeEffect { .. }
-                | Action::SetMotionBlur { .. }
-                | Action::RemoveBatch5Effect { .. }
-                | Action::CreateMotionPath { .. }
-                | Action::AddMotionPathPoint { .. }
-                | Action::RemoveMotionPathPoint { .. }
-                | Action::SetMotionPathPoint { .. }
-                | Action::SetMotionPathEasing { .. }
-                | Action::SetAutoOrient { .. }
-                | Action::DeleteMotionPath { .. }
-                | Action::AddShapeGroup { .. }
-                | Action::AddShapeItemToGroup { .. }
-                | Action::RemoveShapeItemFromGroup { .. }
-                | Action::SetShapeGroupTransform { .. }
-                | Action::SetShapeStar { .. }
-                | Action::AddRepeaterToGroup { .. }
-                | Action::AddTrimPath { .. }
-                | Action::AddMergeShapes { .. }
-                | Action::DeleteShapeGroup { .. }
-                | Action::AddAudioBus { .. }
-                | Action::RemoveAudioBus { .. }
-                | Action::SetBusVolume { .. }
-                | Action::SetBusPan { .. }
-                | Action::MuteBus { .. }
-                | Action::SoloBus { .. }
-                | Action::AddBusSend { .. }
-                | Action::RemoveBusSend { .. }
-                | Action::SetBusEq { .. }
-                | Action::SetBusCompressor { .. }
-                | Action::SetMasterVolume(_)
-                | Action::SetMasterPan(_)
-        )
-    }
+    // ── Mask editor (masks.rs) ────────────────────────────────────────────────
+    /// Add a default rectangular Bézier mask (sized to the layer) to a layer.
+    AddRectMask { layer_id: usize },
+    /// Add a default elliptical Bézier mask (sized to the layer) to a layer.
+    AddEllipseMask { layer_id: usize },
+    /// Remove a layer's `mask_idx`-th mask.
+    RemoveMask { layer_id: usize, mask_idx: usize },
+    /// Append a corner vertex (layer-local px) to a mask path.
+    AddMaskVertex { layer_id: usize, mask_idx: usize, x: f32, y: f32 },
+    /// Insert a corner vertex at `index` in a mask path.
+    InsertMaskVertex { layer_id: usize, mask_idx: usize, index: usize, x: f32, y: f32 },
+    /// Remove the `vert_idx`-th vertex from a mask path.
+    RemoveMaskVertex { layer_id: usize, mask_idx: usize, vert_idx: usize },
+    /// Move a mask vertex's anchor to `(x, y)` (layer-local px).
+    SetMaskVertex { layer_id: usize, mask_idx: usize, vert_idx: usize, x: f32, y: f32 },
+    /// Set a mask vertex's in/out Bézier tangent handle offsets.
+    SetMaskVertexHandles {
+        layer_id: usize,
+        mask_idx: usize,
+        vert_idx: usize,
+        in_x: f32,
+        in_y: f32,
+        out_x: f32,
+        out_y: f32,
+    },
+    /// Set a mask's combine mode (Add / Subtract / Intersect / Difference / None).
+    SetMaskMode { layer_id: usize, mask_idx: usize, mode: MaskMode },
+    /// Set a mask's edge feather (comp px, clamped >= 0).
+    SetMaskFeather { layer_id: usize, mask_idx: usize, feather: f32 },
+    /// Set a mask's opacity (`[0, 1]`).
+    SetMaskOpacity { layer_id: usize, mask_idx: usize, opacity: f32 },
+    /// Set a mask's expansion/contraction (signed comp px).
+    SetMaskExpansion { layer_id: usize, mask_idx: usize, expansion: f32 },
+    /// Toggle a mask's inversion (show the layer outside the shape).
+    SetMaskInverted { layer_id: usize, mask_idx: usize, inverted: bool },
+
+    // ── Fractal Noise / Turbulent Displace (effects_noise.rs) ─────────────────
+    /// Add a default Fractal Noise generator to a layer.
+    AddFractalNoise { layer_id: usize },
+    /// Remove a layer's Fractal Noise.
+    RemoveFractalNoise { layer_id: usize },
+    /// Set a Fractal Noise scalar param by name (frequency/persistence/contrast/brightness/evolution).
+    SetFractalNoiseParam { layer_id: usize, param: &'static str, value: f32 },
+    /// Set the Fractal Noise deterministic seed.
+    SetFractalNoiseSeed { layer_id: usize, seed: u32 },
+    /// Set the Fractal Noise octave count (clamped `[1, 10]`).
+    SetFractalNoiseOctaves { layer_id: usize, octaves: u32 },
+    /// Add a default Turbulent Displace to a layer.
+    AddTurbulentDisplace { layer_id: usize },
+    /// Remove a layer's Turbulent Displace.
+    RemoveTurbulentDisplace { layer_id: usize },
+    /// Set a Turbulent Displace scalar param by name (amount/size/evolution).
+    SetTurbulentDisplaceParam { layer_id: usize, param: &'static str, value: f32 },
+    /// Set the Turbulent Displace complexity (octaves, clamped `[1, 10]`).
+    SetTurbulentDisplaceComplexity { layer_id: usize, complexity: u32 },
+
+    // ── Per-layer motion blur (motion_blur.rs) ────────────────────────────────
+    /// Set a layer's per-layer shutter angle override (degrees, `(0, 720]`).
+    SetLayerShutterAngle { layer_id: usize, angle: f32 },
+    /// Set a layer's per-layer shutter phase override (degrees).
+    SetLayerShutterPhase { layer_id: usize, phase: f32 },
+    /// Set a layer's per-layer motion-blur sample count (`[1, 64]`).
+    SetLayerMotionBlurSamples { layer_id: usize, samples: u32 },
+    /// Enable/disable a layer's per-layer motion-blur override.
+    SetLayerMotionBlurOverride { layer_id: usize, enabled: bool },
+    /// Drop a layer's per-layer motion-blur override (fall back to the comp).
+    ClearLayerMotionBlurOverride { layer_id: usize },
+
+    // ── Time stretch / time remap (time_stretch.rs) ───────────────────────────
+    /// Set a layer's time-stretch factor from a source/target duration pair.
+    SetLayerStretchFromDuration { layer_id: usize, source_duration: f32, target_duration: f32 },
+    /// Lay a reversing time-remap curve so the layer plays its source backwards.
+    ReverseLayerTime { layer_id: usize },
+    /// Freeze a layer on one source frame (a constant time-remap).
+    FreezeFrameAt { layer_id: usize, comp_time: f32, source_time: f32 },
+    /// Remove a layer's `key_index`-th time-remap keyframe.
+    RemoveTimeRemapKey { layer_id: usize, key_index: usize },
+    /// Clear a layer's time-remap (disable + drop all keys).
+    ClearTimeRemap { layer_id: usize },
 }

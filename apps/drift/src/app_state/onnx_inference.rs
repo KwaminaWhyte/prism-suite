@@ -118,6 +118,13 @@ impl App {
                 };
                 self.drift_onnx_models.retain(|m| m.model != *model);
                 self.drift_onnx_models.push(entry);
+                // Keep the inference registry in sync so the real backend can be
+                // selected when the `onnx` feature is on and the file exists.
+                self.onnx_registry.register(model, local_path.clone());
+            }
+            Action::ClearDriftModel { model } => {
+                self.drift_onnx_models.retain(|m| m.model != *model);
+                self.onnx_registry.clear(model);
             }
             Action::StartDriftModelDownload { model } => {
                 if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
@@ -157,6 +164,7 @@ impl App {
                         download_progress: 1.0,
                     });
                 }
+                self.onnx_registry.register(model, local_path.clone());
             }
             Action::ErrorDriftModelDownload { model, message: _ } => {
                 if let Some(e) = self.drift_onnx_models.iter_mut().find(|m| m.model == *model) {
@@ -182,18 +190,27 @@ impl App {
                     status: OnnxJobStatus::Done,
                     error: None,
                 });
-                // Stub: immediately add motion keyframes to the target layer so
-                // the UI resets out of "Generating..." as soon as the action fires.
+                // Run inference through the backend abstraction. The default
+                // build selects the deterministic stub (which reproduces the
+                // canonical motion path); with the `onnx` feature + a registered
+                // model file, the real `ort` session runs instead and we fall
+                // back to the stub on any failure. Keyframes are injected
+                // immediately so the UI resets out of "Generating...".
+                let backend = super::onnx_runtime::InferenceBackend::select(
+                    &super::DriftOnnxModel::AnimateDiff,
+                    &self.onnx_registry,
+                );
+                let motion = backend.animate_diff(prompt, *num_frames, *guidance_scale);
                 let lid = *layer_id;
                 let kf_counter = &mut self.keyframe_counter;
                 let keyframes = &mut self.keyframes;
-                for (frame, x, y) in [(0usize, 0.0f32, 0.0f32), (60, 300.0, -150.0), (120, -200.0, 100.0), (180, 150.0, 200.0)] {
+                for sample in &motion.samples {
                     keyframes.push(super::keyframes::Keyframe {
                         id: { let k = *kf_counter; *kf_counter += 1; k },
                         layer_id: lid,
                         property: "position_x".to_string(),
-                        frame,
-                        value: x,
+                        frame: sample.frame,
+                        value: sample.x,
                         easing: super::keyframes::EasingKind::EaseInOut,
                         bezier_handle_in: (0.0, 0.0),
                         bezier_handle_out: (1.0, 1.0),
@@ -202,8 +219,8 @@ impl App {
                         id: { let k = *kf_counter; *kf_counter += 1; k },
                         layer_id: lid,
                         property: "position_y".to_string(),
-                        frame,
-                        value: y,
+                        frame: sample.frame,
+                        value: sample.y,
                         easing: super::keyframes::EasingKind::EaseInOut,
                         bezier_handle_in: (0.0, 0.0),
                         bezier_handle_out: (1.0, 1.0),
@@ -367,7 +384,9 @@ mod tests {
         });
         assert_eq!(a.animatediff_jobs.len(), 1);
         assert_eq!(a.animatediff_jobs[0].prompt, "walk cycle");
-        assert_eq!(a.animatediff_jobs[0].status, OnnxJobStatus::Queued);
+        // The "Generate Motion" arm completes synchronously (injects keyframes
+        // immediately), so the queued job lands in the Done state.
+        assert_eq!(a.animatediff_jobs[0].status, OnnxJobStatus::Done);
         assert!(a.animatediff_jobs[0].error.is_none());
     }
 

@@ -27,6 +27,17 @@ rfd.workspace = true
 dirs.workspace = true
 ureq.workspace = true
 
+# Real ONNX Runtime, behind the optional `onnx` feature. OFF by default so the
+# suite builds and CI tests pass without the native ONNX Runtime / model weights.
+# `ort` 2.x is published only as prereleases (2.0.0-rc.*), so the requirement is
+# pinned explicitly — Cargo will not match a prerelease from a bare "2".
+ort = { version = "=2.0.0-rc.10", optional = true }
+
+[features]
+# Enable real ONNX inference via the `ort` crate. When off (the default), Drift
+# uses the deterministic stub backend in `app_state::onnx_runtime`.
+onnx = ["dep:ort"]
+
 [package.metadata.bundle]
 name = "Drift"
 identifier = "com.prism-suite.drift"

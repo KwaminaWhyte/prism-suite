@@ -41,6 +41,8 @@ pub mod types_text;
 pub use types_text::*;
 pub mod types_effects;
 pub use types_effects::*;
+pub mod prefs_color;
+pub use prefs_color::*;
 
 mod apply_advanced;
 mod apply_extended;
@@ -61,6 +63,7 @@ mod apply_waves2;
 mod apply_batch10;
 mod tests_batch10;
 mod apply_batch11;
+mod apply_batch13;
 mod geometry_warp;
 mod apply_batch12;
 pub(super) mod helpers;
@@ -1387,6 +1390,57 @@ pub enum Action {
     /// definition (propagating to every placed instance) and restoring the
     /// document artwork.
     ExitSymbolEdit,
+    // Batch 13: real 3D expand, gradient mesh, export, picker, prefs
+    // =========================================================
+    /// **Object ▸ Expand** a 3D Extrude on `shape_id`: render its stored config
+    /// into flat shaded vector faces, replacing the source shape.
+    ExpandExtrudeRender { shape_id: usize },
+    /// **Object ▸ Expand** a 3D Revolve on `shape_id` into flat lathe faces.
+    ExpandRevolveRender { shape_id: usize },
+
+    /// **Object ▸ Create Gradient Mesh** — build a `rows × cols` mesh over the
+    /// selected shape's bounds, seeded from its fill colour.
+    CreateGradientMeshObject { rows: usize, cols: usize },
+    /// Recolour gradient-mesh node `(row, col)`.
+    SetGradientMeshNodeColor { row: usize, col: usize, color: [f32; 4] },
+    /// Move gradient-mesh node `(row, col)` to a document-space point.
+    MoveGradientMeshNode { row: usize, col: usize, x: f32, y: f32 },
+    /// Insert a gradient-mesh row after row `after` (interpolated).
+    AddGradientMeshRow { after: usize },
+    /// Insert a gradient-mesh column after column `after` (interpolated).
+    AddGradientMeshColumn { after: usize },
+    /// Drop the active gradient-mesh object.
+    ClearGradientMeshObject,
+
+    /// Export the document to `path` in `format` (PNG / SVG / EPS / PDF), writing
+    /// the bytes to disk.
+    ExportDocument { path: String, format: crate::export_formats::ExportFormat },
+
+    /// Set the colour-picker RGB (each `0..1`).
+    SetPickerRgb { r: f32, g: f32, b: f32 },
+    /// Set the colour-picker HSB (hue degrees, sat/bri `0..1`).
+    SetPickerHsb { h: f32, s: f32, b: f32 },
+    /// Set the colour-picker CMYK (each `0..1`).
+    SetPickerCmyk { c: f32, m: f32, y: f32, k: f32 },
+    /// Set the colour-picker colour from a hex string.
+    SetPickerHex(String),
+    /// Apply the colour-picker colour as the fill of every selected shape.
+    ApplyPickerToSelection,
+
+    /// Set the preference: maximum undo levels.
+    SetPrefUndoLevels(u32),
+    /// Set the preference: snap to anchors / points.
+    SetPrefSnapToPoint(bool),
+    /// Set the preference: snap to grid.
+    SetPrefSnapToGrid(bool),
+    /// Set the preference: show the grid.
+    SetPrefShowGrid(bool),
+    /// Set the preference: grid spacing (document points).
+    SetPrefGridSpacing(f32),
+    /// Set the preference: ruler / display unit.
+    SetPrefUnit(crate::app_state::prefs_color::PrefUnit),
+    /// Replace all preferences from a JSON document (sanitized on load).
+    LoadPreferencesJson(String),
 }
 
 /// The single shared application state. Owns the host + document and the panel-
@@ -1796,6 +1850,14 @@ pub struct App {
     /// The document shapes saved on entering symbol-edit mode, restored on exit
     /// so the main artwork is untouched by an in-place symbol edit.
     pub symbol_edit_backup: Option<Vec<Shape>>,
+    // --- Batch 13: gradient mesh object, colour picker, preferences ---
+    /// The active gradient-mesh object (a grid of colour nodes), if one has been
+    /// created via `Object ▸ Create Gradient Mesh`.
+    pub gradient_mesh_obj: Option<crate::gradient_mesh::GradientMesh>,
+    /// The colour picker's live colour (RGB / HSB / CMYK / hex views).
+    pub color_picker: prefs_color::ColorPicker,
+    /// Application preferences (undo levels, snap, grid, units).
+    pub preferences: prefs_color::Preferences,
 }
 
 impl App {
@@ -1985,6 +2047,10 @@ impl App {
             doc_setup: DocumentSetup::new(),
             editing_symbol: None,
             symbol_edit_backup: None,
+            // Batch 13
+            gradient_mesh_obj: None,
+            color_picker: prefs_color::ColorPicker::default(),
+            preferences: prefs_color::Preferences::default(),
         }
     }
 

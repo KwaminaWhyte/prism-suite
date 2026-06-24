@@ -558,6 +558,10 @@ impl AppTimelineExt for App {
             Some(a) => a,
             None => return,
         };
+        let action = match self.apply_timeline_misc(action) {
+            Some(a) => a,
+            None => return,
+        };
         match action {
             Action::SetClipGain { index, gain } => {
                 if let Some(clip) = self.project.clips.get_mut(index) {
@@ -766,82 +770,6 @@ impl AppTimelineExt for App {
                 let clips = if let Some(sel) = self.selected { vec![sel] } else { vec![] };
                 self.multicam_groups.push(MulticamGroup { clips, active_angle: 0 });
             }
-            Action::SetTimeRemapEnabled { clip_idx, enabled } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.time_remap_enabled = enabled;
-                    if enabled && c.time_remap_keys.is_empty() {
-                        c.time_remap_keys = vec![(c.start, c.source_in), (c.end(), c.source_in + c.duration)];
-                    }
-                    self.host.mark_dirty();
-                }
-            }
-            Action::AddTimeRemapKey { clip_idx, timeline_t, source_t } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.time_remap_keys.push((timeline_t, source_t));
-                    c.time_remap_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    self.host.mark_dirty();
-                }
-            }
-            Action::MoveTimeRemapKey { clip_idx, key_idx, source_t } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    if let Some(k) = c.time_remap_keys.get_mut(key_idx) { k.1 = source_t.max(0.0); self.host.mark_dirty(); }
-                }
-            }
-            Action::RemoveTimeRemapKey { clip_idx, key_idx } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    if key_idx < c.time_remap_keys.len() { c.time_remap_keys.remove(key_idx); self.host.mark_dirty(); }
-                }
-            }
-            Action::SetFreezeFrame { clip_idx, at_t } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.time_remap_enabled = true;
-                    let src_t = c.remapped_source_t(at_t);
-                    let end = c.end();
-                    c.time_remap_keys.retain(|k| k.0 < at_t || k.0 >= end);
-                    c.time_remap_keys.push((at_t, src_t));
-                    c.time_remap_keys.push((end - 1e-4, src_t));
-                    c.time_remap_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    self.host.mark_dirty();
-                }
-            }
-            Action::SetTimeRemapSpeedKeys { clip_idx, mut keys } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    c.time_remap_speed_keys = keys;
-                    c.time_remap_enabled = true;
-                    self.host.mark_dirty();
-                }
-            }
-            Action::AddTimeRemapSpeedKey { clip_idx, timeline_t, factor } => {
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.time_remap_enabled = true;
-                    c.time_remap_speed_keys.push((timeline_t, factor.max(0.0)));
-                    c.time_remap_speed_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    self.host.mark_dirty();
-                }
-            }
-            Action::AddSpeedFreezeFrame { clip_idx, at_t, hold_secs } => {
-                // Insert a freeze (factor 0) of `hold_secs` at `at_t`: unity speed
-                // before and after, a zero-speed plateau in between. The clip's
-                // duration grows by `hold_secs` so the held frames have room.
-                if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.time_remap_enabled = true;
-                    let hold = hold_secs.max(0.0);
-                    let end = c.end();
-                    if c.time_remap_speed_keys.is_empty() {
-                        c.time_remap_speed_keys = vec![(c.start, 1.0), (end, 1.0)];
-                    }
-                    c.duration += hold;
-                    // Shift any keys at/after the freeze point later by `hold`.
-                    for k in c.time_remap_speed_keys.iter_mut() {
-                        if k.0 > at_t { k.0 += hold; }
-                    }
-                    c.time_remap_speed_keys.push((at_t, 0.0));
-                    c.time_remap_speed_keys.push((at_t + hold, 0.0));
-                    c.time_remap_speed_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                    self.host.mark_dirty();
-                }
-            }
             Action::GroupRippleTrimIn { clip_indices, delta } => {
                 if delta == 0.0 || clip_indices.is_empty() { return; }
                 for &ci in &clip_indices {
@@ -858,44 +786,6 @@ impl AppTimelineExt for App {
                 }
                 self.host.mark_dirty();
             }
-            Action::SetProjectName(n) => { self.project_name = n; }
-            Action::SetProjectPath(p) => {
-                self.recent_project_paths.insert(0, p.clone());
-                self.recent_project_paths.dedup();
-                self.recent_project_paths.truncate(10);
-                self.project_path = Some(p);
-            }
-            Action::AddRecentProject(p) => {
-                self.recent_project_paths.insert(0, p);
-                self.recent_project_paths.dedup();
-                self.recent_project_paths.truncate(10);
-            }
-            Action::SetProjectNotes(n) => { self.project_notes = n; }
-            Action::SetAutoSaveEnabled(b) => { self.auto_save_enabled = b; }
-            Action::SetAutoSaveInterval(s) => { self.auto_save_interval_sec = s.max(30); }
-            Action::TriggerAutoSave => {}
-            Action::SaveExportPreset { name, format, width, height, fps } => {
-                self.export_presets.push((name, format, width, height, fps));
-            }
-            Action::DeleteExportPreset(idx) => {
-                if idx < self.export_presets.len() {
-                    self.export_presets.remove(idx);
-                    if self.active_preset == Some(idx) { self.active_preset = None; }
-                }
-            }
-            Action::ApplyExportPreset(idx) => {
-                if idx < self.export_presets.len() { self.active_preset = Some(idx); }
-            }
-            Action::SetSequenceSize { w, h } => {
-                self.project.width = w.max(1);
-                self.project.height = h.max(1);
-                self.host.mark_dirty();
-            }
-            Action::SetFrameRate(fps) => {
-                self.project.fps = fps.clamp(1.0, 120.0);
-                self.host.mark_dirty();
-            }
-            Action::SetSampleRate(rate) => { self.sequence_sample_rate = rate; }
             _ => {}
         }
     }

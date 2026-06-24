@@ -542,6 +542,9 @@ pub enum Action {
 
     // ONNX inference stubs (Batch 8)
     RegisterDriftModel { model: DriftOnnxModel, local_path: String },
+    /// Clear a registered model path, returning it to the unregistered state in
+    /// both the download-UI list and the inference registry.
+    ClearDriftModel { model: DriftOnnxModel },
     StartDriftModelDownload { model: DriftOnnxModel },
     UpdateDriftModelDownload { model: DriftOnnxModel, progress: f32 },
     CompleteDriftModelDownload { model: DriftOnnxModel, local_path: String },

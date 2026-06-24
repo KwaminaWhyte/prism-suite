@@ -67,6 +67,8 @@ pub mod drawing_tools;
 pub mod nested_timeline;
 // Batch 8: ONNX inference stubs
 pub mod onnx_inference;
+// Real ONNX inference scaffolding (backend abstraction + registry; `ort` behind `onnx` feature)
+pub mod onnx_runtime;
 // Batch 8: Lottie builder, media export queue, JS runtime, web publish, CRDT
 pub mod export_web;
 pub mod audio_ops;
@@ -114,6 +116,11 @@ pub use nested_timeline::{NestedTimeline, NestedLayer, NestedKeyframe};
 pub use onnx_inference::{
     OnnxJobStatus, DriftOnnxModel, OnnxModelStatus, DriftOnnxModelEntry,
     AnimateDiffJob, FilmRifeJob, PhonemeDetectJob, StyleTransferJob, AiBgGenJob, AiScriptJob,
+};
+pub use onnx_runtime::{
+    ModelRegistry, ModelLoadState, RegisteredModel, InferenceBackend, BackendKind,
+    Inference, StubBackend, MotionSample, MotionOutput, InterpOutput, PhonemeOutput, ScriptOutput,
+    default_model_filename,
 };
 pub use export_web::{
     LottieJsonBuilder, WebLottieImportSession, WebLottieImportStatus,
@@ -382,6 +389,10 @@ pub struct App {
     pub next_nested_timeline_id: usize,
     // Batch 8: ONNX inference stubs
     pub drift_onnx_models: Vec<DriftOnnxModelEntry>,
+    /// Inference-layer registry: maps each model to an on-disk path + load state.
+    /// Kept in sync with `drift_onnx_models` (the download-UI list) by the
+    /// register/clear apply arms. Source of truth for real-backend selection.
+    pub onnx_registry: ModelRegistry,
     pub animatediff_jobs: Vec<AnimateDiffJob>,
     pub next_animatediff_id: usize,
     pub filmrife_jobs: Vec<FilmRifeJob>,
@@ -843,6 +854,7 @@ impl App {
             | Action::DeleteNestedTimeline { .. } => self.apply_nested_timeline(action),
             // Batch 8: ONNX inference stubs
             Action::RegisterDriftModel { .. }
+            | Action::ClearDriftModel { .. }
             | Action::StartDriftModelDownload { .. }
             | Action::UpdateDriftModelDownload { .. }
             | Action::CompleteDriftModelDownload { .. }

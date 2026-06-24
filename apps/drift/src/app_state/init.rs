@@ -203,6 +203,7 @@ impl App {
             next_nested_timeline_id: 1,
             // Batch 8: ONNX inference stubs
             drift_onnx_models: Vec::new(),
+            onnx_registry: super::ModelRegistry::new(),
             animatediff_jobs: Vec::new(),
             next_animatediff_id: 1,
             filmrife_jobs: Vec::new(),

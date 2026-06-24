@@ -4503,6 +4503,7 @@ dependencies = [
  "prism-io",
  "prism-ui",
  "rfd",
+ "rhai",
  "serde",
  "serde_json",
 ]

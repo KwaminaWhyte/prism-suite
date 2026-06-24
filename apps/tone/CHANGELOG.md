@@ -7,6 +7,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField`)
+- **Typeable MusicGen prompt** — type the AI-generation prompt (live `SetAiPrompt`); Generate Music consumes it. Style-tag chips append to the real field.
+- **Project name** — typeable → `SetProjectName`.
+- **BPM / tempo** — typeable field (pure `parse_bpm`, clamp 20–999) → `SetBpm`; steppers re-seed it.
+- **Track + clip rename** — double-click inline rename → `RenameTrack` / `RenameClip`.
+- +8 tests (734 → 742).
+
 ## [0.10.0] - 2026-06-24
 
 ### Added — Real ONNX inference layer

@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField` across all six apps)
+- New shared **`prism_ui::TextField`** — a focusable GPUI single-line editor (cursor,
+  selection, Shift-select, word motion, clipboard cut/copy/paste, UTF-8-safe) backed by
+  a pure, fully-unit-tested `TextInputState` (34 tests). This closes the suite's biggest
+  real gap: GPUI 0.2.2 had no usable text-input widget, so prior UIs fell back to
+  steppers/preset-chips. Now wired into every app, replacing those with genuine typing:
+  - **Pigment** — layer rename, hex color entry, PSD export path + native Browse dialog, editable text-tool content (type real text onto the canvas).
+  - **Contour** — Document Setup dimensions, color-picker hex, export path, layer/symbol/artboard rename, editable text-object content (live glyph re-shaping).
+  - **Pulse** — typeable expression editor (type ANY rhai expression → evaluate, no longer chip-only), layer/comp rename, render output path.
+  - **Reel** — title + Essential-Graphics text, clip/track/sequence/marker rename, export path.
+  - **Drift** — typeable AnimateDiff motion prompt, AI-script prompt + script editor, layer rename.
+  - **Tone** — typeable MusicGen prompt, project name, BPM/tempo, track/clip rename.
+- Per-app test totals after this work: Pigment 452, Contour 821, Pulse 1034, Reel 356, Drift 655, Tone 742, prism-ui 34.
+- Deferred (documented): multi-line `TextArea`, IME/marked-text, and mouse caret placement — single-line `TextField` covers Latin typing fully; the element already retains shaped-line geometry to add these without an API change.
+
 ### Changed — File organization (no behavior change)
 - Split every oversized non-test source file to satisfy the MANDATORY ~1000-line
   rule. Apps: pigment `app_state/mod.rs` (5460→983) + `canvas_host.rs`→dir; contour

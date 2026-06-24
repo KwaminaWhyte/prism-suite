@@ -8,6 +8,14 @@ Versioning follows the workspace `version` in the root `Cargo.toml`.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField`)
+- **Typeable AnimateDiff motion prompt** — type the prompt that drives motion generation → `SetAiMotionPrompt` → `QueueAnimateDiff` (style-tag buttons append to the real field).
+- **AI-script prompt + script editor** — typeable natural-language prompt (`SetAiScriptPrompt`) + editable script source (`SetScriptSource`); Generate Script queues + writes derived code.
+- **Layer rename** — double-click inline rename → `RenameLayer`.
+- +4 tests (651 → 655).
+
 ## [0.10.0] - 2026-06-24
 
 ### Added — Real ONNX inference layer

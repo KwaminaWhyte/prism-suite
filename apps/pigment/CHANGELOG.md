@@ -6,6 +6,15 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField`)
+- **Layer rename** — double-click a layer name → inline editable field → `RenameLayer`.
+- **Hex color entry** — `#RGB`/`#RRGGBB` field (pure `parse_hex_color`) → `SetBrushColor`.
+- **PSD export path** — typeable output-path field + native Browse dialog (`rfd`) → `SetPsdExportPath`/`ExportAsPsd`.
+- **Editable text-tool content** — type real text onto the canvas via `SetTextContent` (re-rasterizes the active text layer live).
+- +13 tests (439 → 452).
+
 ## [0.10.0] - 2026-06-24
 
 ### Added — UI (GPUI)

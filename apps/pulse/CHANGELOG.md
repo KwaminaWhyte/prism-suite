@@ -7,6 +7,14 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField`)
+- **Typeable expression editor** — type ANY rhai expression (no longer preset-chip-only); Enter / Evaluate → `SetExpression` + `EvaluateExpression`, with result/error readout. Chips kept as quick-insert.
+- **Layer + comp rename** — `RenameLayer` / `SetCompName` via inline fields.
+- **Render output path** — typeable path → `SetRenderOutputPath`.
+- +7 tests (1027 → 1034).
+
 ## [0.10.0] - 2026-06-24
 
 ### Added — UI (GPUI panels)

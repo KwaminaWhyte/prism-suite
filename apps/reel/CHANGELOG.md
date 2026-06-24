@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField`)
+- **Title + Essential-Graphics text** — type real title-clip / MOGRT text → `SetTitleText` / `SetMogrParamText` (live program-preview update).
+- **Rename** — clip/track/sequence/marker inline rename → `RenameClip`/`RenameTrack`/`RenameSequence`/`RenameMarker`.
+- **Export output path** — typeable path → `SetExportPath`.
+- +7 tests (349 → 356).
+
 ## [0.10.0] - 2026-06-24
 
 ### Added — UI (GPUI)

@@ -7,6 +7,16 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-24
+
+### Added — Real text input (`prism_ui::TextField`)
+- **Document Setup dimensions** — typeable width/height/bleed (unit-aware → points) → `SetDocSetupSize`/`SetDocSetupBleed`.
+- **Color-picker hex** — `#RRGGBB` field → `SetPickerHex`.
+- **Export path** — full output-path field (extension follows format) → `ExportDocument`.
+- **Rename** — layer/symbol/artboard inline rename via double-click → `RenameLayer`/`RenameSymbol`/`RenameArtboard`.
+- **Editable text-object content** — Type-tool field re-shapes glyphs live → `SetTextObjectContent`.
+- +8 tests (813 → 821).
+
 ## [0.10.0] - 2026-06-24
 
 ### Added — UI (GPUI floating windows)

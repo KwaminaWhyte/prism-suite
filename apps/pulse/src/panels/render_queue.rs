@@ -5,16 +5,16 @@
 //! and a remove button. "Add to Queue" appends the active comp; "Render All"
 //! processes the queue serially via `Action::RenderAll`.
 
-use gpui::{div, px, rgb, Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
+use gpui::{div, px, rgb, Context, Entity, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
 use gpui::prelude::FluentBuilder;
 
-use prism_ui::colors;
+use prism_ui::{colors, TextField};
 
 use crate::app_state::{Action, App, RenderFormat, RenderJob, RenderJobStatus};
 use crate::panels::BG_ACTIVE;
 use crate::Pulse;
 
-pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(app: &App, render_path_field: &Entity<TextField>, cx: &mut Context<Pulse>) -> impl IntoElement {
     // Build output preset rows before div chain.
     let preset_rows: Vec<gpui::AnyElement> = app
         .output_presets
@@ -181,6 +181,23 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
         .border_color(colors::surface_border())
         .children(fmt_chips);
 
+    // Editable output path (REAL typing — Enter applies via on_submit).
+    let path_row = div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .px_3()
+        .py_1()
+        .border_b_1()
+        .border_color(colors::surface_border())
+        .child(
+            div()
+                .text_color(colors::text_secondary())
+                .text_size(px(9.0))
+                .child("Output path"),
+        )
+        .child(render_path_field.clone());
+
     let mut panel = div()
         .flex()
         .flex_col()
@@ -188,6 +205,7 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
         .border_color(colors::surface_border())
         .child(header)
         .child(fmt_row)
+        .child(path_row)
         .child(body);
 
     if has_presets {

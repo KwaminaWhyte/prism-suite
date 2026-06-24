@@ -338,11 +338,88 @@ impl App {
             Action::CloseSubComp => {
                 self.active_sub_comp = None;
             }
+            Action::RenameLayer { layer_id, name } => {
+                let ci = self.active_comp_index();
+                if let Some(layer) = self.project.comps[ci].layers.get_mut(layer_id) {
+                    layer.name = name;
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SetCompName(name) => {
+                let ci = self.active_comp_index();
+                self.project.comps[ci].name = name;
+            }
 
             // All layer-management / footage / marker / split / light /
             // comp-motion-blur / 3-D-camera arms live in `composition_layers.rs`
             // to keep this file under the 1000-line limit.
             _ => self.apply_composition_layers(action),
         }
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn rename_layer_updates_the_active_comp_layer_name() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        // The demo project has several layers; layer 0 exists.
+        assert!(!app.project.comps[ci].layers.is_empty());
+        app.apply(Action::RenameLayer {
+            layer_id: 0,
+            name: "Hero Title".to_string(),
+        });
+        assert_eq!(app.project.comps[ci].layers[0].name, "Hero Title");
+    }
+
+    #[test]
+    fn rename_layer_out_of_bounds_is_a_no_op() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        let n = app.project.comps[ci].layers.len();
+        // Should not panic on a bad index.
+        app.apply(Action::RenameLayer {
+            layer_id: n + 99,
+            name: "nope".to_string(),
+        });
+        // Existing names untouched.
+        assert!(app.project.comps[ci].layers.iter().all(|l| l.name != "nope"));
+    }
+
+    #[test]
+    fn rename_layer_is_undoable() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        let original = app.project.comps[ci].layers[0].name.clone();
+        app.apply(Action::RenameLayer {
+            layer_id: 0,
+            name: "Renamed".to_string(),
+        });
+        assert_eq!(app.project.comps[ci].layers[0].name, "Renamed");
+        app.apply(Action::Undo);
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].layers[0].name, original);
+    }
+
+    #[test]
+    fn set_comp_name_updates_active_comp() {
+        let mut app = App::new();
+        app.apply(Action::SetCompName("Main Sequence".to_string()));
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].name, "Main Sequence");
+    }
+
+    #[test]
+    fn set_comp_name_is_undoable() {
+        let mut app = App::new();
+        let ci = app.active_comp_index();
+        let original = app.project.comps[ci].name.clone();
+        app.apply(Action::SetCompName("Temp".to_string()));
+        app.apply(Action::Undo);
+        let ci = app.active_comp_index();
+        assert_eq!(app.project.comps[ci].name, original);
     }
 }

@@ -154,6 +154,14 @@ pub enum Action {
     /// Set (or clear when `expr` is empty) the expression string for `prop` on `layer_id`.
     SetExpression { layer_id: usize, prop: String, expr: String },
 
+    // --- Naming (real typed text via prism_ui::TextField) ---
+    /// Rename the layer at `layer_id` in the active comp to `name`.
+    RenameLayer { layer_id: usize, name: String },
+    /// Set the display name of the active composition to `name`.
+    SetCompName(String),
+    /// Set the export / render output path (the single-output workflow path).
+    SetRenderOutputPath(PathBuf),
+
     // --- Preview transform gizmo ---
     /// Key the changed transform properties of the selected layer at `time` from a gizmo drag.
     GizmoKeys { time: f32, keys: Vec<(Prop, f32)> },

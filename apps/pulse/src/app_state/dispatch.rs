@@ -114,6 +114,7 @@ impl App {
             | Action::RemoveRenderQueueItem(_)
             | Action::SetRenderItemFormat { .. }
             | Action::SetRenderItemOutput { .. }
+            | Action::SetRenderOutputPath(_)
             | Action::SetRenderItemRange { .. }
             | Action::SetRenderItemProxy { .. }
             | Action::StartRenderQueue

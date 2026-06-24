@@ -34,11 +34,12 @@ use std::sync::Arc;
 
 use app_state::{Action, App};
 use gpui::{
-    div, px, rgb, size, AppContext, Bounds, Context, FocusHandle,
+    div, px, rgb, size, AppContext, Bounds, Context, Entity, FocusHandle,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, RenderImage,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use gpui::prelude::FluentBuilder;
+use prism_ui::TextField;
 
 use panels::preview_panel;
 use panels::{DOCK_W, STRIP_W, TIMELINE_H, TOOLBAR_H};
@@ -57,6 +58,20 @@ struct Pulse {
     /// We hold the last painted image and drop its atlas tile once a new-id frame
     /// replaces it, bounding the atlas to ~one preview frame.
     last_image: Option<Arc<RenderImage>>,
+
+    // ── Editable text fields (persistent `prism_ui::TextField` views) ────────
+    // GPUI text fields are stateful views: they must be created once and held so
+    // their focus / caret / selection survive across re-renders. The panels read
+    // these entities and render them inline; each field's `on_submit` routes its
+    // typed text to the matching `Action` via the weak self-handle below.
+    /// Free-text expression input for the Expression Editor panel.
+    expr_field: Entity<TextField>,
+    /// Editable name for the selected layer (Layers panel).
+    layer_name_field: Entity<TextField>,
+    /// Editable name for the active composition (Comp Settings panel).
+    comp_name_field: Entity<TextField>,
+    /// Editable export / render output path (Render Queue panel).
+    render_path_field: Entity<TextField>,
 }
 
 impl Pulse {
@@ -88,6 +103,110 @@ impl Pulse {
         let selected_layer = self.app.selected_layer;
         let playing = self.app.playing;
         self.app.host.image(&self.app.project, time, gpui_effects, selected_layer, playing, self.app.roi)
+    }
+
+    // ── TextField factories ─────────────────────────────────────────────────
+    //
+    // Each builds a `prism_ui::TextField` whose `on_submit` (Enter) routes the
+    // typed text to the matching `app_state::Action` through a weak handle to
+    // this root view. The fields are created once in `Pulse::new` and held on
+    // the struct so caret / selection / focus persist across re-renders.
+
+    /// Free-text expression input. On Enter, sets the expression for the
+    /// editor's bound `(layer, prop)` and immediately evaluates it.
+    fn make_expr_field(cx: &mut Context<Self>) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("e.g. wiggle(2, 30)")
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    let text = text.to_string();
+                    pulse.update(cx, |p, cx| {
+                        if let Some(layer_id) = p.app.selected_layer {
+                            let prop = p.app.expr_editor_prop.clone();
+                            let at_time = p.app.time;
+                            p.app.apply(Action::SetExpression {
+                                layer_id,
+                                prop: prop.clone(),
+                                expr: text.clone(),
+                            });
+                            if !text.trim().is_empty() {
+                                p.app.apply(Action::EvaluateExpression {
+                                    layer_id,
+                                    prop,
+                                    at_time,
+                                });
+                            }
+                        }
+                        cx.notify();
+                    });
+                })
+        })
+    }
+
+    /// Editable name for the selected layer. On Enter, renames the layer.
+    fn make_layer_name_field(cx: &mut Context<Self>) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Layer name")
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    let text = text.to_string();
+                    pulse.update(cx, |p, cx| {
+                        if let Some(layer_id) = p.app.selected_layer {
+                            if !text.trim().is_empty() {
+                                p.app.apply(Action::RenameLayer { layer_id, name: text });
+                            }
+                        }
+                        cx.notify();
+                    });
+                })
+        })
+    }
+
+    /// Editable name for the active comp. On Enter, sets the comp name.
+    fn make_comp_name_field(cx: &mut Context<Self>, app: &App) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        let ci = app.active_comp_index();
+        let initial = app.project.comps[ci].name.clone();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Composition name")
+                .initial_value(initial)
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    let text = text.to_string();
+                    pulse.update(cx, |p, cx| {
+                        if !text.trim().is_empty() {
+                            p.app.apply(Action::SetCompName(text));
+                        }
+                        cx.notify();
+                    });
+                })
+        })
+    }
+
+    /// Editable render / export output path. On Enter, sets the output path.
+    fn make_render_path_field(cx: &mut Context<Self>, app: &App) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        let initial = app.render_output_path.to_string_lossy().to_string();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("output.mp4")
+                .initial_value(initial)
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    let text = text.to_string();
+                    pulse.update(cx, |p, cx| {
+                        if !text.trim().is_empty() {
+                            p.app.apply(Action::SetRenderOutputPath(text.into()));
+                        }
+                        cx.notify();
+                    });
+                })
+        })
     }
 }
 
@@ -156,23 +275,29 @@ impl Render for Pulse {
             .max(0.05);
         let (w, h) = (comp_w * fit, comp_h * fit);
 
+        // Persistent text-field entities (cloned cheaply — they are handles).
+        let expr_field = self.expr_field.clone();
+        let layer_name_field = self.layer_name_field.clone();
+        let comp_name_field = self.comp_name_field.clone();
+        let render_path_field = self.render_path_field.clone();
+
         // Build panel elements (read-only &App + cx for Action listeners).
         let app = &self.app;
         let toolbar = panels::toolbar::render(app, cx);
         let tools = panels::tools::render(app, cx);
-        let layers = panels::layers::render(app, cx);
+        let layers = panels::layers::render(app, &layer_name_field, cx);
         let properties = panels::properties::render(app, cx);
         let effects = panels::effects::render(app, cx);
         let expressions = panels::expressions::render(app, cx);
         let expr_controls = panels::expr_controls::render(app, cx);
-        let render_queue = panels::render_queue::render(app, cx);
-        let comp_settings = panels::comp_settings::render(app, cx);
+        let render_queue = panels::render_queue::render(app, &render_path_field, cx);
+        let comp_settings = panels::comp_settings::render(app, &comp_name_field, cx);
         let timeline = panels::timeline::render(app, cx);
         // Wave 4 panels — built only when their toggle is on, so they cost
         // nothing when hidden and stack into the right dock when shown.
         let expr_editor = app
             .expr_editor_open
-            .then(|| panels::expr_editor::render(app, cx).into_any_element());
+            .then(|| panels::expr_editor::render(app, &expr_field, cx).into_any_element());
         let output_module = app
             .output_module_open
             .then(|| panels::output_module::render(app, cx).into_any_element());
@@ -360,10 +485,23 @@ fn main() {
                     let focus = cx.focus_handle();
                     // Focus the root so it receives the undo/redo key events.
                     window.focus(&focus);
+                    let app = App::new();
+                    // The four editable text fields. `cx.weak_entity()` is valid
+                    // inside the constructor (the entity id is reserved before the
+                    // closure body runs); the submit handlers `.upgrade()` it later
+                    // when the user presses Enter, so no chicken-and-egg problem.
+                    let expr_field = Pulse::make_expr_field(cx);
+                    let layer_name_field = Pulse::make_layer_name_field(cx);
+                    let comp_name_field = Pulse::make_comp_name_field(cx, &app);
+                    let render_path_field = Pulse::make_render_path_field(cx, &app);
                     Pulse {
-                        app: App::new(),
+                        app,
                         focus,
                         last_image: None,
+                        expr_field,
+                        layer_name_field,
+                        comp_name_field,
+                        render_path_field,
                     }
                 })
             },

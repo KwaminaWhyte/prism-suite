@@ -368,6 +368,9 @@ pub struct App {
     pub render_queue_open: bool,
     pub render_in_progress: bool,
     pub render_active_idx: Option<usize>,
+    /// The export / render output path typed into the render-queue panel's
+    /// editable path field (set via [`Action::SetRenderOutputPath`]).
+    pub render_output_path: PathBuf,
 
     // --- Batch 6 depth: 3D Layer ---
     pub layer_3d_configs: std::collections::HashMap<usize, Layer3DConfig>,
@@ -586,6 +589,7 @@ impl App {
             render_queue_open: false,
             render_in_progress: false,
             render_active_idx: None,
+            render_output_path: PathBuf::from("output.mp4"),
             layer_3d_configs: std::collections::HashMap::new(),
             puppet_pins: Vec::new(),
             puppet_meshes: Vec::new(),

@@ -210,3 +210,17 @@
         app.apply(Action::DuplicateRenderItem(0));
         assert_eq!(app.render_queue_items.len(), 2);
     }
+
+    #[test]
+    fn test_set_render_output_path() {
+        let mut app = App::new();
+        // Default seeded path.
+        assert_eq!(app.render_output_path, std::path::PathBuf::from("output.mp4"));
+        app.apply(Action::SetRenderOutputPath(std::path::PathBuf::from(
+            "/exports/final_v2.mov",
+        )));
+        assert_eq!(
+            app.render_output_path,
+            std::path::PathBuf::from("/exports/final_v2.mov")
+        );
+    }

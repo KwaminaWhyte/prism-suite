@@ -5,13 +5,13 @@
 //! and NULL badge for Null-kind layers.
 
 use gpui::{
-    div, px, rgb, svg, white, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, rgb, svg, white, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 use gpui::prelude::FluentBuilder;
 use std::collections::HashMap;
 
-use prism_ui::{colors, Icon, badge, section_header};
+use prism_ui::{colors, Icon, badge, section_header, TextField};
 use crate::comp::LayerKind;
 
 use crate::app_state::{Action, App};
@@ -32,7 +32,7 @@ fn parent_depth(layer_parents: &HashMap<usize, usize>, idx: usize) -> u32 {
     depth
 }
 
-pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(app: &App, layer_name_field: &Entity<TextField>, cx: &mut Context<Pulse>) -> impl IntoElement {
     let ci = app.active_comp_index();
     let comp = &app.project.comps[ci];
     let selected = app.selected_layer;
@@ -157,6 +157,8 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
             let matte_label = if l.matte.is_active() { Some(l.matte.label()) } else { None };
             let is_solo = l.solo;
             let is_shy = l.shy;
+            let layer_name = l.name.clone();
+            let select_field = layer_name_field.clone();
 
             // row_bg is used as a u32 via rgb() below; BG_ACTIVE stays as literal.
             let row_bg_color: gpui::Rgba = if is_picking_this {
@@ -184,7 +186,7 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                 .bg(row_bg_color)
                 .text_color(white())
                 .cursor_pointer()
-                .on_click(cx.listener(move |root, _ev, _win, cx| {
+                .on_click(cx.listener(move |root, _ev, win, cx| {
                     // Pick-whip: if active and this is a different layer, set parent
                     if let Some(child_idx) = root.app.picking_parent_for {
                         if child_idx != i {
@@ -200,6 +202,8 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                         return;
                     }
                     root.app.apply(Action::SelectLayer(i));
+                    // Sync the rename field to the newly-selected layer's name.
+                    select_field.update(cx, |f, cx| f.set_text(layer_name.clone(), win, cx));
                     cx.notify();
                 }))
                 .child(
@@ -396,6 +400,27 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                 .child(div().flex_1().child(section_header(format!("Layers — {}", comp.name))))
                 .child(shy_toggle),
         )
+        // Editable name for the selected layer (REAL typing — Enter renames).
+        .when(selected.is_some(), |d| {
+            d.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1()
+                    .border_b_1()
+                    .border_color(colors::surface_border())
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_color(colors::text_secondary())
+                            .text_size(px(9.0))
+                            .child("Name"),
+                    )
+                    .child(div().flex_1().child(layer_name_field.clone())),
+            )
+        })
         .children(cancel_pick)
         .children(pre_comp_btn)
         .children(rows)

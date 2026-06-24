@@ -5,15 +5,15 @@
 //! pressed (`Action::ApplyCompSettings`), so the live preview doesn't change
 //! until the user confirms.
 
-use gpui::{div, px, rgb, Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
+use gpui::{div, px, rgb, Context, Entity, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
 
-use prism_ui::colors;
+use prism_ui::{colors, TextField};
 
 use crate::app_state::{Action, App};
 use crate::panels::BG_ACTIVE;
 use crate::Pulse;
 
-pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(app: &App, comp_name_field: &Entity<TextField>, cx: &mut Context<Pulse>) -> impl IntoElement {
     if !app.comp_settings_open {
         return div().into_any_element();
     }
@@ -122,6 +122,23 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                             cx.notify();
                         })),
                 ),
+        )
+        // Editable composition name (REAL typing — Enter applies via on_submit).
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_1()
+                .child(
+                    div()
+                        .w(px(60.0))
+                        .text_color(colors::text_secondary())
+                        .text_size(px(10.0))
+                        .child("Name"),
+                )
+                .child(div().flex_1().child(comp_name_field.clone())),
         )
         .child(row("Width", format!("{w}px"), Action::SetPendingCompWidth(w.saturating_sub(1).max(1)), Action::SetPendingCompWidth(w + 1), cx))
         .child(row("Height", format!("{h}px"), Action::SetPendingCompHeight(h.saturating_sub(1).max(1)), Action::SetPendingCompHeight(h + 1), cx))

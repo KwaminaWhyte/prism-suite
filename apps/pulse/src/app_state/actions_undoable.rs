@@ -32,6 +32,8 @@ impl Action {
                 | Action::Set3DRotation(_, _, _, _)
                 | Action::DuplicateLayer(_)
                 | Action::SetExpression { .. }
+                | Action::RenameLayer { .. }
+                | Action::SetCompName(_)
                 | Action::AddGpuiEffect(_)
                 | Action::RemoveGpuiEffect(_)
                 | Action::SetMosaicBlock { .. }

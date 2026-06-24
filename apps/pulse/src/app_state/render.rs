@@ -503,6 +503,9 @@ impl App {
                     item.output_path = path;
                 }
             }
+            Action::SetRenderOutputPath(path) => {
+                self.render_output_path = path;
+            }
             Action::SetRenderItemRange { idx, start, end } => {
                 if let Some(item) = self.render_queue_items.get_mut(idx) {
                     item.start_frame = start;

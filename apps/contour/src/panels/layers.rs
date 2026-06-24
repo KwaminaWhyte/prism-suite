@@ -5,23 +5,28 @@
 //! (Trash).  The Action round-trip is identical to the previous pass.
 
 use gpui::{
-    div, px, svg, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, svg, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 
 use crate::app_state::{Action, App};
 use crate::panels::{ui_colors, ui_divider, ui_section_header, Icon};
 use crate::rename_edit::{RenameEdit, RenameTarget};
-use prism_ui::colors;
+use prism_ui::{colors, TextField};
 use crate::Contour;
 
 pub fn render(
     app: &App,
     rename: Option<&RenameEdit>,
+    filter_field: &Entity<TextField>,
     cx: &mut Context<Contour>,
 ) -> impl IntoElement {
     let selected = app.selected;
     let n = app.doc.shapes.len();
+
+    // Case-insensitive substring filter from the filter field.
+    let filter = app.layer_filter.trim().to_lowercase();
+    let matches = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
 
     // Top row = topmost shape: the shape vec is painted bottom-up (index 0 first),
     // so iterate reversed to put the last-painted shape at the top of the list.
@@ -31,6 +36,7 @@ pub fn render(
         .iter()
         .enumerate()
         .rev()
+        .filter(|(_, s)| matches(&s.display_name()))
         .map(|(i, s)| {
             let is_active = Some(i) == selected;
             let visible = s.visible();
@@ -127,12 +133,26 @@ pub fn render(
         })
         .collect::<Vec<_>>();
 
+    let shown = rows.len();
+    let header = if filter.is_empty() {
+        format!("Layers ({n})")
+    } else {
+        format!("Layers ({shown}/{n})")
+    };
+
+    // Filter box: the persistent root-owned TextField, full width under the header.
+    let filter_row = div()
+        .px_3()
+        .py_2()
+        .child(filter_field.clone());
+
     div()
         .flex_1()
         .flex()
         .flex_col()
         // Section header from the design system.
-        .child(ui_section_header(format!("Layers ({n})")))
+        .child(ui_section_header(header))
         .child(ui_divider())
+        .child(filter_row)
         .children(rows)
 }

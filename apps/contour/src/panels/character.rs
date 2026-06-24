@@ -12,11 +12,16 @@ use gpui::{
 use crate::text::TextAlign;
 
 use crate::app_state::{Action, App, FontWeight};
-use crate::panels::{ui_divider, ui_section_header};
+use crate::numeric_edit::{NumericEdit, NumericTarget};
+use crate::panels::{numeric_cell, ui_divider, ui_section_header};
 use prism_ui::colors;
 use crate::Contour;
 
-pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    numeric: Option<&NumericEdit>,
+    cx: &mut Context<Contour>,
+) -> impl IntoElement {
     let font_family = app.font_family.clone();
     let font_weight = app.font_weight;
     let letter_spacing = app.letter_spacing;
@@ -132,20 +137,8 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
                 .child(format!("Family: {font_family}")),
         )
         .child(presets_row)
-        // Font size stepper
-        .child(stepper_row(
-            "Font Size",
-            format!("{:.1} pt", font_size),
-            cx,
-            move |root, cx| {
-                root.app.apply(Action::SetFontSize(font_size - 1.0));
-                cx.notify();
-            },
-            move |root, cx| {
-                root.app.apply(Action::SetFontSize(font_size + 1.0));
-                cx.notify();
-            },
-        ))
+        // Font size — typeable cell + steppers.
+        .child(font_size_row(font_size, numeric, cx))
         // Font weight
         .child(
             div()
@@ -270,6 +263,76 @@ fn variable_font_section(app: &App, cx: &mut Context<Contour>) -> impl IntoEleme
                 cx.notify();
             },
         ))
+}
+
+/// Font-size row: a typeable value cell (click to type pt) flanked by ±1 pt
+/// steppers. Routes through `Action::SetFontSize` (sets the document default and
+/// re-sizes a selected text object).
+fn font_size_row(
+    font_size: f32,
+    numeric: Option<&NumericEdit>,
+    cx: &mut Context<Contour>,
+) -> impl IntoElement {
+    let cell = numeric_cell(
+        ("char-fs-cell", 0),
+        NumericTarget::FontSize,
+        format!("{font_size:.1} pt"),
+        format!("{font_size:.1}"),
+        numeric,
+        cx,
+    );
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .py_1()
+        .child(
+            div()
+                .flex_1()
+                .text_color(colors::text_secondary())
+                .text_size(px(11.0))
+                .child("Font Size"),
+        )
+        .child(
+            div()
+                .id(("char-fs-dec", 0u32))
+                .w(px(20.0))
+                .h(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(colors::surface_raised())
+                .rounded_md()
+                .text_color(colors::text_primary())
+                .text_size(px(13.0))
+                .cursor_pointer()
+                .on_click(cx.listener(move |root, _ev, _win, cx| {
+                    root.app.apply(Action::SetFontSize(font_size - 1.0));
+                    cx.notify();
+                }))
+                .child("−"),
+        )
+        .child(div().min_w(px(56.0)).flex().justify_center().child(cell))
+        .child(
+            div()
+                .id(("char-fs-inc", 0u32))
+                .w(px(20.0))
+                .h(px(20.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(colors::surface_raised())
+                .rounded_md()
+                .text_color(colors::text_primary())
+                .text_size(px(13.0))
+                .cursor_pointer()
+                .on_click(cx.listener(move |root, _ev, _win, cx| {
+                    root.app.apply(Action::SetFontSize(font_size + 1.0));
+                    cx.notify();
+                }))
+                .child("＋"),
+        )
 }
 
 /// A labeled stepper row (label | value | − | +).

@@ -67,6 +67,7 @@ mod apply_batch13;
 mod geometry_warp;
 mod apply_batch12;
 mod apply_textfield;
+pub(crate) use apply_textfield::parse_dimension;
 pub(super) mod helpers;
 use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d};
 pub(super) mod helpers_geo;
@@ -700,6 +701,12 @@ pub struct App {
     pub color_picker: prefs_color::ColorPicker,
     /// Application preferences (undo levels, snap, grid, units).
     pub preferences: prefs_color::Preferences,
+
+    // --- Layers filter ---
+    /// Case-insensitive substring filter applied to the Layers panel. Empty =
+    /// show every row. Driven by the filter `TextField` at the top of the panel
+    /// via [`Action::SetLayerFilter`].
+    pub layer_filter: String,
 }
 
 impl App {
@@ -893,6 +900,7 @@ impl App {
             gradient_mesh_obj: None,
             color_picker: prefs_color::ColorPicker::default(),
             preferences: prefs_color::Preferences::default(),
+            layer_filter: String::new(),
         }
     }
 

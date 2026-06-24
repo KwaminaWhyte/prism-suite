@@ -1175,4 +1175,20 @@ pub enum Action {
     SetPrefUnit(crate::app_state::prefs_color::PrefUnit),
     /// Replace all preferences from a JSON document (sanitized on load).
     LoadPreferencesJson(String),
+
+    // --- Typeable numeric inspector + layers filter ---
+    /// Move the whole selection so its bounding box's left edge sits at the given
+    /// document-space X. No-op when the selection has no geometry.
+    SetSelectionX(f32),
+    /// Move the whole selection so its bounding box's top edge sits at the given
+    /// document-space Y.
+    SetSelectionY(f32),
+    /// Scale the selection horizontally so its bounding-box width equals the
+    /// given value (about the bbox centre). Clamped to a tiny positive minimum.
+    SetSelectionWidth(f32),
+    /// Scale the selection vertically so its bounding-box height equals the given
+    /// value (about the bbox centre).
+    SetSelectionHeight(f32),
+    /// Set the case-insensitive substring filter shown in the Layers panel.
+    SetLayerFilter(String),
 }

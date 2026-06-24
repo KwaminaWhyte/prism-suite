@@ -52,6 +52,7 @@ mod canvas_host;
 mod color_picker_window;
 mod document_setup_window;
 mod export_window;
+mod numeric_edit;
 mod panels;
 mod preferences_window;
 mod rename_edit;
@@ -151,10 +152,18 @@ struct Contour {
     /// In-progress inline rename of a Layers / Symbols / Artboards row, if any.
     /// Holds the real focused `TextField` whose submit dispatches the rename.
     rename: Option<rename_edit::RenameEdit>,
-    /// Focused `TextField` for editing the *content* of the text object in
-    /// `app.editing_text`, if a Type-tool edit session is open. The field's
-    /// `on_change` dispatches [`Action::SetTextObjectContent`].
+    /// Focused `TextArea` for editing the *content* of the text object in
+    /// `app.editing_text`, if a Type-tool edit session is open. The area's
+    /// `on_change` dispatches [`Action::SetTextObjectContent`] (multi-line).
     text_edit: Option<rename_edit::TextEdit>,
+    /// In-progress inline numeric edit of an inspector / Character field (X / Y /
+    /// W / H / stroke width / opacity / rotation / font size), if any. Holds the
+    /// focused `TextField` whose submit parses + dispatches the value.
+    numeric_edit: Option<numeric_edit::NumericEdit>,
+    /// Persistent filter `TextField` for the Layers panel. Lives here (not in a
+    /// panel render fn) so it keeps focus + caret across redraws; its `on_change`
+    /// dispatches [`app_state::Action::SetLayerFilter`].
+    layer_filter_field: gpui::Entity<prism_ui::TextField>,
 }
 
 impl Render for Contour {
@@ -166,6 +175,12 @@ impl Render for Contour {
             && (self.app.editing_text.is_none() || self.app.active != Tool::Type)
         {
             self.text_edit = None;
+        }
+
+        // Drop a stale numeric-edit field when the selection it targeted is gone
+        // (deselect, delete, undo) so it doesn't linger in the inspector.
+        if self.numeric_edit.is_some() && self.app.selected.is_none() {
+            self.numeric_edit = None;
         }
 
         // Tick cursor blink; keep requesting frames while text is being edited.
@@ -200,10 +215,11 @@ impl Render for Contour {
         let app = &self.app;
         let toolbar = panels::toolbar::render(app, cx);
         let tools = panels::tools::render(app, cx);
-        let inspector = panels::inspector::render(app, cx);
-        let character = panels::character::render(app, cx);
+        let numeric = self.numeric_edit.as_ref();
+        let inspector = panels::inspector::render(app, numeric, cx);
+        let character = panels::character::render(app, numeric, cx);
         let rename = self.rename.as_ref();
-        let layers = panels::layers::render(app, rename, cx);
+        let layers = panels::layers::render(app, rename, &self.layer_filter_field, cx);
         let symbols = panels::symbols::render(app, rename, cx);
         let artboards_panel = panels::artboards::render(app, rename, cx);
         let trace_opt = panels::trace_dialog::render(app, cx);
@@ -772,6 +788,20 @@ fn main() {
                     // Focus the root so the canvas receives keyboard events
                     // (Cmd+Z / Cmd+Shift+Z, Delete, pen Enter / Escape) immediately.
                     window.focus(&focus);
+                    // Persistent Layers filter field: its on_change routes the
+                    // typed query back to the root via SetLayerFilter.
+                    let weak = cx.weak_entity();
+                    let layer_filter_field = cx.new(|fcx| {
+                        prism_ui::TextField::new(fcx)
+                            .placeholder("Filter layers…")
+                            .on_change(move |text, _win, cx| {
+                                let q = text.to_string();
+                                let _ = weak.update(cx, |c: &mut Contour, cx| {
+                                    c.app.apply(app_state::Action::SetLayerFilter(q));
+                                    cx.notify();
+                                });
+                            })
+                    });
                     Contour {
                         app: App::new(),
                         viewport_bounds: Rc::new(Cell::new(None)),
@@ -780,6 +810,8 @@ fn main() {
                         last_image: None,
                         rename: None,
                         text_edit: None,
+                        numeric_edit: None,
+                        layer_filter_field,
                     }
                 })
             },

@@ -53,9 +53,15 @@ pub mod tools;
 pub mod trace_dialog;
 pub mod welcome;
 
-use gpui::{div, px, IntoElement, ParentElement, Styled};
+use gpui::{
+    div, px, Context, InteractiveElement, IntoElement, ParentElement,
+    StatefulInteractiveElement, Styled,
+};
 
 use prism_ui::colors;
+
+use crate::numeric_edit::{NumericEdit, NumericTarget};
+use crate::Contour;
 
 // Re-export the design system tokens and components for panels.
 pub use prism_ui::{
@@ -73,6 +79,42 @@ pub const TOOLBAR_H: f32 = 40.0;
 
 /// Accent hex constant (used in overlays that need a u32 for `rgb()`).
 pub const ACCENT: u32 = 0x7c5af5;
+
+/// A typeable numeric value cell shared by the inspector and Character panels.
+///
+/// Renders the live focused `TextField` when `numeric` is the active inline edit
+/// for `target`; otherwise a clickable value label (`display`) that begins an
+/// inline edit seeded with `edit_seed` on click. `id` must be unique per cell.
+pub(crate) fn numeric_cell(
+    id: (&'static str, u64),
+    target: NumericTarget,
+    display: String,
+    edit_seed: String,
+    numeric: Option<&NumericEdit>,
+    cx: &mut Context<Contour>,
+) -> gpui::AnyElement {
+    use gpui::IntoElement as _;
+    if let Some(edit) = numeric.filter(|e| e.target == target) {
+        // Live field — the user is typing into it right now.
+        edit.field.clone().into_any_element()
+    } else {
+        div()
+            .id(id)
+            .min_w(px(56.0))
+            .px_1()
+            .flex()
+            .justify_center()
+            .rounded_sm()
+            .text_color(colors::text_primary())
+            .cursor_pointer()
+            .hover(|s| s.bg(colors::surface_raised()))
+            .on_click(cx.listener(move |root, _ev, win, cx| {
+                root.begin_numeric_edit(target, edit_seed.clone(), win, cx);
+            }))
+            .child(display)
+            .into_any_element()
+    }
+}
 
 /// A labeled placeholder body used by stub panels until their real content
 /// lands. Renders the title and a hint inside a section-colored box so the

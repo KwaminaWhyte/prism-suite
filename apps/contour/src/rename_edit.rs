@@ -10,7 +10,7 @@
 //! round-trip the welcome window uses.
 
 use gpui::{px, AppContext, Context, Entity, Focusable, Window};
-use prism_ui::TextField;
+use prism_ui::{TextArea, TextField};
 
 use crate::app_state::Action;
 use crate::Contour;
@@ -32,10 +32,12 @@ pub struct RenameEdit {
     pub field: Entity<TextField>,
 }
 
-/// An active text-object content edit: the object's paint index + its field.
+/// An active text-object content edit: the object's paint index + its multi-line
+/// editor. Uses a [`TextArea`] so type objects can hold multiple lines (plain
+/// Enter inserts a newline; Cmd/Ctrl+Enter commits, as does clicking away).
 pub struct TextEdit {
     pub idx: usize,
-    pub field: Entity<TextField>,
+    pub field: Entity<TextArea>,
 }
 
 impl Contour {
@@ -74,8 +76,10 @@ impl Contour {
     }
 
     /// Begin a content edit on the text object at paint index `idx`, seeding the
-    /// field with its current string and focusing it. Each keystroke dispatches
-    /// [`Action::SetTextObjectContent`] so the on-canvas glyphs re-shape live.
+    /// multi-line [`TextArea`] with its current string and focusing it. Each
+    /// keystroke dispatches [`Action::SetTextObjectContent`] so the on-canvas
+    /// glyphs re-shape live (newlines preserved); Cmd/Ctrl+Enter commits via
+    /// [`Action::FinishText`].
     pub(crate) fn begin_text_edit(
         &mut self,
         idx: usize,
@@ -84,9 +88,11 @@ impl Contour {
         cx: &mut Context<Self>,
     ) {
         let weak = cx.weak_entity();
+        let weak_submit = weak.clone();
         let field = cx.new(|cx| {
-            TextField::new(cx)
-                .width(px(220.0))
+            TextArea::new(cx)
+                .width(px(240.0))
+                .rows(3)
                 .placeholder("Type text…")
                 .initial_value(current)
                 .on_change(move |text, _win, cx| {
@@ -94,6 +100,12 @@ impl Contour {
                     let _ = weak.update(cx, |c, cx| {
                         c.app.apply(Action::SetTextObjectContent { idx, text });
                         cx.notify();
+                    });
+                })
+                .on_submit(move |_text, _win, cx| {
+                    // Cmd/Ctrl+Enter commits the type object and ends the session.
+                    let _ = weak_submit.update(cx, |c, cx| {
+                        c.end_text_edit(cx);
                     });
                 })
         });

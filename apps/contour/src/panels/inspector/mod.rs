@@ -53,7 +53,7 @@ mod gradient;
 mod appearance;
 
 use color::color_section;
-use dimensions::{opacity_row, width_row};
+use dimensions::{dimensions_section, opacity_row, rotation_row, width_row};
 use live::live_shape_section;
 use text::{text_on_path_section, text_section};
 use gradient::{add_gradient_button, gradient_editor_section, gradient_type_section};
@@ -71,7 +71,11 @@ fn pack(c: [f32; 4]) -> u32 {
     (r << 24) | (g << 16) | (b << 8) | a
 }
 
-pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    numeric: Option<&crate::numeric_edit::NumericEdit>,
+    cx: &mut Context<Contour>,
+) -> impl IntoElement {
     let header = div()
         .flex()
         .flex_col()
@@ -129,6 +133,11 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
                 .child(format!("{} (#{idx})", shape.label())),
         );
 
+    // ---- Dimensions (typeable X / Y / W / H + rotation) ----------------
+    if let Some(bbox) = app.selection_bbox() {
+        body = body.child(dimensions_section(bbox, numeric, cx));
+    }
+
     // ---- Live Shape section (primary polygon / star only) --------------
     if let Some(live) = app.primary_live_shape() {
         body = body.child(live_shape_section(live, cx));
@@ -183,12 +192,15 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
     }
 
     // ---- Stroke width --------------------------------------------------
-    body = body.child(width_row(stroke_w, cx));
+    body = body.child(width_row(stroke_w, numeric, cx));
 
     // ---- Opacity -------------------------------------------------------
     if let Some(o) = opacity {
-        body = body.child(opacity_row(o, cx));
+        body = body.child(opacity_row(o, numeric, cx));
     }
+
+    // ---- Rotation (relative; typeable) ---------------------------------
+    body = body.child(rotation_row(numeric, cx));
 
     // ---- Appearance panel (fills / strokes / effects stack) ------------
     body = body.child(appearance_section(shape, cx));

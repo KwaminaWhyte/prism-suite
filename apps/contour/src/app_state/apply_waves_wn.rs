@@ -20,11 +20,31 @@ impl App {
                 self.image_trace_config.corners = v.clamp(0, 100);
             }
             Action::RunImageTrace { image_id } => {
-                let path_count = self.image_trace_config.colors as usize * 12
-                    + self.image_trace_config.noise as usize;
+                // Run the real contour tracer on the embedded image if we have
+                // its pixels; otherwise fall back to a config-derived estimate so
+                // a linked-but-unloaded image still records a result.
+                let cfg = self.image_trace_config.clone();
+                let path_count = self
+                    .doc
+                    .placed_images
+                    .get(image_id as u64)
+                    .and_then(|img| match &img.source {
+                        crate::placed_image::ImageSource::Embedded { width, height, rgba } => {
+                            Some(crate::trace_contour::trace_contours(
+                                rgba,
+                                *width as usize,
+                                *height as usize,
+                                &cfg,
+                            ).len())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| {
+                        cfg.colors as usize * 12 + cfg.noise as usize
+                    });
                 self.image_trace_results.push(ImageTraceResult {
                     source_image_id: image_id,
-                    config: self.image_trace_config.clone(),
+                    config: cfg,
                     path_count,
                     expanded: false,
                 });
@@ -164,16 +184,11 @@ impl App {
                 self.show_welcome = false;
             }
             Action::NewDocument => {
-                // Reset the document to an empty state (stubs — real dialog in a
-                // future wave). We dismiss the welcome panel first via DismissWelcome
-                // so this action is safe to call stand-alone too.
-                self.show_welcome = false;
-                self.checkpoint();
-                self.doc = crate::document::Document::default();
-                self.selection.clear();
-                self.selected = None;
-                self.secondary = None;
-                self.host.mark_dirty();
+                // Reset the document to a fresh state sized to the current
+                // Document Setup, dismissing the welcome panel. Delegates to the
+                // real Batch-12 implementation so the single artboard matches the
+                // configured dimensions.
+                self.apply(Action::NewDocumentFromSetup);
             }
             Action::OpenFile => {
                 // Real file-picker integration is deferred; dismiss the welcome
@@ -182,7 +197,7 @@ impl App {
                 self.show_welcome = false;
             }
 
-            _ => {}
+            a => self.apply_batch12(a),
         }
     }
 }

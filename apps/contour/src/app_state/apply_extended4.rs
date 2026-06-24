@@ -112,7 +112,8 @@ impl App {
                 self.chart_config.value_axis_max = max;
             }
             Action::ApplyChartData => {
-                // stub: in a full impl, shapes would be generated per dataset value
+                // Generate real vector geometry from the chart config.
+                self.apply_chart_data_geometry();
             }
 
             // --- Batch 11: Envelope Distort depth ---

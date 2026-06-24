@@ -56,6 +56,11 @@ mod masks;
 mod effects_noise;
 mod motion_blur;
 mod time_stretch;
+mod keying;
+mod effects_distort;
+mod lighting3d;
+mod shape_repeater;
+mod render_formats;
 
 pub use actions::Action;
 
@@ -87,6 +92,16 @@ pub use preferences::{Preferences, GeneralPrefs, DisplayPrefs, MediaPrefs, Previ
 pub use cache_manager::{DiskCacheManager, CacheEntry};
 pub use effects_noise::{FractalNoiseConfig, TurbulentDisplaceConfig, FractalNoiseMap, TurbulentDisplaceMap};
 pub use motion_blur::LayerMotionBlur;
+pub use keying::{KeyKind, KeyConfig, KeyerMap};
+pub use effects_distort::{
+    CornerPinConfig, BezierWarpConfig, WaveWarpConfig, RoughenEdgesConfig,
+    CornerPinMap, BezierWarpMap, WaveWarpMap, RoughenEdgesMap,
+};
+pub use lighting3d::{LightKind, Light3D, Material3D, Material3DMap};
+pub use shape_repeater::{
+    RepeaterConfig, CopyTransform, TrimKey, TrimPathsConfig, RepeaterMap, TrimPathsMap,
+};
+pub use render_formats::{RenderCodec, ProResProfile, RenderSpec};
 
 const UNDO_LIMIT: usize = 64;
 
@@ -452,6 +467,28 @@ pub struct App {
     /// Per-layer motion-blur shutter overrides (app-side). Keyed by layer index;
     /// a layer with no entry inherits the comp shutter.
     pub layer_motion_blur: HashMap<usize, LayerMotionBlur>,
+
+    // --- Distortion / keying / lighting / shape / render passes (app-side) ---
+    /// Per-layer keyers (chroma / color / luma + spill). Keyed by layer index.
+    pub keyers: KeyerMap,
+    /// Per-layer Corner Pin configs.
+    pub corner_pins: CornerPinMap,
+    /// Per-layer Bezier Warp configs.
+    pub bezier_warps: BezierWarpMap,
+    /// Per-layer Wave Warp configs.
+    pub wave_warps: WaveWarpMap,
+    /// Per-layer Roughen Edges configs.
+    pub roughen_edges: RoughenEdgesMap,
+    /// Comp 3D lights (point / spot / ambient).
+    pub lights3d: Vec<Light3D>,
+    /// Per-layer 3D materials (Blinn-Phong coefficients). Keyed by layer index.
+    pub materials3d: Material3DMap,
+    /// Per-layer shape Repeater configs.
+    pub repeaters: RepeaterMap,
+    /// Per-layer Trim Paths configs (with optional animation keys).
+    pub trim_paths: TrimPathsMap,
+    /// The current render-output spec (codec / fps / quality).
+    pub render_spec: RenderSpec,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -598,6 +635,16 @@ impl App {
             fractal_noise: HashMap::new(),
             turbulent_displace: HashMap::new(),
             layer_motion_blur: HashMap::new(),
+            keyers: HashMap::new(),
+            corner_pins: HashMap::new(),
+            bezier_warps: HashMap::new(),
+            wave_warps: HashMap::new(),
+            roughen_edges: HashMap::new(),
+            lights3d: Vec::new(),
+            materials3d: HashMap::new(),
+            repeaters: HashMap::new(),
+            trim_paths: HashMap::new(),
+            render_spec: RenderSpec::default(),
         }
     }
 

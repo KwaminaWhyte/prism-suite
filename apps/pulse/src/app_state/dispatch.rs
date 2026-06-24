@@ -402,6 +402,53 @@ impl App {
             | Action::SetMasterBusPan(_)
             | Action::SetMasterBusMute(_)) => self.apply_audio_mixer(a),
 
+            // --- Keying suite (keying.rs) ---
+            a @ (Action::AddKeyer { .. }
+            | Action::RemoveKeyer { .. }
+            | Action::SetKeyKind { .. }
+            | Action::SetKeyColor { .. }
+            | Action::SetKeyParam { .. }) => self.apply_keying(a),
+
+            // --- Distortion effects (effects_distort.rs) ---
+            a @ (Action::AddCornerPin { .. }
+            | Action::SetCornerPinCorner { .. }
+            | Action::RemoveCornerPin { .. }
+            | Action::AddBezierWarp { .. }
+            | Action::SetBezierWarpCorner { .. }
+            | Action::RemoveBezierWarp { .. }
+            | Action::AddWaveWarp { .. }
+            | Action::SetWaveWarpParam { .. }
+            | Action::RemoveWaveWarp { .. }
+            | Action::AddRoughenEdges { .. }
+            | Action::SetRoughenEdgesParam { .. }
+            | Action::SetRoughenEdgesSeed { .. }
+            | Action::RemoveRoughenEdges { .. }) => self.apply_effects_distort(a),
+
+            // --- 3D lights & materials (lighting3d.rs) ---
+            a @ (Action::AddLight3D { .. }
+            | Action::RemoveLight3D { .. }
+            | Action::SetLight3DPosition { .. }
+            | Action::SetLight3DColor { .. }
+            | Action::SetLight3DIntensity { .. }
+            | Action::SetLight3DCone { .. }
+            | Action::SetMaterial3D { .. }) => self.apply_lighting3d(a),
+
+            // --- Shape repeater + trim paths (shape_repeater.rs) ---
+            a @ (Action::AddRepeater { .. }
+            | Action::RemoveRepeater { .. }
+            | Action::SetRepeaterCount { .. }
+            | Action::SetRepeaterTransform { .. }
+            | Action::SetRepeaterOpacityRamp { .. }
+            | Action::SetTrimPaths { .. }
+            | Action::AddTrimKey { .. }
+            | Action::ClearTrimPaths { .. }) => self.apply_shape_repeater(a),
+
+            // --- Render output formats (render_formats.rs) ---
+            a @ (Action::SetRenderCodec(_)
+            | Action::SetRenderFps(_)
+            | Action::SetRenderCrf(_)
+            | Action::SetRenderAudio(_)) => self.apply_render_formats(a),
+
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),
         }

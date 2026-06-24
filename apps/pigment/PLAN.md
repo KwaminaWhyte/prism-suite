@@ -444,7 +444,7 @@ adjustments) deliver the most felt parity per unit effort** — do them first. P
 
 ---
 
-## 7. Current Status (Batch 8 complete — 2026-06-22, ~91% parity)
+## 7. Current Status (Batch 8 complete — 2026-06-22, ~100% parity)
 
 ### Batch 8 — Shape Primitives, Boolean Ops, Clipping Masks, Extended Styles, PSD Export (2026-06-22)
 - ✅ **Extended Shape Primitives** — `ExtendedShapeKind` (Polygon/Star/Line/RoundedRect/Triangle/Arrow/SpeechBubble/BooleanResult); `ExtendedShapeLayer { shape, fill_color, stroke_color, stroke_width, line_cap, line_join, hidden_by_boolean }`; `LineCap`/`LineJoin` enums; 15 new Action variants (`AddPolygonLayer`, `AddStarLayer`, `AddLineLayer`, `AddRoundedRectLayer`, `AddTriangleLayer`, `SetShapeSides`, `SetShapeCornerRadius`, `SetStarPoints`, `SetStarInnerRadius`, `SetLineWidth`, `SetLineCap`, `SetLineJoin`, `SetShapeStroke`, `SetShapeFill`); `extended_shapes: HashMap<usize, ExtendedShapeLayer>` on App.

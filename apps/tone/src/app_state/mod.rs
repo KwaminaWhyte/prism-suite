@@ -58,6 +58,9 @@ pub mod tempo_film;
 pub mod onnx_runtime;
 pub mod waveform_cache;
 
+// ─── Real ONNX inference layer (backend abstraction + stub fallback) ──────────
+pub mod inference;
+
 // ─── Re-exports ──────────────────────────────────────────────────────────────
 
 pub use ai::{AiGenerationJob, AiGenerationStatus};
@@ -107,6 +110,12 @@ pub use tempo_film::{TempoChange, TimeSigChange2, VideoLockStatus, VideoFilmConf
 // ─── Batch 5 re-exports ───────────────────────────────────────────────────────
 pub use onnx_runtime::{OnnxModelKind, ModelDownloadStatus, OnnxModelEntry, OnnxInferenceJob};
 pub use waveform_cache::{WaveformPeak, WaveformChunk};
+
+// ─── Inference layer re-exports ───────────────────────────────────────────────
+pub use inference::{
+    InferenceBackend, InferenceError, InferenceOutput, InferenceRequest, LoadState, ModelId,
+    ModelRegistry, ModelSlot,
+};
 
 
 // ─── Re-export automation types used in Action ────────────────────────────────
@@ -381,6 +390,13 @@ pub struct App {
     pub onnx_inference_jobs: Vec<OnnxInferenceJob>,
     pub next_onnx_job_id: usize,
 
+    // ── Real inference layer (backend abstraction + registry) ────────────────
+    /// Maps each model id to its on-disk path + load state for real inference.
+    pub model_registry: ModelRegistry,
+    /// Which backend runs inference. Defaults to the deterministic stub; the
+    /// `onnx` feature enables a real `ort` session backend.
+    pub inference_backend: InferenceBackend,
+
     // ── Waveform Peak Cache (Batch 5) ─────────────────────────────────────────
     pub waveform_cache: Vec<WaveformChunk>,
 }
@@ -563,6 +579,8 @@ impl App {
             onnx_models: Vec::new(),
             onnx_inference_jobs: Vec::new(),
             next_onnx_job_id: 1,
+            model_registry: ModelRegistry::new(),
+            inference_backend: InferenceBackend::default(),
             waveform_cache: Vec::new(),
         }
     }

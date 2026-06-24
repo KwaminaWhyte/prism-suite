@@ -14,6 +14,7 @@ use super::{
     SpectralTool, NotationClef, Clef, ChordQuality, StemDirection, QuantizeDisplay,
     AutomationParameter, AutomationMode,
     OnnxModelKind, WaveformPeak,
+    ModelId, InferenceBackend,
 };
 
 // ── Tool enum ─────────────────────────────────────────────────────────────────
@@ -859,6 +860,14 @@ pub enum Action {
     QueueOnnxInference { model_kind: OnnxModelKind, input_desc: String },
     CompleteOnnxInference { job_id: usize },
     FailOnnxInference { job_id: usize, error: String },
+
+    // ── Real inference layer (backend + registry path management) ─────────────
+    /// Register a local `.onnx` path against a model id for real inference.
+    RegisterModelPath { model: ModelId, path: String },
+    /// Clear a model's registered path (reverts to stub for that model).
+    ClearModelPath { model: ModelId },
+    /// Choose which inference backend runs (stub default vs. real `ort`).
+    SetInferenceBackend { backend: InferenceBackend },
 
     // ── Waveform Peak Cache (Batch 5) ─────────────────────────────────────────
     InvalidateWaveform { clip_id: usize },

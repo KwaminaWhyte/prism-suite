@@ -17,6 +17,7 @@ mod layers;
 mod selections;
 mod painting;
 mod filters;
+mod filters_advanced;
 mod text;
 mod transforms;
 mod smart_objects;
@@ -24,6 +25,9 @@ mod ai;
 mod layer_3d;
 mod export;
 mod shapes;
+mod layer_styles_extra;
+mod transform_extra;
+mod redeye;
 mod tests_shapes;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
@@ -372,6 +376,18 @@ pub enum Action {
     /// Discard the in-progress crop rectangle without modifying the document.
     CancelCrop,
 
+    // --- Free Transform: rotation + skew (extends translate/scale) ---
+    /// Set the free-transform rotation angle (degrees, wrapped to -180..180).
+    SetTransformRotation(f32),
+    /// Set the free-transform skew (degrees): `(skew_x, skew_y)`, each clamped
+    /// to ±89° to avoid a singular shear.
+    SetTransformSkew { skew_x: f32, skew_y: f32 },
+    /// Bake the current free-transform (translate + scale + rotation + skew) into
+    /// the active layer's pixels, then reset the live transform to identity.
+    ApplyFreeTransform,
+    /// Reset all free-transform parameters to identity without baking.
+    ResetFreeTransform,
+
     // --- Wave 11: Workspace presets ---
     /// Toggle visibility of a named panel.
     TogglePanel(String),
@@ -467,6 +483,14 @@ pub enum Action {
 
     // --- Batch 3: Perspective Warp ---
     PerspectiveWarp { src_pts: [[f32; 2]; 4], dst_pts: [[f32; 2]; 4] },
+
+    // --- Advanced filters: Surface Blur / Path Blur ---
+    /// Apply an edge-preserving Surface Blur to the active layer. `radius` px,
+    /// `threshold` 0..1 (color distance above which neighbours are rejected).
+    ApplySurfaceBlur { radius: f32, threshold: f32 },
+    /// Apply a directional Path Blur along `segments` (start/end pairs in doc px),
+    /// scaled by `strength`. Approximates Photoshop's path-driven motion blur.
+    ApplyPathBlur { segments: Vec<crate::filters_extra::PathSegment>, strength: f32 },
 
     // --- Batch 3: Camera Raw dialog toggle ---
     ToggleCameraRawDialog,
@@ -1026,6 +1050,10 @@ pub enum Action {
     SetGradientOverlay { layer_id: usize, config: crate::app_state::shapes::GradientOverlay },
     /// Set or clear the Pattern Overlay on a layer.
     SetPatternOverlay { layer_id: usize, config: crate::app_state::shapes::PatternOverlay },
+    /// Destructively rasterize the stored Satin effect into the layer's pixels.
+    BakeSatinEffect { layer_id: usize },
+    /// Destructively rasterize the stored Pattern Overlay into the layer's pixels.
+    BakePatternOverlay { layer_id: usize },
     /// Set the blend mode for a specific style kind on a layer.
     SetLayerStyleBlendMode { layer_id: usize, style: crate::app_state::shapes::StyleKind, blend_mode: String },
     /// Set the opacity for a specific style kind on a layer.
@@ -1099,6 +1127,13 @@ pub struct App {
     /// Accumulated uniform scale of the in-progress Transform drag. Mirrors the
     /// egui app's `xform_scale`.
     pub xform_scale: f32,
+    /// Free-transform rotation angle in degrees (0 = upright). Composed with
+    /// scale/skew/translate by `compute_xform_full` when baking.
+    pub xform_rotation_deg: f32,
+    /// Free-transform horizontal skew in degrees.
+    pub xform_skew_x_deg: f32,
+    /// Free-transform vertical skew in degrees.
+    pub xform_skew_y_deg: f32,
 
     /// Doc-px anchor of an in-progress Gradient drag (None = idle). The gradient
     /// is applied on release along `start → end`.
@@ -1584,6 +1619,9 @@ impl App {
             xform_drag_start: None,
             xform_translate: [0.0, 0.0],
             xform_scale: 1.0,
+            xform_rotation_deg: 0.0,
+            xform_skew_x_deg: 0.0,
+            xform_skew_y_deg: 0.0,
             grad_drag_start: None,
             shape_drag_start: None,
             last_drag: None,
@@ -1966,11 +2004,20 @@ impl App {
             | Action::ToggleNeuralFilter(_) | Action::ApplyNeuralFilters
             => self.apply_filters(action),
 
+            // advanced filters (surface/path blur)
+            Action::ApplySurfaceBlur { .. } | Action::ApplyPathBlur { .. }
+            => self.apply_filters_advanced(action),
+
             // transforms
             Action::ApplyCrop { .. } | Action::CancelCrop
             | Action::SetCaCropAngle(_) | Action::SetCaCropFillMethod(_)
             | Action::SetCaCropEnabled(_) | Action::ApplyCaCrop { .. }
             => self.apply_transforms(action),
+
+            // free transform (rotation + skew, extends translate/scale)
+            Action::SetTransformRotation(_) | Action::SetTransformSkew { .. }
+            | Action::ApplyFreeTransform | Action::ResetFreeTransform
+            => self.apply_transform_extra(action),
 
             // text
             Action::SetTextSize(_) => self.apply_text(action),
@@ -2048,6 +2095,10 @@ impl App {
             | Action::SetPsdExportPath(_) | Action::SetPsdMaximizeCompatibility(_) | Action::SetPsdEncoding(_)
             | Action::SetPsdEmbedColorProfile(_) | Action::ExportAsPsd { .. }
             => self.apply_shapes(action),
+
+            // extended layer styles — destructive bake (satin / pattern overlay)
+            Action::BakeSatinEffect { .. } | Action::BakePatternOverlay { .. }
+            => self.apply_layer_styles_extra(action),
 
             _ => {}
         }
@@ -3487,6 +3538,58 @@ fn compute_xform(translate: [f32; 2], scale: f32, w: f32, h: f32) -> ([f32; 4], 
     let m = [inv, 0.0, 0.0, inv];
     let off = [0.5 - (0.5 + tx) * inv, 0.5 - (0.5 + ty) * inv];
     (m, off)
+}
+
+/// Compose a full free-transform — uniform `scale`, `rotation_deg`, and
+/// `skew_x_deg`/`skew_y_deg` shear, plus `translate` (doc px) — into the
+/// engine's inverse-sampling `(matrix, offset)` pair (matching `compute_xform`).
+///
+/// The forward (dest-from-source) transform about the canvas centre, in
+/// normalized UV space, is `F = Scale · Rotate · Skew`. The engine samples the
+/// source at `m · dest_uv + off`, so we return the *inverse* 2×2 of `F` and the
+/// matching offset. `translate` shifts the dest in UV before inversion. Returns
+/// `([m00, m01, m10, m11], [offx, offy])`.
+pub(crate) fn compute_xform_full(
+    translate: [f32; 2],
+    scale: f32,
+    rotation_deg: f32,
+    skew_x_deg: f32,
+    skew_y_deg: f32,
+    w: f32,
+    h: f32,
+) -> ([f32; 4], [f32; 2]) {
+    let s = scale.max(1e-3);
+    let (sin, cos) = rotation_deg.to_radians().sin_cos();
+    let kx = skew_x_deg.to_radians().tan();
+    let ky = skew_y_deg.to_radians().tan();
+    // Skew (shear) matrix.
+    let (sk00, sk01, sk10, sk11) = (1.0, kx, ky, 1.0);
+    // Rotation · Skew.
+    let r00 = cos * sk00 - sin * sk10;
+    let r01 = cos * sk01 - sin * sk11;
+    let r10 = sin * sk00 + cos * sk10;
+    let r11 = sin * sk01 + cos * sk11;
+    // Uniform scale on top: F = s · (R·Sk).
+    let f00 = s * r00;
+    let f01 = s * r01;
+    let f10 = s * r10;
+    let f11 = s * r11;
+    // Invert the 2×2 forward matrix to get the sampling (inverse) matrix.
+    let det = f00 * f11 - f01 * f10;
+    let inv_det = if det.abs() > 1e-9 { 1.0 / det } else { 0.0 };
+    let m00 = f11 * inv_det;
+    let m01 = -f01 * inv_det;
+    let m10 = -f10 * inv_det;
+    let m11 = f00 * inv_det;
+    // Translate in normalized UV (about centre 0.5,0.5).
+    let tx = translate[0] / w.max(1.0);
+    let ty = translate[1] / h.max(1.0);
+    // dest_uv' = dest_uv - translate; sample = m·(dest_uv' - 0.5) + 0.5.
+    let cx = 0.5 + tx;
+    let cy = 0.5 + ty;
+    let offx = 0.5 - (m00 * cx + m01 * cy);
+    let offy = 0.5 - (m10 * cx + m11 * cy);
+    ([m00, m01, m10, m11], [offx, offy])
 }
 
 #[cfg(test)]

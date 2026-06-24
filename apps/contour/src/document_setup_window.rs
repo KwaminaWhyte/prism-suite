@@ -4,23 +4,25 @@
 //! its controls dispatch [`Action`]s into the main view and read its state back.
 //! It edits `app.doc_setup` via the Batch-11/12 actions:
 //!
-//! - width / height steppers  → [`Action::SetDocSetupSize`]
+//! - width / height: typed via [`prism_ui::TextField`] **or** ± steppers
+//!   → [`Action::SetDocSetupSize`]
 //! - unit chips               → [`Action::SetDocSetupUnit`]
 //! - colour-mode chips        → [`Action::SetDocSetupColorMode`]
-//! - per-side bleed steppers  → [`Action::SetDocSetupBleed`]
+//! - per-side bleed: typed via [`prism_ui::TextField`] **or** ± steppers
+//!   → [`Action::SetDocSetupBleed`]
 //! - "Create"                 → [`Action::NewDocumentFromSetup`] (then closes)
 //!
-//! Numeric fields use ± steppers rather than free text entry — the same input
-//! idiom the rest of Contour's floating windows use (no text-input subsystem).
-//! Dimensions / bleed are stored in document points; the panel formats them in
-//! the selected display unit via [`DocumentSetup::from_points`] /
-//! [`DocumentSetup::to_points`].
+//! The six numeric fields are real [`TextField`] entities held on the view; a
+//! typed value is parsed in the current display unit and converted to document
+//! points via [`DocumentSetup::to_points`] before dispatch. The ± steppers
+//! remain for fine nudging.
 
 use gpui::{
-    ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
+    AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px,
 };
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 use crate::app_state::{Action, DocColorMode, DocUnit, DocumentSetup};
 use crate::Contour;
@@ -28,6 +30,10 @@ use crate::Contour;
 pub struct DocumentSetupView {
     focus: FocusHandle,
     app_entity: WeakEntity<Contour>,
+    /// Real typing fields, in display units: width / height / bleed T/R/B/L.
+    width_field: Entity<TextField>,
+    height_field: Entity<TextField>,
+    bleed_fields: [Entity<TextField>; 4],
 }
 
 impl Focusable for DocumentSetupView {
@@ -37,8 +43,62 @@ impl Focusable for DocumentSetupView {
 }
 
 impl DocumentSetupView {
-    pub fn new(focus: FocusHandle, app_entity: WeakEntity<Contour>) -> Self {
-        Self { focus, app_entity }
+    pub fn new(
+        focus: FocusHandle,
+        app_entity: WeakEntity<Contour>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let setup = app_entity
+            .upgrade()
+            .map(|e| e.read(cx).app.doc_setup.clone())
+            .unwrap_or_default();
+
+        let mk = |value: f32, weak: WeakEntity<Contour>, build: BuildSize, cx: &mut Context<Self>| {
+            cx.new(|cx| {
+                TextField::new(cx)
+                    .width(px(96.0))
+                    .initial_value(format!("{value:.2}"))
+                    .on_submit(move |text, _win, cx| {
+                        if let Ok(v) = text.trim().parse::<f32>() {
+                            // Re-read the *current* unit so conversion is correct
+                            // even after the unit chip changed.
+                            let _ = weak.update(cx, |c, cx| {
+                                let pts = c.app.doc_setup.to_points(v);
+                                c.app.apply(build(&c.app.doc_setup, pts));
+                                cx.notify();
+                            });
+                        }
+                    })
+            })
+        };
+
+        let bw: BuildSize =
+            |s, pts| Action::SetDocSetupSize { width: pts.max(1.0), height: s.height };
+        let bh: BuildSize =
+            |s, pts| Action::SetDocSetupSize { width: s.width, height: pts.max(1.0) };
+        let bt: BuildSize = |s, pts| Action::SetDocSetupBleed {
+            top: pts.max(0.0), right: s.bleed[1], bottom: s.bleed[2], left: s.bleed[3],
+        };
+        let br: BuildSize = |s, pts| Action::SetDocSetupBleed {
+            top: s.bleed[0], right: pts.max(0.0), bottom: s.bleed[2], left: s.bleed[3],
+        };
+        let bb: BuildSize = |s, pts| Action::SetDocSetupBleed {
+            top: s.bleed[0], right: s.bleed[1], bottom: pts.max(0.0), left: s.bleed[3],
+        };
+        let bl: BuildSize = |s, pts| Action::SetDocSetupBleed {
+            top: s.bleed[0], right: s.bleed[1], bottom: s.bleed[2], left: pts.max(0.0),
+        };
+
+        let width_field = mk(setup.from_points(setup.width), app_entity.clone(), bw, cx);
+        let height_field = mk(setup.from_points(setup.height), app_entity.clone(), bh, cx);
+        let bleed_fields = [
+            mk(setup.from_points(setup.bleed[0]), app_entity.clone(), bt, cx),
+            mk(setup.from_points(setup.bleed[1]), app_entity.clone(), br, cx),
+            mk(setup.from_points(setup.bleed[2]), app_entity.clone(), bb, cx),
+            mk(setup.from_points(setup.bleed[3]), app_entity.clone(), bl, cx),
+        ];
+
+        Self { focus, app_entity, width_field, height_field, bleed_fields }
     }
 
     /// Dispatch an action into the main Contour view and request a redraw there.
@@ -61,6 +121,9 @@ impl DocumentSetupView {
     }
 }
 
+/// `(setup, value_in_points) -> Action` builder for a typed size/bleed field.
+type BuildSize = fn(&DocumentSetup, f32) -> Action;
+
 /// Unit chips offered in the setup window.
 const UNITS: [(DocUnit, &str); 6] = [
     (DocUnit::Points, "Points"),
@@ -78,42 +141,22 @@ impl Render for DocumentSetupView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let setup = self.snapshot(cx);
 
-        // Dimensions, displayed in the chosen unit. A stepper step is one unit
-        // (so 1 pt / 1 px / 1 in / etc.), kept in points internally; the per-row
-        // step in points is derived inside `dim_row` from the unit.
-        let w_disp = setup.from_points(setup.width);
-        let h_disp = setup.from_points(setup.height);
-
         let cur_w = setup.width;
         let cur_h = setup.height;
 
-        // --- Size steppers ---
+        // --- Size rows (TextField + ± stepper) ---
         let width_row = self.dim_row(
-            "ds-w",
-            "Width",
-            w_disp,
-            setup.unit,
-            cx,
-            {
-                let cur_h = cur_h;
-                move |delta_pts| Action::SetDocSetupSize {
-                    width: (cur_w + delta_pts).max(1.0),
-                    height: cur_h,
-                }
+            "ds-w", "Width", self.width_field.clone(), setup.unit, cx,
+            move |delta_pts| Action::SetDocSetupSize {
+                width: (cur_w + delta_pts).max(1.0),
+                height: cur_h,
             },
         );
         let height_row = self.dim_row(
-            "ds-h",
-            "Height",
-            h_disp,
-            setup.unit,
-            cx,
-            {
-                let cur_w = cur_w;
-                move |delta_pts| Action::SetDocSetupSize {
-                    width: cur_w,
-                    height: (cur_h + delta_pts).max(1.0),
-                }
+            "ds-h", "Height", self.height_field.clone(), setup.unit, cx,
+            move |delta_pts| Action::SetDocSetupSize {
+                width: cur_w,
+                height: (cur_h + delta_pts).max(1.0),
             },
         );
 
@@ -145,22 +188,22 @@ impl Render for DocumentSetupView {
             })
             .collect();
 
-        // --- Bleed steppers (top / right / bottom / left), each in display unit ---
+        // --- Bleed rows (top / right / bottom / left), each typed + stepped ---
         let [bt, br, bb, bl] = setup.bleed;
-        let bleed_t = self.bleed_row(
-            "ds-bt", "Top", setup.from_points(bt), setup.unit, cx,
+        let bleed_t = self.dim_row(
+            "ds-bt", "Top", self.bleed_fields[0].clone(), setup.unit, cx,
             move |d| Action::SetDocSetupBleed { top: (bt + d).max(0.0), right: br, bottom: bb, left: bl },
         );
-        let bleed_r = self.bleed_row(
-            "ds-br", "Right", setup.from_points(br), setup.unit, cx,
+        let bleed_r = self.dim_row(
+            "ds-br", "Right", self.bleed_fields[1].clone(), setup.unit, cx,
             move |d| Action::SetDocSetupBleed { top: bt, right: (br + d).max(0.0), bottom: bb, left: bl },
         );
-        let bleed_b = self.bleed_row(
-            "ds-bb", "Bottom", setup.from_points(bb), setup.unit, cx,
+        let bleed_b = self.dim_row(
+            "ds-bb", "Bottom", self.bleed_fields[2].clone(), setup.unit, cx,
             move |d| Action::SetDocSetupBleed { top: bt, right: br, bottom: (bb + d).max(0.0), left: bl },
         );
-        let bleed_l = self.bleed_row(
-            "ds-bl", "Left", setup.from_points(bl), setup.unit, cx,
+        let bleed_l = self.dim_row(
+            "ds-bl", "Left", self.bleed_fields[3].clone(), setup.unit, cx,
             move |d| Action::SetDocSetupBleed { top: bt, right: br, bottom: bb, left: (bl + d).max(0.0) },
         );
 
@@ -233,14 +276,15 @@ impl Render for DocumentSetupView {
 }
 
 impl DocumentSetupView {
-    /// A labelled dimension stepper row. `make_action(delta_pts)` builds the
-    /// action for a ±1-unit change (delta already converted to points).
+    /// A labelled row: `Label  [typed field] unit  −  +`. The field carries the
+    /// typed value (parsed in `new`); the steppers nudge by ±1 unit via
+    /// `make_action(delta_pts)`.
     #[allow(clippy::too_many_arguments)]
     fn dim_row(
         &self,
         id: &'static str,
         label: &'static str,
-        value_disp: f32,
+        field: Entity<TextField>,
         unit: DocUnit,
         cx: &mut Context<Self>,
         make_action: impl Fn(f32) -> Action + Clone + 'static,
@@ -248,24 +292,54 @@ impl DocumentSetupView {
         let step = unit.points_per_unit();
         let dec = make_action.clone();
         let inc = make_action;
-        stepper_row(id, label, value_disp, unit.label(), cx, step, dec, inc)
-    }
-
-    /// A bleed stepper row (same widget as `dim_row`, semantically distinct).
-    #[allow(clippy::too_many_arguments)]
-    fn bleed_row(
-        &self,
-        id: &'static str,
-        label: &'static str,
-        value_disp: f32,
-        unit: DocUnit,
-        cx: &mut Context<Self>,
-        make_action: impl Fn(f32) -> Action + Clone + 'static,
-    ) -> impl IntoElement {
-        let step = unit.points_per_unit();
-        let dec = make_action.clone();
-        let inc = make_action;
-        stepper_row(id, label, value_disp, unit.label(), cx, step, dec, inc)
+        let dec_id = (id, 0usize);
+        let inc_id = (id, 1usize);
+        div()
+            .flex().flex_row().items_center().justify_between()
+            .py(px(4.0))
+            .child(
+                div().text_color(colors::text_secondary()).text_size(px(font_size::SM))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex().flex_row().items_center().gap(px(4.0))
+                    .child(field)
+                    .child(
+                        div().text_color(colors::text_secondary()).text_size(px(font_size::XS))
+                            .child(unit.label()),
+                    )
+                    .child(
+                        div()
+                            .id(dec_id)
+                            .w(px(22.0)).h(px(20.0))
+                            .flex().items_center().justify_center()
+                            .rounded(px(3.0)).bg(colors::surface_raised())
+                            .text_color(colors::text_primary()).text_size(px(14.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(colors::tool_hover()))
+                            .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
+                                this.dispatch(cx, dec(-step));
+                                cx.notify();
+                            }))
+                            .child("\u{2212}"),
+                    )
+                    .child(
+                        div()
+                            .id(inc_id)
+                            .w(px(22.0)).h(px(20.0))
+                            .flex().items_center().justify_center()
+                            .rounded(px(3.0)).bg(colors::surface_raised())
+                            .text_color(colors::text_primary()).text_size(px(14.0))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(colors::tool_hover()))
+                            .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
+                                this.dispatch(cx, inc(step));
+                                cx.notify();
+                            }))
+                            .child("+"),
+                    ),
+            )
     }
 }
 
@@ -278,73 +352,6 @@ fn section_label(text: &'static str) -> impl IntoElement {
         .text_size(px(font_size::SM))
         .text_color(colors::text_secondary())
         .child(text)
-}
-
-/// A labelled `−  NNN unit  +` stepper. The − button dispatches
-/// `make_dec(-step)`, the + button `make_inc(+step)`.
-#[allow(clippy::too_many_arguments)]
-fn stepper_row(
-    id: &'static str,
-    label: &'static str,
-    value_disp: f32,
-    unit_label: &'static str,
-    cx: &mut Context<DocumentSetupView>,
-    step: f32,
-    make_dec: impl Fn(f32) -> Action + 'static,
-    make_inc: impl Fn(f32) -> Action + 'static,
-) -> impl IntoElement {
-    let dec_id = (id, 0usize);
-    let inc_id = (id, 1usize);
-    div()
-        .flex().flex_row().items_center().justify_between()
-        .py(px(4.0))
-        .child(
-            div().text_color(colors::text_secondary()).text_size(px(font_size::SM))
-                .child(label),
-        )
-        .child(
-            div()
-                .flex().flex_row().items_center().gap(px(4.0))
-                .child(
-                    div()
-                        .id(dec_id)
-                        .w(px(22.0)).h(px(20.0))
-                        .flex().items_center().justify_center()
-                        .rounded(px(3.0)).bg(colors::surface_raised())
-                        .text_color(colors::text_primary()).text_size(px(14.0))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(colors::tool_hover()))
-                        .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
-                            this.dispatch(cx, make_dec(-step));
-                            cx.notify();
-                        }))
-                        .child("\u{2212}"),
-                )
-                .child(
-                    div()
-                        .px(px(8.0)).py(px(2.0))
-                        .min_w(px(96.0))
-                        .flex().justify_center()
-                        .rounded(px(3.0)).bg(colors::surface_overlay())
-                        .text_color(colors::text_primary()).text_size(px(font_size::SM))
-                        .child(format!("{value_disp:.2} {unit_label}")),
-                )
-                .child(
-                    div()
-                        .id(inc_id)
-                        .w(px(22.0)).h(px(20.0))
-                        .flex().items_center().justify_center()
-                        .rounded(px(3.0)).bg(colors::surface_raised())
-                        .text_color(colors::text_primary()).text_size(px(14.0))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(colors::tool_hover()))
-                        .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
-                            this.dispatch(cx, make_inc(step));
-                            cx.notify();
-                        }))
-                        .child("+"),
-                ),
-        )
 }
 
 /// A selectable chip (unit / colour-mode), accent-filled when active.

@@ -13,6 +13,7 @@ use gpui::{
 };
 
 use crate::app_state::{Action, App};
+use crate::rename_edit::{RenameEdit, RenameTarget};
 use prism_ui::colors;
 use crate::Contour;
 
@@ -25,7 +26,11 @@ const THUMB_COLORS: &[[f32; 3]] = &[
     [0.3, 0.9, 0.9],
 ];
 
-pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    rename: Option<&RenameEdit>,
+    cx: &mut Context<Contour>,
+) -> impl IntoElement {
     let has_selection = !app.selection.is_empty();
     let n = app.symbol_lib.len();
 
@@ -76,6 +81,35 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
             let id = sym.id;
             let name = sym.name.clone();
             let shape_count = sym.shapes.len();
+            let is_renaming = matches!(
+                rename.map(|r| r.target),
+                Some(RenameTarget::Symbol(t)) if t == id
+            );
+            // Editable symbol name: a focused TextField when renaming, else a
+            // label that starts a rename on double-click.
+            let name_el: gpui::AnyElement = if is_renaming {
+                rename
+                    .map(|r| r.field.clone().into_any_element())
+                    .unwrap_or_else(|| div().child(name.clone()).into_any_element())
+            } else {
+                let start_name = name.clone();
+                div()
+                    .id(("sym-name", id))
+                    .text_color(colors::text_primary())
+                    .text_size(px(11.0))
+                    .child(name.clone())
+                    .on_click(cx.listener(move |root, ev: &gpui::ClickEvent, win, cx| {
+                        if ev.click_count() >= 2 {
+                            root.begin_rename(
+                                RenameTarget::Symbol(id),
+                                start_name.clone(),
+                                win,
+                                cx,
+                            );
+                        }
+                    }))
+                    .into_any_element()
+            };
             let [tr, tg, tb] = THUMB_COLORS[i % THUMB_COLORS.len()];
             let thumb_color =
                 rgba(((255u32) << 24) | (((tr * 255.0) as u32) << 16) | (((tg * 255.0) as u32) << 8) | ((tb * 255.0) as u32));
@@ -157,12 +191,7 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .child(
-                            div()
-                                .text_color(colors::text_primary())
-                                .text_size(px(11.0))
-                                .child(name),
-                        )
+                        .child(name_el)
                         .child(
                             div()
                                 .text_color(colors::text_secondary())

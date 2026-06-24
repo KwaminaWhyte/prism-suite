@@ -32,7 +32,9 @@ impl App {
             Action::EnterSymbolEdit(id) => self.enter_symbol_edit(id),
             Action::ExitSymbolEdit => self.exit_symbol_edit(),
 
-            _ => {}
+            // Not a Batch-12 action: chain to the TextField-driven handler,
+            // which owns the terminal `_ => {}` no-op.
+            other => self.apply_textfield(other),
         }
     }
 

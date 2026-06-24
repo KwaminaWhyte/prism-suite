@@ -54,6 +54,7 @@ mod document_setup_window;
 mod export_window;
 mod panels;
 mod preferences_window;
+mod rename_edit;
 mod view_input;
 mod welcome;
 
@@ -147,10 +148,26 @@ struct Contour {
     /// `RenderImage` (new `image.id`) replaces it. Without this, every redraw
     /// that re-rasterizes builds a fresh image and leaks its old atlas tile.
     last_image: Option<Arc<RenderImage>>,
+    /// In-progress inline rename of a Layers / Symbols / Artboards row, if any.
+    /// Holds the real focused `TextField` whose submit dispatches the rename.
+    rename: Option<rename_edit::RenameEdit>,
+    /// Focused `TextField` for editing the *content* of the text object in
+    /// `app.editing_text`, if a Type-tool edit session is open. The field's
+    /// `on_change` dispatches [`Action::SetTextObjectContent`].
+    text_edit: Option<rename_edit::TextEdit>,
 }
 
 impl Render for Contour {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Reconcile the inline text-content field with the engine: if the edit
+        // session ended elsewhere (tool switch dispatched `FinishText`, undo, …)
+        // drop the now-stale focused field so it doesn't linger on the canvas.
+        if self.text_edit.is_some()
+            && (self.app.editing_text.is_none() || self.app.active != Tool::Type)
+        {
+            self.text_edit = None;
+        }
+
         // Tick cursor blink; keep requesting frames while text is being edited.
         if self.app.editing_text.is_some() {
             self.app.tick_cursor();
@@ -185,9 +202,10 @@ impl Render for Contour {
         let tools = panels::tools::render(app, cx);
         let inspector = panels::inspector::render(app, cx);
         let character = panels::character::render(app, cx);
-        let layers = panels::layers::render(app, cx);
-        let symbols = panels::symbols::render(app, cx);
-        let artboards_panel = panels::artboards::render(app, cx);
+        let rename = self.rename.as_ref();
+        let layers = panels::layers::render(app, rename, cx);
+        let symbols = panels::symbols::render(app, rename, cx);
+        let artboards_panel = panels::artboards::render(app, rename, cx);
         let trace_opt = panels::trace_dialog::render(app, cx);
         let recolor = panels::recolor::render(app, cx);
         // Selection ring overlay (viewport-local), mapped doc → viewport.
@@ -533,6 +551,24 @@ impl Render for Contour {
             None
         };
 
+        // Inline text-content editor: a focused TextField floating just above the
+        // text object's origin while a Type-tool edit session is open. Typing into
+        // it dispatches `SetTextObjectContent`, re-shaping the on-canvas glyphs.
+        let text_edit_overlay = self.text_edit().map(|te| {
+            use crate::document::Shape;
+            let (mut vx, mut vy) = (offset.0 + 8.0, offset.1 + 8.0);
+            if let Some(Shape::Text { origin, .. }) = self.app.doc.shapes.get(te.idx) {
+                let (px_, py_) = self.doc_to_viewport(*origin, ox, oy);
+                vx = px_;
+                vy = (py_ - 34.0).max(4.0);
+            }
+            div()
+                .absolute()
+                .left(px(vx))
+                .top(px(vy))
+                .child(te.field.clone())
+        });
+
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _win, cx| {
@@ -619,16 +655,17 @@ impl Render for Contour {
                             .children(knife_preview)
                             .children(isolation_overlay)
                             .children(text_cursor)
+                            .children(text_edit_overlay)
                             .on_mouse_down(
                                 MouseButton::Left,
-                                cx.listener(|this, ev: &gpui::MouseDownEvent, _win, cx| {
-                                    this.on_canvas_down(ev, cx);
+                                cx.listener(|this, ev: &gpui::MouseDownEvent, win, cx| {
+                                    this.on_canvas_down(ev, win, cx);
                                 }),
                             )
                             .on_mouse_down(
                                 MouseButton::Middle,
-                                cx.listener(|this, ev: &gpui::MouseDownEvent, _win, cx| {
-                                    this.on_canvas_down(ev, cx);
+                                cx.listener(|this, ev: &gpui::MouseDownEvent, win, cx| {
+                                    this.on_canvas_down(ev, win, cx);
                                 }),
                             )
                             .on_mouse_move(cx.listener(
@@ -741,6 +778,8 @@ fn main() {
                         drag: Rc::new(Cell::new(None)),
                         focus,
                         last_image: None,
+                        rename: None,
+                        text_edit: None,
                     }
                 })
             },

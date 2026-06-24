@@ -15,10 +15,11 @@
 //! canonical RGBA after any change.
 
 use gpui::{
-    rgb, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
+    rgb, AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px,
 };
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 use crate::app_state::prefs_color::ColorPicker;
 use crate::app_state::Action;
@@ -27,6 +28,8 @@ use crate::Contour;
 pub struct ColorPickerView {
     focus: FocusHandle,
     app_entity: WeakEntity<Contour>,
+    /// Real typing field for the `#RRGGBB` hex value.
+    hex_field: Entity<TextField>,
 }
 
 impl Focusable for ColorPickerView {
@@ -36,8 +39,29 @@ impl Focusable for ColorPickerView {
 }
 
 impl ColorPickerView {
-    pub fn new(focus: FocusHandle, app_entity: WeakEntity<Contour>) -> Self {
-        Self { focus, app_entity }
+    pub fn new(
+        focus: FocusHandle,
+        app_entity: WeakEntity<Contour>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let initial_hex = app_entity
+            .upgrade()
+            .map(|e| e.read(cx).app.color_picker.hex())
+            .unwrap_or_else(|| "#000000".to_string());
+        let weak = app_entity.clone();
+        let hex_field = cx.new(|cx| {
+            TextField::new(cx)
+                .width(px(96.0))
+                .placeholder("#RRGGBB")
+                .initial_value(initial_hex)
+                .on_submit(move |text, _win, cx| {
+                    let _ = weak.update(cx, |c, cx| {
+                        c.app.apply(Action::SetPickerHex(text.trim().to_string()));
+                        cx.notify();
+                    });
+                })
+        });
+        Self { focus, app_entity, hex_field }
     }
 
     fn dispatch(&self, cx: &mut Context<Self>, action: Action) {
@@ -149,9 +173,14 @@ impl Render for ColorPickerView {
         let hex_block = div()
             .flex().flex_col().gap(px(4.0))
             .child(section_label("HEX"))
+            // Editable hex field — type a #RRGGBB and press Enter to apply.
             .child(
-                div().text_color(colors::text_primary()).text_size(px(font_size::SM))
-                    .child(hex.clone()),
+                div().flex().flex_row().items_center().gap(px(6.0))
+                    .child(self.hex_field.clone())
+                    .child(
+                        div().text_color(colors::text_secondary()).text_size(px(font_size::XS))
+                            .child(format!("now {}", hex)),
+                    ),
             )
             .child(div().flex().flex_row().flex_wrap().gap(px(4.0)).children(swatch_grid));
 

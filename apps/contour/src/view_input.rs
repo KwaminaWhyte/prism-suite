@@ -102,9 +102,19 @@ impl Contour {
 
     /// Begin a canvas gesture on left/middle press: drag-create for the Rect /
     /// Ellipse tools, otherwise pan (Alt+left or middle) or click-select.
-    pub(crate) fn on_canvas_down(&mut self, ev: &gpui::MouseDownEvent, cx: &mut Context<Self>) {
+    pub(crate) fn on_canvas_down(
+        &mut self,
+        ev: &gpui::MouseDownEvent,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
         let middle = ev.button == MouseButton::Middle;
         let pan_modifier = ev.modifiers.alt || ev.modifiers.platform;
+
+        // A canvas press outside the Type tool commits any open text-content edit.
+        if self.text_edit().is_some() && self.app.active != Tool::Type {
+            self.end_text_edit(cx);
+        }
 
         // Pan takes precedence (middle-drag always pans; Alt+left pans).
         if middle || (ev.button == MouseButton::Left && pan_modifier) {
@@ -126,11 +136,28 @@ impl Contour {
             }
             Tool::Type => {
                 // Click an existing text object to re-edit it, else place a new one.
+                // Either way, open a focused TextField on the resulting object so
+                // the user types the actual string (re-shaping the glyphs live).
                 if let Some([x, y]) = self.window_to_doc(ev.position) {
+                    // Commit any prior edit first so its object isn't left dangling.
+                    if self.text_edit().is_some() {
+                        self.end_text_edit(cx);
+                    }
                     if let Some(i) = self.app.hit_text(x, y) {
                         self.app.apply(Action::EditText(i));
                     } else {
                         self.app.apply(Action::PlaceText { x, y });
+                    }
+                    if let Some(idx) = self.app.editing_text {
+                        let current = self
+                            .app
+                            .doc
+                            .shapes
+                            .get(idx)
+                            .and_then(|s| s.text_params())
+                            .map(|p| p.text.clone())
+                            .unwrap_or_default();
+                        self.begin_text_edit(idx, current, window, cx);
                     }
                     cx.notify();
                 }
@@ -456,9 +483,19 @@ impl Contour {
         let cmd = m.platform || m.control;
         let key = ks.key.as_str();
 
-        // Text-edit mode swallows keystrokes into the point-type object's string:
-        // printable keys append, Backspace deletes, Enter inserts a newline, and
-        // Escape finishes the edit. Cmd-chords (undo/redo) pass through.
+        // When a focused content `TextField` is open (Type tool), it owns text
+        // input via its own key handler and dispatches `SetTextObjectContent`.
+        // The root only handles Escape to commit + close the session.
+        if self.text_edit().is_some() {
+            if key == "escape" && !cmd {
+                self.end_text_edit(cx);
+            }
+            return;
+        }
+
+        // Legacy text-edit mode (no focused field): keystrokes feed the point-type
+        // object's string — printable keys append, Backspace deletes, Enter inserts
+        // a newline, and Escape finishes. Cmd-chords (undo/redo) pass through.
         if self.app.editing_text.is_some() && !cmd {
             match key {
                 "escape" => self.app.apply(Action::FinishText),
@@ -566,7 +603,7 @@ impl Contour {
             |win, cx| {
                 let focus = cx.focus_handle();
                 win.focus(&focus);
-                cx.new(|_cx| crate::document_setup_window::DocumentSetupView::new(focus, weak))
+                cx.new(|cx| crate::document_setup_window::DocumentSetupView::new(focus, weak, cx))
             },
         );
     }
@@ -584,7 +621,7 @@ impl Contour {
             |win, cx| {
                 let focus = cx.focus_handle();
                 win.focus(&focus);
-                cx.new(|_cx| crate::export_window::ExportView::new(focus, weak))
+                cx.new(|cx| crate::export_window::ExportView::new(focus, weak, cx))
             },
         );
     }
@@ -602,7 +639,7 @@ impl Contour {
             |win, cx| {
                 let focus = cx.focus_handle();
                 win.focus(&focus);
-                cx.new(|_cx| crate::color_picker_window::ColorPickerView::new(focus, weak))
+                cx.new(|cx| crate::color_picker_window::ColorPickerView::new(focus, weak, cx))
             },
         );
     }

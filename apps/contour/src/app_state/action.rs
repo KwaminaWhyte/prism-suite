@@ -440,6 +440,16 @@ pub enum Action {
     /// Duplicate artboard at index `idx` (offset by 20,20).
     DuplicateArtboard(usize),
 
+    // --- Editable names / text content (TextField-driven, real typing) ---
+    /// Rename the shape (Layers panel row) at paint index `idx`. A blank name
+    /// clears back to the type label. One undo step.
+    RenameLayer { idx: usize, name: String },
+    /// Rename the symbol master with library id `id` (uniqued in `symbol_lib`).
+    RenameSymbol { id: u64, name: String },
+    /// Replace the full text content of the text object at paint index `idx`
+    /// (re-lays-out its glyphs). Used by the Type tool's live text field.
+    SetTextObjectContent { idx: usize, text: String },
+
     // --- Batch 2: Graph / chart tool stub ---
     /// Insert a graph from sample data as shapes at `rect`.
     InsertGraph { kind: GraphKind, rect: [f32; 4] },

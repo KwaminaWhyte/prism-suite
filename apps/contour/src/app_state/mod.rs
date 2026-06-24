@@ -66,6 +66,7 @@ mod apply_batch11;
 mod apply_batch13;
 mod geometry_warp;
 mod apply_batch12;
+mod apply_textfield;
 pub(super) mod helpers;
 use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d};
 pub(super) mod helpers_geo;

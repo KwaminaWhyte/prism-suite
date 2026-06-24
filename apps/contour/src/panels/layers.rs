@@ -11,10 +11,15 @@ use gpui::{
 
 use crate::app_state::{Action, App};
 use crate::panels::{ui_colors, ui_divider, ui_section_header, Icon};
+use crate::rename_edit::{RenameEdit, RenameTarget};
 use prism_ui::colors;
 use crate::Contour;
 
-pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    rename: Option<&RenameEdit>,
+    cx: &mut Context<Contour>,
+) -> impl IntoElement {
     let selected = app.selected;
     let n = app.doc.shapes.len();
 
@@ -42,6 +47,38 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
                 colors::surface_raised()
             };
             let name = s.display_name();
+            let is_renaming = matches!(
+                rename.map(|r| r.target),
+                Some(RenameTarget::Layer(t)) if t == i
+            );
+            // The editable name: a focused TextField when renaming, else a label
+            // that starts a rename on double-click.
+            let name_el: gpui::AnyElement = if is_renaming {
+                rename
+                    .map(|r| r.field.clone().into_any_element())
+                    .unwrap_or_else(|| div().child(name.clone()).into_any_element())
+            } else {
+                let start_name = name.clone();
+                div()
+                    .id(("shape-name", i))
+                    .flex_1()
+                    .child(name.clone())
+                    .on_click(cx.listener(move |root, ev: &gpui::ClickEvent, win, cx| {
+                        // Double-click the name to begin an inline rename.
+                        if ev.click_count() >= 2 {
+                            root.begin_rename(
+                                RenameTarget::Layer(i),
+                                start_name.clone(),
+                                win,
+                                cx,
+                            );
+                        } else {
+                            root.app.apply(Action::SelectShape(i));
+                            cx.notify();
+                        }
+                    }))
+                    .into_any_element()
+            };
 
             div()
                 .id(("shape-row", i))
@@ -80,7 +117,7 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
                                 .text_color(eye_color),
                         ),
                 )
-                .child(div().flex_1().child(name))
+                .child(name_el)
                 .child(
                     div()
                         .text_color(ui_colors::text_secondary())

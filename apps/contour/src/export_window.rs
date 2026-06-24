@@ -12,10 +12,11 @@
 use std::path::PathBuf;
 
 use gpui::{
-    ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px,
+    AppContext, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px,
 };
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 use crate::app_state::Action;
 use crate::export_formats::ExportFormat;
@@ -26,8 +27,8 @@ pub struct ExportView {
     app_entity: WeakEntity<Contour>,
     /// Window-local: the format currently selected in the picker.
     selected: ExportFormat,
-    /// Window-local: the filename stem (without extension).
-    stem: String,
+    /// Real typing field for the full destination path.
+    path_field: Entity<TextField>,
 }
 
 impl Focusable for ExportView {
@@ -37,12 +38,24 @@ impl Focusable for ExportView {
 }
 
 impl ExportView {
-    pub fn new(focus: FocusHandle, app_entity: WeakEntity<Contour>) -> Self {
+    pub fn new(
+        focus: FocusHandle,
+        app_entity: WeakEntity<Contour>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let selected = ExportFormat::Svg;
+        let initial = default_output_path("Untitled", selected);
+        let path_field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("/path/to/export.svg")
+                .initial_value(initial)
+                .width(px(360.0))
+        });
         Self {
             focus,
             app_entity,
-            selected: ExportFormat::Svg,
-            stem: "Untitled".to_string(),
+            selected,
+            path_field,
         }
     }
 
@@ -55,12 +68,24 @@ impl ExportView {
         }
     }
 
-    /// The full output path: `<home or cwd>/<stem>.<ext>`.
-    fn output_path(&self) -> String {
-        let mut p: PathBuf = dirs_desktop().unwrap_or_else(|| PathBuf::from("."));
-        p.push(format!("{}.{}", self.stem, self.selected.extension()));
-        p.to_string_lossy().into_owned()
+    /// The current destination path: whatever the user typed into the field.
+    fn output_path(&self, cx: &Context<Self>) -> String {
+        self.path_field.read(cx).text().trim().to_string()
     }
+}
+
+/// The default destination: `<Desktop>/<stem>.<ext>`.
+fn default_output_path(stem: &str, fmt: ExportFormat) -> String {
+    let mut p: PathBuf = dirs_desktop().unwrap_or_else(|| PathBuf::from("."));
+    p.push(format!("{}.{}", stem, fmt.extension()));
+    p.to_string_lossy().into_owned()
+}
+
+/// Replace the file extension of `path` with `ext`, preserving the directory and
+/// stem. An extension-less path simply gains `.ext`.
+fn swap_extension(path: &str, ext: &str) -> String {
+    let p = PathBuf::from(path);
+    p.with_extension(ext).to_string_lossy().into_owned()
 }
 
 /// Best-effort Desktop directory (falls back to home, then cwd).
@@ -86,7 +111,7 @@ const FORMATS: [(ExportFormat, &str, &str); 4] = [
 impl Render for ExportView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected;
-        let out_path = self.output_path();
+        let path_field = self.path_field.clone();
 
         // --- Left: format list ---
         let format_rows: Vec<gpui::AnyElement> = FORMATS
@@ -105,8 +130,13 @@ impl Render for ExportView {
                     .border_color(if active { colors::accent() } else { colors::surface_border() })
                     .cursor_pointer()
                     .hover(|s| if active { s } else { s.bg(colors::tool_hover()) })
-                    .on_click(cx.listener(move |this, _e: &ClickEvent, _w, cx| {
+                    .on_click(cx.listener(move |this, _e: &ClickEvent, win, cx| {
                         this.selected = fmt;
+                        // Swap the typed path's extension to match the new format,
+                        // preserving the directory + stem the user has entered.
+                        let cur = this.path_field.read(cx).text().to_string();
+                        let new_path = swap_extension(&cur, fmt.extension());
+                        this.path_field.update(cx, |f, cx| f.set_text(new_path, win, cx));
                         cx.notify();
                     }))
                     .child(
@@ -144,17 +174,11 @@ impl Render for ExportView {
                 div().text_size(px(font_size::SM)).text_color(colors::text_secondary())
                     .mb(px(8.0)).child("DESTINATION"),
             )
-            .child(
-                div()
-                    .px(px(10.0)).py(px(8.0))
-                    .rounded(px(4.0)).bg(colors::surface_overlay())
-                    .border_1().border_color(colors::surface_border())
-                    .text_color(colors::text_primary()).text_size(px(font_size::SM))
-                    .child(out_path.clone()),
-            )
+            // Editable destination path — type the full output path here.
+            .child(path_field)
             .child(
                 div().mt(px(6.0)).text_size(px(font_size::XS)).text_color(colors::text_disabled())
-                    .child("Exports to your Desktop. The extension follows the selected format."),
+                    .child("Type the full output path. Selecting a format updates the extension."),
             )
             .child(div().flex_1());
 
@@ -180,7 +204,10 @@ impl Render for ExportView {
             .cursor_pointer()
             .hover(|s| s.bg(colors::accent_hover()))
             .on_click(cx.listener(move |this, _e: &ClickEvent, win, cx| {
-                let path = this.output_path();
+                let path = this.output_path(cx);
+                if path.is_empty() {
+                    return; // Nothing typed — keep the dialog open.
+                }
                 let format = this.selected;
                 this.dispatch(cx, Action::ExportDocument { path, format });
                 win.remove_window();

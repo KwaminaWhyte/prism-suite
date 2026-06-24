@@ -1,0 +1,312 @@
+//! The ping-pong layer compositor and composite readback for [`CanvasGpu`]:
+//! [`CanvasGpu::composite`] blends every visible [`LayerDraw`] (blend modes,
+//! adjustments, layer styles, blend-if, clipping) through the ping/pong targets
+//! in linear-premultiplied space, plus the readback helpers and the display
+//! bind-group build. Filter plumbing lives in [`super::filters_core`] /
+//! [`super::filters_apply`].
+
+use crate::*;
+
+impl CanvasGpu {
+    /// Composite all layers now (own encoder) and return whether the result is in `ping`.
+    pub fn composite_now(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        order: &[LayerDraw],
+    ) -> bool {
+        let mut enc = device.create_command_encoder(&Default::default());
+        let r = self.composite(device, queue, &mut enc, order);
+        queue.submit([enc.finish()]);
+        r
+    }
+
+    fn target_tex(&self, is_ping: bool) -> Option<&wgpu::Texture> {
+        if is_ping {
+            self.ping.as_ref()
+        } else {
+            self.pong.as_ref()
+        }
+        .map(|t| &t.tex)
+    }
+
+    /// Read the full composite (call right after `composite_now`).
+    pub fn read_composite(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        is_ping: bool,
+    ) -> Option<Vec<u8>> {
+        self.readback_texture(device, queue, self.target_tex(is_ping)?)
+    }
+
+    /// Read one composite pixel (linear premultiplied).
+    pub fn read_composite_pixel(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        is_ping: bool,
+        x: u32,
+        y: u32,
+    ) -> Option<[f32; 4]> {
+        self.readback_pixel(device, queue, self.target_tex(is_ping)?, x, y)
+    }
+
+    /// Ping-pong composite all visible layers; returns the final view index.
+    pub fn composite(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        order: &[LayerDraw],
+    ) -> bool {
+        self.ensure_white(queue);
+        self.ensure_identity_lut(device, queue);
+
+        // Write all layer params up front (one buffer, dynamic offsets).
+        let visible: Vec<&LayerDraw> = order.iter().filter(|l| l.visible).collect();
+        for (i, l) in visible.iter().enumerate() {
+            let mut p = CompositeParams::plain(l.opacity, l.blend);
+            p.adjust_kind = l.adjust_kind;
+            p.adjust = l.adjust;
+            if l.adjust_kind == 14 {
+                p.mix_r = l.mix_r;
+                p.mix_g = l.mix_g;
+                p.mix_b = l.mix_b;
+            }
+            if l.has_blend_if {
+                p.has_blend_if = 1;
+                p.blend_if = l.blend_if;
+            }
+            // Clip to the layer below (needs a layer beneath it in the stack).
+            if l.clipped && i > 0 {
+                p.has_clip = 1;
+            }
+            if l.has_stroke {
+                p.has_stroke = 1;
+                p.stroke_color = l.stroke_color;
+                p.stroke_w = l.stroke_width;
+            }
+            if l.has_shadow {
+                p.has_shadow = 1;
+                p.shadow_color = l.shadow_color;
+                p.shadow_off = l.shadow_offset;
+                p.shadow_blur = l.shadow_blur;
+            }
+            if l.has_overlay {
+                p.has_overlay = 1;
+                p.overlay_color = l.overlay_color;
+            }
+            if l.has_grad_overlay {
+                p.has_grad_overlay = 1;
+                p.grad_color0 = l.grad_color0;
+                p.grad_color1 = l.grad_color1;
+                p.grad_angle = l.grad_angle;
+                p.grad_opacity = l.grad_opacity;
+            }
+            if l.has_inner_shadow {
+                p.has_inner_shadow = 1;
+                p.inner_shadow_color = l.inner_shadow_color;
+                p.inner_shadow_off = l.inner_shadow_offset;
+                p.inner_shadow_blur = l.inner_shadow_blur;
+            }
+            if l.has_outer_glow {
+                p.has_outer_glow = 1;
+                p.outer_glow_color = l.outer_glow_color;
+                p.outer_glow_size = l.outer_glow_size;
+            }
+            if l.has_inner_glow {
+                p.has_inner_glow = 1;
+                p.inner_glow_color = l.inner_glow_color;
+                p.inner_glow_size = l.inner_glow_size;
+            }
+            if l.has_bevel {
+                p.has_bevel = 1;
+                p.bevel_highlight = l.bevel_highlight;
+                p.bevel_shadow = l.bevel_shadow;
+                p.bevel_size = l.bevel_size;
+                p.bevel_soften = l.bevel_soften;
+                // Light direction from azimuth (angle) + altitude. uv y runs
+                // top-down, so flip y to put the light where the angle points.
+                let (ca, sa) = (l.bevel_angle.cos(), l.bevel_angle.sin());
+                let cz = l.bevel_altitude.cos();
+                p.bevel_light = [cz * ca, -cz * sa, l.bevel_altitude.sin(), 0.0];
+            }
+            if self.xform_layer == Some(l.id) {
+                p.has_xform = 1;
+                p.m = self.xform_m;
+                p.off = self.xform_off;
+            }
+            queue.write_buffer(
+                &self.params_buf,
+                i as u64 * PARAMS_STRIDE,
+                bytemuck::bytes_of(&p),
+            );
+        }
+        if self.wet_owner.is_some() {
+            queue.write_buffer(
+                &self.params_buf,
+                WET_PARAMS_OFFSET as u64,
+                bytemuck::bytes_of(&CompositeParams::plain(self.wet_opacity, 0)),
+            );
+        }
+
+        let ping = self.ping.as_ref().unwrap();
+        let pong = self.pong.as_ref().unwrap();
+        let identity_lut = &self.identity_lut.as_ref().unwrap().view;
+
+        // Ordered passes: each visible layer (+ its Curves LUT, or the identity
+        // LUT), plus the wet stroke just above its owner so the in-progress
+        // stroke previews at the right depth.
+        let mut passes: Vec<(
+            &wgpu::TextureView,
+            u32,
+            &wgpu::TextureView,
+            &wgpu::TextureView,
+            &wgpu::TextureView, // clipping-mask base (layer below) or white
+        )> = Vec::new();
+        for (i, l) in visible.iter().enumerate() {
+            if let Some(layer) = self.layers.get(&l.id) {
+                let lut = self
+                    .curve_luts
+                    .get(&l.id)
+                    .map(|g| &g.view)
+                    .unwrap_or(identity_lut);
+                // Clip base = the layer directly below (white = no clip).
+                let clip_base = if l.clipped && i > 0 {
+                    self.layers
+                        .get(&visible[i - 1].id)
+                        .map(|b| &b.view)
+                        .unwrap_or(&self.white_mask.view)
+                } else {
+                    &self.white_mask.view
+                };
+                passes.push((
+                    &layer.view,
+                    (i as u64 * PARAMS_STRIDE) as u32,
+                    self.mask_view(l.id),
+                    lut,
+                    clip_base,
+                ));
+                if self.wet_owner == Some(l.id) {
+                    if let Some(wet) = self.wet.as_ref() {
+                        passes.push((
+                            &wet.view,
+                            WET_PARAMS_OFFSET,
+                            &self.white_mask.view,
+                            identity_lut,
+                            &self.white_mask.view,
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Clear ping to transparent — the initial backdrop (LoadOp::Clear, no draw).
+        {
+            let _clear = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("composite.clear"),
+                color_attachments: &[Some(clear_attachment(&ping.view))],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+
+        let mut src_is_ping = true;
+        for (layer_view, offset, mask_view, lut_view, clip_base_view) in passes {
+            let (src, dst) = if src_is_ping {
+                (ping, pong)
+            } else {
+                (pong, ping)
+            };
+            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("composite.bg"),
+                layout: &self.composite_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&src.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(layer_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.params_buf,
+                            offset: 0,
+                            size: wgpu::BufferSize::new(
+                                std::mem::size_of::<CompositeParams>() as u64
+                            ),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(mask_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(lut_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(clip_base_view),
+                    },
+                ],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("composite.layer"),
+                color_attachments: &[Some(clear_attachment(&dst.view))],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.composite_pipeline);
+            pass.set_bind_group(0, &bind, &[offset]);
+            pass.draw(0..3, 0..1);
+            drop(pass);
+            src_is_ping = !src_is_ping;
+        }
+        // Final result lives in `src` after the last swap.
+        src_is_ping
+    }
+
+    pub fn build_display_bind_group(&mut self, device: &wgpu::Device, final_is_ping: bool) {
+        let final_view = if final_is_ping {
+            &self.ping.as_ref().unwrap().view
+        } else {
+            &self.pong.as_ref().unwrap().view
+        };
+        let sel_view = &self.selection.as_ref().unwrap().view;
+        self.display_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("display.bg"),
+            layout: &self.display_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.display_uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(final_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(sel_view),
+                },
+            ],
+        }));
+    }
+}

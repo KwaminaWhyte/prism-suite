@@ -9,6 +9,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+### Changed — File organization (no behavior change)
+- Split every oversized non-test source file to satisfy the MANDATORY ~1000-line
+  rule. Apps: pigment `app_state/mod.rs` (5460→983) + `canvas_host.rs`→dir; contour
+  `export.rs`/`panels/inspector.rs`→dirs, `app_state/mod.rs`, `document/mod.rs`,
+  `main.rs`; pulse 7 files (`comp/generate`/`mod`/`text`/`effect_browser`,
+  `app_state/render`/`mod`, `render/passes`); reel `app_state/mod.rs` +
+  `program_frame.rs`/`export.rs`→dirs; drift `main.rs`. Shared: prism-canvas
+  `filter_math`/`compositor`/`lib` + prism-media `lib` → submodules with all public
+  APIs re-exported (unchanged). Only the two `Action` enums (pigment ~1101, contour
+  ~1168) remain over the line — a single Rust `enum` is atomic and can't be split.
+  Full workspace test suite green throughout.
+
 ## [0.10.0] - 2026-06-24
 
 UI wiring for the 0.9.0 engine features + real ONNX inference scaffolding. All

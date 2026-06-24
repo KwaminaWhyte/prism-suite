@@ -21,14 +21,18 @@ use gpui::{
 };
 use prism_ui::{colors, font_size, icon_colored, icon, radius, Icon};
 
-use crate::app_state::{Action, App, ColorProfile, Filter, SoftProofMode, Tool};
+use crate::app_state::{
+    Action, App, ColorProfile, Filter, RulerUnit, SoftProofMode, Tool, WorkingColorMode,
+    WorkingSpace,
+};
+use crate::windows;
 use crate::Pigment;
 
 #[allow(unused_imports)]
 use rfd;
 
-const MENUS: [&str; 9] = [
-    "File", "Edit", "Image", "Layer", "Select", "Filter", "View", "Window", "Help",
+const MENUS: [&str; 10] = [
+    "File", "Edit", "Image", "Layer", "Select", "Filter", "View", "Color", "Window", "Help",
 ];
 
 /// Persona/mode tabs — purely visual; `active` decides the accent pill.
@@ -543,6 +547,16 @@ fn menu_dropdown(cx: &mut Context<Pigment>, label: &str) -> impl IntoElement {
             ("Redo", |root, cx| { root.app.apply(Action::Redo); cx.notify(); }),
             ("Select All", |root, cx| { root.app.apply(Action::SelectAll); cx.notify(); }),
             ("Deselect", |root, cx| { root.app.apply(Action::ClearSelection); cx.notify(); }),
+            ("Keyboard Shortcuts…", |_root, cx| {
+                let weak = cx.entity().downgrade();
+                windows::open_shortcuts(cx, weak);
+                cx.notify();
+            }),
+            ("Preferences…", |_root, cx| {
+                let weak = cx.entity().downgrade();
+                windows::open_preferences(cx, weak);
+                cx.notify();
+            }),
         ],
         "Image" => &[
             ("Image Size…", |root, cx| { root.app.apply(Action::SetImageSize { width: root.app.host.doc_w, height: root.app.host.doc_h }); cx.notify(); }),
@@ -584,12 +598,64 @@ fn menu_dropdown(cx: &mut Context<Pigment>, label: &str) -> impl IntoElement {
             ("Zoom In", |root, cx| { root.app.apply(Action::ZoomBy(1.25)); cx.notify(); }),
             ("Zoom Out", |root, cx| { root.app.apply(Action::ZoomBy(0.8)); cx.notify(); }),
             ("Fit Canvas", |root, cx| { root.app.apply(Action::ResetView); cx.notify(); }),
-            ("Toggle Guides", |root, cx| { root.app.apply(Action::ToggleGuides); cx.notify(); }),
+            ("New Guide: Horizontal", |root, cx| {
+                let pos = root.app.host.doc_h as f32 * 0.5;
+                root.app.apply(Action::AddCanvasGuide { horizontal: true, position: pos });
+                cx.notify();
+            }),
+            ("New Guide: Vertical", |root, cx| {
+                let pos = root.app.host.doc_w as f32 * 0.5;
+                root.app.apply(Action::AddCanvasGuide { horizontal: false, position: pos });
+                cx.notify();
+            }),
+            ("Clear Guides", |root, cx| { root.app.apply(Action::ClearCanvasGuides); cx.notify(); }),
+            ("Toggle Guide Visibility", |root, cx| {
+                let v = !root.app.guide_state.visible;
+                root.app.apply(Action::SetGuidesVisible(v));
+                cx.notify();
+            }),
+            ("Toggle Snap to Guides", |root, cx| {
+                let v = !root.app.guide_state.snap_enabled;
+                root.app.apply(Action::SetGuideSnapEnabled(v));
+                cx.notify();
+            }),
+            ("Toggle Smart Guides", |root, cx| {
+                let v = !root.app.guide_state.smart_guides;
+                root.app.apply(Action::SetSmartGuidesEnabled(v));
+                cx.notify();
+            }),
+            ("Ruler Unit: Pixels", |root, cx| { root.app.apply(Action::SetRulerUnit(RulerUnit::Pixels)); cx.notify(); }),
+            ("Ruler Unit: Inches", |root, cx| { root.app.apply(Action::SetRulerUnit(RulerUnit::Inches)); cx.notify(); }),
+            ("Ruler Unit: Centimeters", |root, cx| { root.app.apply(Action::SetRulerUnit(RulerUnit::Centimeters)); cx.notify(); }),
+            ("Toggle Guides (legacy)", |root, cx| { root.app.apply(Action::ToggleGuides); cx.notify(); }),
             ("Soft Proof: Off", |root, cx| { root.app.apply(Action::SetSoftProof(SoftProofMode::Off)); cx.notify(); }),
             ("Soft Proof: CMYK", |root, cx| { root.app.apply(Action::SetSoftProof(SoftProofMode::Cmyk)); cx.notify(); }),
             ("Color Profile: sRGB", |root, cx| { root.app.apply(Action::SetColorProfile(ColorProfile::Srgb)); cx.notify(); }),
             ("Color Profile: Adobe RGB", |root, cx| { root.app.apply(Action::SetColorProfile(ColorProfile::AdobeRgb)); cx.notify(); }),
             ("Color Profile: Display P3", |root, cx| { root.app.apply(Action::SetColorProfile(ColorProfile::P3)); cx.notify(); }),
+        ],
+        "Color" => &[
+            ("Mode: RGB", |root, cx| { root.app.apply(Action::SetWorkingColorMode(WorkingColorMode::Rgb)); cx.notify(); }),
+            ("Mode: Grayscale", |root, cx| { root.app.apply(Action::SetWorkingColorMode(WorkingColorMode::Grayscale)); cx.notify(); }),
+            ("Mode: CMYK", |root, cx| { root.app.apply(Action::SetWorkingColorMode(WorkingColorMode::Cmyk)); cx.notify(); }),
+            ("Mode: Lab", |root, cx| { root.app.apply(Action::SetWorkingColorMode(WorkingColorMode::Lab)); cx.notify(); }),
+            ("Assign: sRGB", |root, cx| { root.app.apply(Action::AssignWorkingSpace(WorkingSpace::SRgb)); cx.notify(); }),
+            ("Assign: Adobe RGB", |root, cx| { root.app.apply(Action::AssignWorkingSpace(WorkingSpace::AdobeRgb)); cx.notify(); }),
+            ("Assign: Display P3", |root, cx| { root.app.apply(Action::AssignWorkingSpace(WorkingSpace::DisplayP3)); cx.notify(); }),
+            ("Assign: ProPhoto RGB", |root, cx| { root.app.apply(Action::AssignWorkingSpace(WorkingSpace::ProPhotoRgb)); cx.notify(); }),
+            ("Convert to CMYK (SWOP)", |root, cx| {
+                root.app.apply(Action::ConvertWorkingSpace { mode: WorkingColorMode::Cmyk, space: WorkingSpace::UsWebCoatedSwop });
+                cx.notify();
+            }),
+            ("Convert to Grayscale", |root, cx| {
+                root.app.apply(Action::ConvertWorkingSpace { mode: WorkingColorMode::Grayscale, space: WorkingSpace::GrayGamma22 });
+                cx.notify();
+            }),
+            ("Toggle Embed Profile", |root, cx| {
+                let v = !root.app.color_management.embed_profile;
+                root.app.apply(Action::SetEmbedColorProfile(v));
+                cx.notify();
+            }),
         ],
         "Window" => &[
             ("Toggle Layers", |root, cx| { root.app.apply(Action::TogglePanel("Layers".to_string())); cx.notify(); }),

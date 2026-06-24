@@ -60,6 +60,7 @@ pub mod history;
 pub mod layer_comps;
 pub mod layer_style;
 pub mod layers;
+pub mod navigator;
 pub mod plugins;
 pub mod print;
 pub mod tool_options;

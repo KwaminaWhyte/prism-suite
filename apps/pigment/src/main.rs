@@ -26,6 +26,7 @@ mod panels;
 mod perspective_warp;
 mod plugin;
 mod welcome;
+mod windows;
 
 use prism_ui::PrismAssets;
 
@@ -344,6 +345,8 @@ impl Render for Pigment {
         let channels = panels::channels::render(app, cx);
         let history = panels::history::render(app, cx);
         let plugins = panels::plugins::render(app, cx);
+        let navigator = panels::navigator::render(app, cx);
+        let doc_tabs = panels::navigator::render_tabs(app, cx);
         let layers = panels::layers::render(app, cx);
         let layer_style_panel = if app.style_panel_open {
             Some(panels::layer_style::render(app, cx))
@@ -400,6 +403,16 @@ impl Render for Pigment {
                     .border_b_1()
                     .border_color(colors::surface_border())
                     .child(tool_options),
+            )
+            // Document-tab strip (multi-doc navigator): one tab per open doc,
+            // active tab accented, trailing "+" opens a new tab.
+            .child(
+                div()
+                    .w_full()
+                    .bg(colors::surface_bg())
+                    .border_b_1()
+                    .border_color(colors::surface_border())
+                    .child(doc_tabs),
             )
             // Autosave restore banner — shown when a newer autosave exists on disk.
             .when(autosave_pending, |d| {
@@ -524,6 +537,23 @@ impl Render for Pigment {
                                                 let guides_h = app.guides_h.clone();
                                                 let guides_v = app.guides_v.clone();
                                                 let guides_visible = app.guides_visible;
+                                                // Rich guide model (wave 3): split the
+                                                // `GuideState` guides into horizontal (y)
+                                                // and vertical (x) doc-px positions so the
+                                                // existing line painter can draw them.
+                                                let gs_visible = app.guide_state.visible;
+                                                let mut gs_h: Vec<f32> = Vec::new();
+                                                let mut gs_v: Vec<f32> = Vec::new();
+                                                for g in &app.guide_state.guides {
+                                                    match g.orientation {
+                                                        app_state::GuideOrientation::Horizontal => {
+                                                            gs_h.push(g.position)
+                                                        }
+                                                        app_state::GuideOrientation::Vertical => {
+                                                            gs_v.push(g.position)
+                                                        }
+                                                    }
+                                                }
                                                 move |_bounds, painted, win, _cx| {
                                                     paint_marching_ants(
                                                         win, painted, &boundary, doc_w, doc_h,
@@ -531,6 +561,12 @@ impl Render for Pigment {
                                                     if guides_visible {
                                                         paint_guides(
                                                             win, painted, &guides_h, &guides_v,
+                                                            doc_w, doc_h,
+                                                        );
+                                                    }
+                                                    if gs_visible {
+                                                        paint_guides(
+                                                            win, painted, &gs_h, &gs_v,
                                                             doc_w, doc_h,
                                                         );
                                                     }
@@ -646,6 +682,7 @@ impl Render for Pigment {
                             .flex()
                             .flex_col()
                             .overflow_y_scroll()
+                            .child(dockable_wrap("Navigator", navigator, app, cx))
                             .child(dockable_wrap("Color", color, app, cx))
                             .child(dockable_wrap("Adjustments", adjustments, app, cx))
                             .child(dockable_wrap("Histogram", histogram, app, cx))

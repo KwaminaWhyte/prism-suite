@@ -25,6 +25,7 @@
 mod app_state;
 mod canvas_host;
 mod export;
+mod export_codecs;
 mod panels;
 mod program_frame;
 mod waveform;

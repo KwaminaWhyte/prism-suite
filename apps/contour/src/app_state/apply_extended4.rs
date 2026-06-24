@@ -5,7 +5,7 @@ impl App {
         match action {
             // --- Batch 11: Pathfinder depth ---
             Action::ApplyPathfinderOp(op) => {
-                self.last_pathfinder_op = Some(op);
+                self.apply_pathfinder_op(op);
             }
             Action::SetPathfinderPrecision(v) => {
                 self.pathfinder_precision = v.clamp(0.001, 10.0);
@@ -17,9 +17,9 @@ impl App {
                 self.pathfinder_divide_stroke = v;
             }
             Action::RepeatPathfinder => {
-                // Re-apply the last recorded op if one exists (geometry stub: no-op).
-                if let Some(_op) = self.last_pathfinder_op {
-                    // stub — geometry would be applied here
+                // Re-apply the last recorded op to the current selection.
+                if let Some(op) = self.last_pathfinder_op {
+                    self.apply_pathfinder_op(op);
                 }
             }
 
@@ -141,24 +141,18 @@ impl App {
                 self.envelope_config.edit_mode = m;
             }
             Action::MakeEnvelopeWithWarpPreset => {
-                if let Some(idx) = self.selected {
-                    if !self.envelope_applied_shapes.contains(&idx) {
-                        self.envelope_applied_shapes.push(idx);
-                    }
-                }
+                self.apply_make_envelope_warp();
             }
             Action::MakeEnvelopeWithMeshPreset => {
-                if let Some(idx) = self.selected {
-                    if !self.envelope_applied_shapes.contains(&idx) {
-                        self.envelope_applied_shapes.push(idx);
-                    }
-                }
+                // A mesh-preset envelope deforms through the same bilinear mesh as
+                // the warp preset (the warp style chosen in the config seeds it).
+                self.apply_make_envelope_warp();
             }
             Action::ReleaseEnvelopeAll => {
-                self.envelope_applied_shapes.clear();
+                self.apply_expand_envelope();
             }
             Action::ExpandEnvelope => {
-                self.envelope_applied_shapes.clear();
+                self.apply_expand_envelope();
             }
 
 

@@ -177,14 +177,17 @@ impl App {
 
             // --- Batch 3: Live Paint ---
             Action::ApplyLivePaint { fill } => {
-                // Simple implementation: set fill on the topmost closed shape containing
-                // the last clicked point. Caller should have pre-selected via HitTestSelect.
-                if let Some(idx) = self.selected {
-                    if idx < self.doc.shapes.len() {
-                        self.checkpoint();
-                        self.doc.shapes[idx].set_fill_color(fill);
-                        self.host.mark_dirty();
-                    }
+                // Fill the closed region under the last targeted point (set by the
+                // canvas), detecting the bounded face from the overlapping paths.
+                // Falls back to the selected shape's centre if no hit point was set.
+                let hit = self.live_paint_hit.or_else(|| {
+                    self.selected
+                        .and_then(|i| self.doc.shapes.get(i))
+                        .and_then(|s| s.bounds())
+                        .map(|b| (b.x + b.w * 0.5, b.y + b.h * 0.5))
+                });
+                if let Some((x, y)) = hit {
+                    self.apply_live_paint_fill(x, y, fill);
                 }
             }
 
@@ -212,11 +215,7 @@ impl App {
                 }
             }
             Action::ConfirmPerspectiveDistort => {
-                log::info!(
-                    "ConfirmPerspectiveDistort — corners: {:?} (homography warp stub)",
-                    self.perspective_distort_corners
-                );
-                self.perspective_distort_active = false;
+                self.apply_confirm_perspective();
             }
 
             // --- Batch 3: Recolor Artwork HSL ---

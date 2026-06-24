@@ -60,6 +60,8 @@ mod apply_waves;
 mod apply_waves2;
 mod apply_batch10;
 mod tests_batch10;
+mod apply_batch11;
+mod geometry_warp;
 pub(super) mod helpers;
 use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d};
 pub(super) mod helpers_geo;
@@ -1624,6 +1626,10 @@ pub struct App {
     pub live_paint_highlight_color: [f32; 4],
     /// Group ids that have been designated as Live Paint groups.
     pub live_paint_group_ids: Vec<u64>,
+    /// Last document-space point the Live Paint bucket targeted, set by the
+    /// canvas before an `ApplyLivePaint` (which carries only a fill colour) so the
+    /// enclosed-face fill knows where the user clicked.
+    pub live_paint_hit: Option<(f32, f32)>,
 
     // --- Batch 9: Symbol Sprayer ---
     /// Configuration for the Symbol Sprayer tool.
@@ -1888,6 +1894,7 @@ impl App {
             live_paint_gap_detection: false,
             live_paint_highlight_color: [1.0, 0.5, 0.0, 1.0],
             live_paint_group_ids: Vec::new(),
+            live_paint_hit: None,
             symbol_spray_config: SymbolSprayConfig::default(),
             // Batch 10
             gradient_mesh: GradientMeshConfig::default(),

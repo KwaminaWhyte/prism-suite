@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{Bounds, Pixels};
-use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player as RodioPlayer};
+use rodio::{MixerDeviceSink, Player as RodioPlayer};
 
 use crate::canvas_host::CanvasHost;
 use crate::waveform::WaveformCache;
@@ -30,11 +30,19 @@ pub mod timeline;
 pub mod transitions;
 pub mod edl;
 mod color_curves;
+mod timeline_clips;
+mod timeline_selection;
+mod timeline_transitions;
+mod timeline_playback;
 
 // --- Batch 5 modules ---------------------------------------------------------
 pub mod reel_project;
 mod apply_batch5;
 #[cfg(test)] mod tests_batch5;
+
+// --- New feature modules -----------------------------------------------------
+mod project_mgmt;
+mod autosave;
 
 // --- Domain trait imports (used in apply dispatcher) -------------------------
 
@@ -89,8 +97,8 @@ pub use graphics::{
 
 // Multicam domain
 pub use multicam::{
-    AutoReframeConfig, EdlConfig, EdlFormat, MulticamAngle, MulticamDisplayMode, MulticamSyncMode,
-    ReframeMotion,
+    AutoReframeConfig, EdlConfig, EdlFormat, MulticamAngle, MulticamClip, MulticamDisplayMode,
+    MulticamSyncMode, ReframeMotion,
 };
 
 // Media domain (extended Batch 11 types)
@@ -101,6 +109,12 @@ pub use media::{
 
 // Proxy domain
 pub use proxy::{ClipProxy, ProxyFormat, ProxySettings};
+
+// Project-management domain (relink / consolidate / offline-online)
+pub use project_mgmt::ConsolidateManifest;
+
+// Autosave / crash-recovery domain
+pub use autosave::{AutosaveConfig, AutosaveRing};
 
 // Timeline domain — all the big domain types + constants defined there
 pub use timeline::{
@@ -389,6 +403,14 @@ pub enum Action {
     RippleTrimClipOut { index: usize, t: f32 },
     RollTrimEdit { index: usize, delta: f32 },
 
+    // --- Slip / slide edits ---
+    /// Shift a clip's source in/out window by `delta`, leaving its timeline
+    /// placement (start/duration) and neighbours untouched.
+    SlipClip { index: usize, delta: f32 },
+    /// Move a clip along the timeline by `delta`, growing the left neighbour's
+    /// tail and trimming the right neighbour's head by the same amount.
+    SlideClip { index: usize, delta: f32 },
+
     // --- Razor / split ---
     SplitClip { index: usize, t: f32 },
     SplitAtPlayhead,
@@ -414,6 +436,13 @@ pub enum Action {
 
     // --- Clips ---
     SelectClip(usize),
+
+    // --- Marquee multi-select ---
+    /// Rubber-band select every clip overlapping the time band `[t0, t1]` on the
+    /// given `tracks` (empty = all tracks).
+    MarqueeSelect { t0: f32, t1: f32, tracks: Vec<usize> },
+    /// Clear the marquee multi-selection.
+    ClearMarqueeSelection,
 
     // --- View ---
     ZoomBy(f32),
@@ -658,6 +687,17 @@ pub enum Action {
     SetMulticamDisplayMode(MulticamDisplayMode),
     FlattenMulticam,
 
+    // --- Live multicam angle switching + sync ---
+    /// Record a live angle switch at `time` (seconds) → `angle`.
+    SwitchMulticamLive { time: f32, angle: usize },
+    /// Set the number of available angles in the live multicam clip.
+    SetMulticamAngleCount(usize),
+    /// Waveform-correlate angle `a_idx` vs `b_idx` (using their cached audio
+    /// envelopes) and store the resulting sync offset on `b_idx`.
+    SyncMulticamWaveform { a_idx: usize, b_idx: usize, bins_per_sec: f32 },
+    /// Timecode-sync angle `b_idx` (frame count `b_tc`) onto `a_idx` (`a_tc`).
+    SyncMulticamTimecode { a_idx: usize, b_idx: usize, a_tc: u64, b_tc: u64, fps: u32 },
+
     // --- Batch 8: EDL / XML interchange ---
     SetEdlFormat(EdlFormat),
     SetEdlFrameRate(f32),
@@ -826,6 +866,19 @@ pub enum Action {
     SetTitleBackground { clip_id: usize, color: Option<String> },
     DeleteTitleClip(usize),
 
+    // --- Project management: relink / consolidate / offline-online ---
+    /// Mark every project media item offline/online in bulk.
+    SetAllMediaOffline(bool),
+    /// Build + store a consolidate manifest collecting online media into a folder.
+    ConsolidateProject { destination: String },
+
+    // --- Autosave / crash recovery ---
+    SetAutosaveCadence(u64),
+    SetAutosaveKeep(usize),
+    SetAutosaveEnabledV2(bool),
+    CaptureSnapshot,
+    RestoreLatestSnapshot,
+
     // --- Batch 11: ProjectManager ---
     OpenProjectManager,
     CloseProjectManager,
@@ -932,6 +985,9 @@ pub struct App {
     pub active: Tool,
     /// The index of the selected clip in `project.clips`, if any (UI state).
     pub selected: Option<usize>,
+    /// The marquee (rubber-band) multi-selection: indices of clips selected by a
+    /// drag-rectangle. The primary `selected` follows the first of these.
+    pub marquee_selection: Vec<usize>,
     /// The preview zoom factor (1.0 = fit). UI state, applied at draw time.
     pub zoom: f32,
     /// Last laid-out bounds of the timeline scrub region.
@@ -1077,6 +1133,9 @@ pub struct App {
     pub multicam_active_angle: usize,
     pub multicam_sync_mode: MulticamSyncMode,
     pub multicam_display_mode: MulticamDisplayMode,
+    /// Live multicam angle-switch model: per-time angle selections sampled when
+    /// the timeline is cut/played.
+    pub multicam_clip: MulticamClip,
 
     // --- Batch 8: EDL / XML interchange --------------------------------------
     pub edl_config: EdlConfig,
@@ -1150,6 +1209,16 @@ pub struct App {
     // --- Batch 11: MediaBrowser ---
     pub media_browser: MediaBrowser,
 
+    // --- Project management: consolidate manifest (relink/offline live on
+    //     media_items) ---
+    pub last_consolidate_manifest: Option<ConsolidateManifest>,
+
+    // --- Autosave / crash recovery ---
+    pub autosave_config: AutosaveConfig,
+    pub autosave_ring: AutosaveRing,
+    /// Count of user actions applied since launch (drives count-based autosave).
+    pub autosave_action_count: u64,
+
     // --- Batch 5 (new): Lumetri Scopes Config --------------------------------
     pub scopes_config: reel_project::LumetriScopesConfig,
 
@@ -1184,6 +1253,7 @@ impl App {
             time: 4.0,
             active: Tool::Select,
             selected: Some(0),
+            marquee_selection: vec![0],
             zoom: 1.0,
             timeline_bounds: Rc::new(Cell::new(None)),
             clip_drag: Rc::new(Cell::new(None)),
@@ -1273,6 +1343,7 @@ impl App {
             multicam_active_angle: 0,
             multicam_sync_mode: MulticamSyncMode::Timecode,
             multicam_display_mode: MulticamDisplayMode::Grid,
+            multicam_clip: MulticamClip::default(),
             edl_config: EdlConfig::default(),
             last_edl_export_path: None,
             last_import_clip_count: 0,
@@ -1315,6 +1386,10 @@ impl App {
             project_manager_result: None,
             project_manager_open: false,
             media_browser: MediaBrowser::new(),
+            last_consolidate_manifest: None,
+            autosave_config: AutosaveConfig::default(),
+            autosave_ring: AutosaveRing::new(10),
+            autosave_action_count: 0,
             // --- Batch 5 (new) -----------------------------------------------
             scopes_config: reel_project::LumetriScopesConfig::default(),
             project_bins: vec![reel_project::ProjectBin {
@@ -1585,6 +1660,10 @@ impl App {
             | Action::SetMulticamSyncMode(_)
             | Action::SetMulticamDisplayMode(_)
             | Action::FlattenMulticam
+            | Action::SwitchMulticamLive { .. }
+            | Action::SetMulticamAngleCount(_)
+            | Action::SyncMulticamWaveform { .. }
+            | Action::SyncMulticamTimecode { .. }
             | Action::SetEdlFormat(_)
             | Action::SetEdlFrameRate(_)
             | Action::SetEdlReelName(_)
@@ -1723,6 +1802,21 @@ impl App {
             | Action::Load3dlLut { .. }
             | Action::ExportCubeLut { .. } => {
                 self.apply_color_curves(action);
+            }
+
+            // --- Project management (relink / consolidate / offline-online) ---
+            Action::SetAllMediaOffline(_)
+            | Action::ConsolidateProject { .. } => {
+                self.apply_project_mgmt(action);
+            }
+
+            // --- Autosave / crash recovery -----------------------------------
+            Action::SetAutosaveCadence(_)
+            | Action::SetAutosaveKeep(_)
+            | Action::SetAutosaveEnabledV2(_)
+            | Action::CaptureSnapshot
+            | Action::RestoreLatestSnapshot => {
+                self.apply_autosave(action);
             }
 
             // --- Timeline domain (catch-all for remaining actions) ------------

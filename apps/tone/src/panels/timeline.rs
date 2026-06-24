@@ -1,11 +1,11 @@
 //! Timeline strip — bar ruler + clip lanes per track.
 
 use gpui::{
-    div, px, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 use gpui::prelude::FluentBuilder;
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 use crate::app_state::{Action, App, ClipKind, TrackKind};
 use crate::Tone;
@@ -13,7 +13,14 @@ use crate::Tone;
 const LABEL_W: f32 = 220.0;
 const VISIBLE_BARS: f32 = 32.0;
 
-pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
+pub fn render_timeline(
+    app: &App,
+    track_name_field: Entity<TextField>,
+    editing_track_id: Option<usize>,
+    clip_name_field: Entity<TextField>,
+    editing_clip_id: Option<usize>,
+    cx: &mut Context<Tone>,
+) -> impl IntoElement {
     let playhead_pct = (app.playhead_beat / VISIBLE_BARS).clamp(0.0, 1.0);
     div()
         .w_full()
@@ -134,13 +141,19 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                 .flex()
                 .flex_col()
                 .overflow_y_scroll()
-                .children(
+                .children({
+                    // The single rename fields are moved into the one lane / clip
+                    // currently being edited (at most one match each).
+                    let mut track_field_opt = Some(track_name_field);
+                    let mut clip_field_opt = Some(clip_name_field);
                     app.tracks
                         .iter()
                         .enumerate()
                         .map(|(lane_idx, track)| {
                             let track_name = track.name.clone();
                             let track_id = track.id;
+                            let renaming_track = editing_track_id == Some(track_id);
+                            let track_rename_field = if renaming_track { track_field_opt.take() } else { None };
                             let is_midi = matches!(track.kind, TrackKind::Midi | TrackKind::Instrument);
                             let piano_roll_clip = app.piano_roll_clip;
                             let kind_badge = match track.kind {
@@ -200,10 +213,33 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                 .child(
                                                     div()
                                                         .flex_1()
-                                                        .text_size(px(font_size::XS))
-                                                        .text_color(colors::text_secondary())
                                                         .overflow_hidden()
-                                                        .child(track_name),
+                                                        // While editing this track, show the rename
+                                                        // TextField; otherwise the name (double-click
+                                                        // to rename).
+                                                        .when_some(track_rename_field, |d, field| {
+                                                            d.child(field)
+                                                        })
+                                                        .when(!renaming_track, |d| {
+                                                            d.child(
+                                                                div()
+                                                                    .id(("track-name", lane_idx))
+                                                                    .w_full()
+                                                                    .text_size(px(font_size::XS))
+                                                                    .text_color(colors::text_secondary())
+                                                                    .overflow_hidden()
+                                                                    .cursor_pointer()
+                                                                    .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, win, cx| {
+                                                                        if ev.click_count() >= 2 {
+                                                                            this.begin_track_rename(track_id, win, cx);
+                                                                        } else {
+                                                                            this.app.apply(Action::SetActiveTrack(Some(track_id)));
+                                                                            cx.notify();
+                                                                        }
+                                                                    }))
+                                                                    .child(track_name),
+                                                            )
+                                                        }),
                                                 ),
                                         )
                                         // Bottom row: M / S / delete buttons
@@ -318,6 +354,8 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                             let start_pct = (start_beat / VISIBLE_BARS).clamp(0.0, 1.0);
                                             let width_pct = (duration_beats / VISIBLE_BARS).max(0.02);
                                             let is_selected = piano_roll_clip == Some(clip_id);
+                                            let renaming_clip = editing_clip_id == Some(clip_id);
+                                            let clip_rename_field = if renaming_clip { clip_field_opt.take() } else { None };
 
                                             div()
                                                 .id(("clip", clip_id))
@@ -338,16 +376,23 @@ pub fn render_timeline(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                                                 .text_color(gpui::rgb(0xffffff))
                                                 .pl_1()
                                                 .cursor_pointer()
-                                                .on_click(cx.listener(move |this, _ev, _win, cx| {
-                                                    this.app.apply(Action::OpenPianoRoll(clip_id));
-                                                    cx.notify();
+                                                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, win, cx| {
+                                                    // Double-click renames; single-click opens piano roll.
+                                                    if ev.click_count() >= 2 {
+                                                        this.begin_clip_rename(clip_id, win, cx);
+                                                    } else {
+                                                        this.app.apply(Action::OpenPianoRoll(clip_id));
+                                                        cx.notify();
+                                                    }
                                                 }))
-                                                .child(clip_name.clone())
+                                                // Editing this clip → inline rename field; else the name.
+                                                .when_some(clip_rename_field, |d, field| d.child(field))
+                                                .when(!renaming_clip, |d| d.child(clip_name.clone()))
                                         })),
                                 )
                         })
-                        .collect::<Vec<_>>(),
-                )
+                        .collect::<Vec<_>>()
+                })
                 // Empty state — shown when only Master track exists
                 .when(app.tracks.iter().all(|t| matches!(t.kind, TrackKind::Master)), |d| {
                     d.child(

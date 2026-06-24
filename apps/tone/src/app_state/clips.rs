@@ -91,6 +91,11 @@ impl App {
                     self.piano_roll_clip = None;
                 }
             }
+            Action::RenameClip { id, name } => {
+                if let Some(c) = self.find_clip_mut(id) {
+                    c.name = name;
+                }
+            }
             Action::MoveClip { id, track_id, start_beat } => {
                 if let Some(c) = self.find_clip_mut(id) {
                     c.track_id = track_id;
@@ -306,6 +311,27 @@ mod tests {
         let cid = app.clips[0].id;
         app.apply(Action::MoveClip { id: cid, track_id: tid, start_beat: 8.0 });
         assert_eq!(app.clips[0].start_beat, 8.0);
+    }
+
+    #[test]
+    fn rename_clip() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "Clip 1".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        let cid = app.clips[0].id;
+        app.apply(Action::RenameClip { id: cid, name: "Verse Bass".to_string() });
+        assert_eq!(app.clips[0].name, "Verse Bass");
+    }
+
+    #[test]
+    fn rename_clip_unknown_id_noop() {
+        let mut app = fresh();
+        app.apply(Action::AddTrack(TrackKind::Audio));
+        let tid = app.tracks.last().unwrap().id;
+        app.apply(Action::AddClip { track_id: tid, name: "Clip 1".into(), kind: ClipKind::Audio, start_beat: 0.0, duration_beats: 4.0 });
+        app.apply(Action::RenameClip { id: 9999, name: "Nope".to_string() });
+        assert_eq!(app.clips[0].name, "Clip 1");
     }
 
     #[test]

@@ -1,8 +1,8 @@
 //! AI panel — MusicGen, Demucs stem split, chord suggestions, and AI mastering.
 
-use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
+use gpui::{div, px, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
 use gpui::prelude::FluentBuilder;
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 use crate::app_state::{Action, App, MusicGenStatus, DemucsStatus, ModelDownloadStatus, OnnxModelKind};
 use crate::model_manager::{self, ToneModelId};
@@ -27,7 +27,11 @@ fn demucs_download_progress(app: &App) -> f32 {
     app.onnx_models.iter().find(|m| m.kind == OnnxModelKind::Demucs).map(|m| m.download_progress).unwrap_or(0.0)
 }
 
-pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) -> impl IntoElement {
+pub fn render_ai_panel(
+    app: &App,
+    ai_prompt_field: Entity<TextField>,
+    cx: &mut Context<Tone>,
+) -> impl IntoElement {
     let has_musicgen_running = app.musicgen_jobs.iter().any(|j| j.status == MusicGenStatus::Running);
     let has_demucs_running = app.demucs_jobs.iter().any(|j| j.status == DemucsStatus::Splitting);
     let last_musicgen = app.musicgen_jobs.last();
@@ -81,35 +85,19 @@ pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) 
                         .text_color(colors::text_secondary())
                         .child("MUSICGEN"),
                 )
-                // Prompt area — click to type
+                // Prompt area — a real editable TextField. The user types the
+                // prompt that drives MusicGen; it is synced into `app.ai_prompt`.
                 .child(
                     div()
                         .id("tone-ai-prompt")
                         .w_full()
-                        .h(px(56.0))
-                        .bg(colors::surface_bg())
-                        .rounded(px(3.0))
-                        .border_1()
-                        .border_color(if editing_prompt { colors::accent() } else { colors::surface_border() })
-                        .p_2()
-                        .text_size(px(font_size::XS))
-                        .text_color(if app.ai_prompt.is_empty() && !editing_prompt {
-                            colors::text_disabled()
-                        } else {
-                            colors::text_primary()
-                        })
-                        .cursor_pointer()
-                        .on_click(cx.listener(|this, _ev, _win, cx| {
-                            this.editing_ai_prompt = true;
+                        .on_click(cx.listener(move |this, _ev, win, cx| {
+                            // Clicking anywhere in the prompt area focuses the field.
+                            let fh = this.ai_prompt_field.focus_handle(cx);
+                            win.focus(&fh);
                             cx.notify();
                         }))
-                        .child(if app.ai_prompt.is_empty() && !editing_prompt {
-                            "Click to describe music...".to_string()
-                        } else if editing_prompt {
-                            format!("{}|", app.ai_prompt)
-                        } else {
-                            app.ai_prompt.clone()
-                        }),
+                        .child(ai_prompt_field),
                 )
                 // Style tags
                 .child(
@@ -132,11 +120,15 @@ pub fn render_ai_panel(app: &App, editing_prompt: bool, cx: &mut Context<Tone>) 
                                         .text_size(px(7.0))
                                         .text_color(colors::text_secondary())
                                         .cursor_pointer()
-                                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                                        .on_click(cx.listener(move |this, _ev, win, cx| {
+                                            // Append the style tag to the prompt — keep the
+                                            // editable field and `app.ai_prompt` in lockstep.
                                             let mut p = this.app.ai_prompt.clone();
                                             if !p.is_empty() { p.push(' '); }
                                             p.push_str(&tag_s);
-                                            this.app.apply(Action::SetAiPrompt(p));
+                                            this.app.apply(Action::SetAiPrompt(p.clone()));
+                                            let field = this.ai_prompt_field.clone();
+                                            field.update(cx, |f, cx| f.set_text(p, win, cx));
                                             cx.notify();
                                         }))
                                         .child(*label)
@@ -345,7 +337,6 @@ fn model_action_button_musicgen(
                     bars: 8,
                     temperature: 1.0,
                 });
-                this.editing_ai_prompt = false;
                 cx.notify();
             }))
             .child(if is_running { "Generating..." } else { "Generate Music" }),

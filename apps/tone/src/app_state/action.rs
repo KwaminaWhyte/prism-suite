@@ -170,6 +170,8 @@ pub enum Action {
     },
     /// Delete a clip (and all its MIDI notes).
     DeleteClip(usize),
+    /// Rename a clip.
+    RenameClip { id: usize, name: String },
     /// Move a clip to a different track and/or beat position.
     MoveClip { id: usize, track_id: usize, start_beat: f32 },
     /// Resize a clip to the given duration in beats.

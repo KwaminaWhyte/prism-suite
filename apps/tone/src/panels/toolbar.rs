@@ -1,15 +1,20 @@
 //! Top toolbar — transport controls, BPM, time signature, metronome, project info.
 
 use gpui::{
-    div, svg, px, Context, InteractiveElement, IntoElement, ParentElement,
+    div, svg, px, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use prism_ui::{colors, font_size, Icon};
+use prism_ui::{colors, font_size, Icon, TextField};
 
 use crate::app_state::{Action, App, ToneTool};
 use crate::Tone;
 
-pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
+pub fn render_toolbar(
+    app: &App,
+    project_name_field: Entity<TextField>,
+    bpm_field: Entity<TextField>,
+    cx: &mut Context<Tone>,
+) -> impl IntoElement {
     let playing = app.playing;
     let recording = app.recording;
     let metronome = app.metronome_enabled;
@@ -26,13 +31,8 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
         .items_center()
         .px_4()
         .gap_3()
-        // Project name
-        .child(
-            div()
-                .text_size(px(font_size::SM))
-                .text_color(colors::text_primary())
-                .child(app.project.name.clone()),
-        )
+        // Project name — real editable text field (Enter to commit).
+        .child(project_name_field)
         .child(div().w(px(1.0)).h(px(28.0)).bg(colors::surface_border()))
         // BPM
         .child(
@@ -54,19 +54,16 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                         .flex().items_center().justify_center()
                         .text_size(px(font_size::XS)).text_color(colors::text_primary())
                         .cursor_pointer()
-                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                        .on_click(cx.listener(move |this, _ev, win, cx| {
                             this.app.apply(Action::SetBpm(bpm - 1.0));
+                            let v = format!("{:.0}", this.app.project.bpm);
+                            this.bpm_field.update(cx, |f, cx| f.set_text(v, win, cx));
                             cx.notify();
                         }))
                         .child(svg().path(Icon::ArrowDown.path()).w(px(10.0)).h(px(10.0)).text_color(colors::text_primary())),
                 )
-                .child(
-                    div()
-                        .w(px(44.0))
-                        .text_size(px(font_size::MD))
-                        .text_color(colors::text_primary())
-                        .child(format!("{:.0}", bpm)),
-                )
+                // Typeable BPM field — Enter parses + commits to SetBpm.
+                .child(bpm_field)
                 .child(
                     div()
                         .id("bpm-inc")
@@ -74,8 +71,10 @@ pub fn render_toolbar(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
                         .bg(colors::surface_overlay()).rounded(px(2.0))
                         .flex().items_center().justify_center()
                         .cursor_pointer()
-                        .on_click(cx.listener(move |this, _ev, _win, cx| {
+                        .on_click(cx.listener(move |this, _ev, win, cx| {
                             this.app.apply(Action::SetBpm(bpm + 1.0));
+                            let v = format!("{:.0}", this.app.project.bpm);
+                            this.bpm_field.update(cx, |f, cx| f.set_text(v, win, cx));
                             cx.notify();
                         }))
                         .child(svg().path(Icon::ArrowUp.path()).w(px(10.0)).h(px(10.0)).text_color(colors::text_primary())),

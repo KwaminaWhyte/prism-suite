@@ -48,6 +48,7 @@ impl App {
             // ── Clips ────────────────────────────────────────────────────────
             Action::AddClip { .. }
             | Action::DeleteClip(..)
+            | Action::RenameClip { .. }
             | Action::MoveClip { .. }
             | Action::ResizeClip { .. }
             | Action::SetClipGain { .. }

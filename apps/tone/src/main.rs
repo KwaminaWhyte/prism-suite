@@ -14,11 +14,11 @@ mod welcome;
 
 use app_state::{Action, App, OnnxModelKind};
 use gpui::{
-    div, px, size, AppContext, Bounds, Context, FocusHandle, Focusable,
+    div, px, size, AppContext, Bounds, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
     WindowBounds, WindowKind, WindowOptions,
 };
-use prism_ui::colors;
+use prism_ui::{colors, TextField};
 use welcome::WelcomeView;
 
 fn tone_model_to_onnx_kind(m: &model_manager::ToneModelId) -> OnnxModelKind {
@@ -36,8 +36,181 @@ struct Tone {
     app: App,
     focus: FocusHandle,
     last_tick: Option<std::time::Instant>,
-    editing_ai_prompt: bool,
     model_downloads: Vec<model_manager::ModelDownloadHandle>,
+
+    // ── Real editable text inputs (prism_ui::TextField) ─────────────────────
+    /// MusicGen / AI-clip generation prompt — the user types the prompt that
+    /// drives generation. Kept in sync with `app.ai_prompt` via `on_change`.
+    ai_prompt_field: Entity<TextField>,
+    /// Project name field (toolbar). Commits to `SetProjectName` on submit.
+    project_name_field: Entity<TextField>,
+    /// Typeable BPM field (toolbar). Parses + commits to `SetBpm` on submit.
+    bpm_field: Entity<TextField>,
+    /// Inline track-rename field. Active only while `editing_track_id` is set.
+    track_name_field: Entity<TextField>,
+    editing_track_id: Option<usize>,
+    /// Inline clip-rename field. Active only while `editing_clip_id` is set.
+    clip_name_field: Entity<TextField>,
+    editing_clip_id: Option<usize>,
+}
+
+impl Tone {
+    /// Build the root view, constructing every editable [`TextField`] and wiring
+    /// its commit callbacks back through `App::apply` via a weak self-handle.
+    fn new(app: App, focus: FocusHandle, cx: &mut Context<Self>) -> Self {
+        let weak = cx.weak_entity();
+
+        // AI prompt — synced live so presets / status text stay coherent.
+        let w = weak.clone();
+        let ai_prompt_field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Describe the music to generate…")
+                .initial_value(app.ai_prompt.clone())
+                .on_change(move |text, _win, cx| {
+                    let text = text.to_string();
+                    let _ = w.update(cx, |this, cx| {
+                        this.app.apply(Action::SetAiPrompt(text));
+                        cx.notify();
+                    });
+                })
+        });
+
+        // Project name — commit on Enter.
+        let w = weak.clone();
+        let project_name_field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Project name")
+                .initial_value(app.project.name.clone())
+                .width(px(160.0))
+                .on_submit(move |text, _win, cx| {
+                    let name = text.to_string();
+                    let _ = w.update(cx, |this, cx| {
+                        if !name.trim().is_empty() {
+                            this.app.apply(Action::SetProjectName(name));
+                        }
+                        cx.notify();
+                    });
+                })
+        });
+
+        // BPM — parse + commit on Enter, then reflect the clamped value back.
+        let w = weak.clone();
+        let bpm_field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("BPM")
+                .initial_value(format!("{:.0}", app.project.bpm))
+                .width(px(52.0))
+                .on_submit(move |text, win, cx| {
+                    let raw = text.to_string();
+                    let _ = w.update(cx, |this, cx| {
+                        if let Some(bpm) = app_state::parse_bpm(&raw) {
+                            this.app.apply(Action::SetBpm(bpm));
+                        }
+                        // Reflect the canonical (clamped) value back into the field.
+                        let canonical = format!("{:.0}", this.app.project.bpm);
+                        let field = this.bpm_field.clone();
+                        field.update(cx, |f, cx| f.set_text(canonical, win, cx));
+                        cx.notify();
+                    });
+                })
+        });
+
+        // Track rename — commit on Enter, then leave edit mode.
+        let w = weak.clone();
+        let track_name_field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Track name")
+                .width(px(120.0))
+                .on_submit(move |text, _win, cx| {
+                    let name = text.to_string();
+                    let _ = w.update(cx, |this, cx| {
+                        if let Some(id) = this.editing_track_id.take() {
+                            if !name.trim().is_empty() {
+                                this.app.apply(Action::RenameTrack { id, name });
+                            }
+                        }
+                        cx.notify();
+                    });
+                })
+        });
+
+        // Clip rename — commit on Enter, then leave edit mode.
+        let w = weak.clone();
+        let clip_name_field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Clip name")
+                .width(px(120.0))
+                .on_submit(move |text, _win, cx| {
+                    let name = text.to_string();
+                    let _ = w.update(cx, |this, cx| {
+                        if let Some(id) = this.editing_clip_id.take() {
+                            if !name.trim().is_empty() {
+                                this.app.apply(Action::RenameClip { id, name });
+                            }
+                        }
+                        cx.notify();
+                    });
+                })
+        });
+
+        Self {
+            app,
+            focus,
+            last_tick: None,
+            model_downloads: vec![],
+            ai_prompt_field,
+            project_name_field,
+            bpm_field,
+            track_name_field,
+            editing_track_id: None,
+            clip_name_field,
+            editing_clip_id: None,
+        }
+    }
+
+    /// True when any of the editable text fields currently holds focus, so the
+    /// global key handler should stand down.
+    fn any_text_field_focused(&self, window: &Window, cx: &gpui::App) -> bool {
+        self.ai_prompt_field.focus_handle(cx).is_focused(window)
+            || self.project_name_field.focus_handle(cx).is_focused(window)
+            || self.bpm_field.focus_handle(cx).is_focused(window)
+            || self.track_name_field.focus_handle(cx).is_focused(window)
+            || self.clip_name_field.focus_handle(cx).is_focused(window)
+    }
+
+    /// Begin inline rename of a track: seed the field and focus it.
+    fn begin_track_rename(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self
+            .app
+            .tracks
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.name.clone())
+            .unwrap_or_default();
+        self.editing_track_id = Some(id);
+        self.editing_clip_id = None;
+        let field = self.track_name_field.clone();
+        field.update(cx, |f, cx| f.set_text(name, window, cx));
+        window.focus(&field.focus_handle(cx));
+        cx.notify();
+    }
+
+    /// Begin inline rename of a clip: seed the field and focus it.
+    fn begin_clip_rename(&mut self, id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let name = self
+            .app
+            .clips
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+        self.editing_clip_id = Some(id);
+        self.editing_track_id = None;
+        let field = self.clip_name_field.clone();
+        field.update(cx, |f, cx| f.set_text(name, window, cx));
+        window.focus(&field.focus_handle(cx));
+        cx.notify();
+    }
 }
 
 impl Focusable for Tone {
@@ -47,9 +220,18 @@ impl Focusable for Tone {
 }
 
 impl Render for Tone {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use gpui::prelude::FluentBuilder;
+        let _ = window;
         let has_active_clip = self.app.piano_roll_clip.is_some();
+        // Field entity clones handed to the (stateless) panel render fns.
+        let ai_prompt_field = self.ai_prompt_field.clone();
+        let project_name_field = self.project_name_field.clone();
+        let bpm_field = self.bpm_field.clone();
+        let track_name_field = self.track_name_field.clone();
+        let clip_name_field = self.clip_name_field.clone();
+        let editing_track_id = self.editing_track_id;
+        let editing_clip_id = self.editing_clip_id;
         // ── Model download polling ──────────────────────────────────
         {
             use model_manager::DownloadEvent;
@@ -112,28 +294,13 @@ impl Render for Tone {
             .text_color(colors::text_primary())
             .font_family(".SystemUIFont")
             // Transport toolbar
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _win, cx| {
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, win, cx| {
                 let ks = &ev.keystroke;
                 let m = &ks.modifiers;
-                // AI prompt capture mode
-                if this.editing_ai_prompt {
-                    match ks.key.as_str() {
-                        "escape" | "return" => { this.editing_ai_prompt = false; cx.notify(); }
-                        "backspace" => {
-                            let mut p = this.app.ai_prompt.clone(); p.pop();
-                            this.app.apply(crate::app_state::Action::SetAiPrompt(p)); cx.notify();
-                        }
-                        " " if !m.platform && !m.control => {
-                            let mut p = this.app.ai_prompt.clone(); p.push(' ');
-                            this.app.apply(crate::app_state::Action::SetAiPrompt(p)); cx.notify();
-                        }
-                        key if key.len() == 1 && !m.platform && !m.control => {
-                            let ch = if m.shift { key.to_uppercase() } else { key.to_string() };
-                            let mut p = this.app.ai_prompt.clone(); p.push_str(&ch);
-                            this.app.apply(crate::app_state::Action::SetAiPrompt(p)); cx.notify();
-                        }
-                        _ => {}
-                    }
+                // Don't steal keys (spacebar transport, etc.) while the user is
+                // typing into one of the editable TextFields — those handle and
+                // own their own key events.
+                if this.any_text_field_focused(win, cx) {
                     return;
                 }
                 if m.platform && !m.alt && !m.control {
@@ -154,7 +321,7 @@ impl Render for Tone {
                     }
                 }
             }))
-            .child(panels::render_toolbar(&self.app, cx))
+            .child(panels::render_toolbar(&self.app, project_name_field, bpm_field, cx))
             // Main workspace row: left (arrangement + piano roll) | right (AI panel)
             .child(
                 div()
@@ -174,7 +341,14 @@ impl Render for Tone {
                                 div()
                                     .flex_1()
                                     .min_h(px(0.0))
-                                    .child(panels::render_timeline(&self.app, cx)),
+                                    .child(panels::render_timeline(
+                                        &self.app,
+                                        track_name_field,
+                                        editing_track_id,
+                                        clip_name_field,
+                                        editing_clip_id,
+                                        cx,
+                                    )),
                             )
                             // Piano roll — conditional 260px bottom split
                             .when(has_active_clip, |d| {
@@ -210,7 +384,7 @@ impl Render for Tone {
                             }),
                     )
                     // Right: AI panel
-                    .child(panels::render_ai_panel(&self.app, self.editing_ai_prompt, cx)),
+                    .child(panels::render_ai_panel(&self.app, ai_prompt_field, cx)),
             )
             // Mixer strip — always visible at bottom
             .child(panels::render_mixer(&self.app, cx))
@@ -257,7 +431,7 @@ fn main() {
                                     });
                                 }
                             }
-                            Tone { app, focus, last_tick: None, editing_ai_prompt: false, model_downloads: vec![] }
+                            Tone::new(app, focus, cx)
                         }
                     })
                 },

@@ -45,6 +45,24 @@ impl Default for ToneProject {
     }
 }
 
+/// Parse a free-typed BPM string into a clamped tempo value.
+///
+/// Accepts an optional fractional value, ignoring surrounding whitespace and a
+/// trailing `bpm` suffix (case-insensitive). Returns `None` when the input does
+/// not contain a parseable number, so callers can leave the tempo unchanged on
+/// an empty / garbage field. The returned value is clamped to the same
+/// 20.0..=999.0 range enforced by [`Action::SetBpm`].
+pub fn parse_bpm(input: &str) -> Option<f32> {
+    let trimmed = input.trim();
+    let trimmed = trimmed
+        .strip_suffix("bpm")
+        .or_else(|| trimmed.strip_suffix("BPM"))
+        .or_else(|| trimmed.strip_suffix("Bpm"))
+        .unwrap_or(trimmed)
+        .trim();
+    trimmed.parse::<f32>().ok().map(|v| v.clamp(20.0, 999.0))
+}
+
 // ─── Apply methods ────────────────────────────────────────────────────────────
 
 use super::{Action, App};
@@ -90,9 +108,48 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::super::{Action, App};
+    use super::parse_bpm;
 
     fn fresh() -> App {
         App::new()
+    }
+
+    #[test]
+    fn parse_bpm_plain() {
+        assert_eq!(parse_bpm("128"), Some(128.0));
+    }
+
+    #[test]
+    fn parse_bpm_fractional() {
+        assert_eq!(parse_bpm("90.5"), Some(90.5));
+    }
+
+    #[test]
+    fn parse_bpm_with_suffix_and_whitespace() {
+        assert_eq!(parse_bpm("  140 bpm "), Some(140.0));
+        assert_eq!(parse_bpm("174BPM"), Some(174.0));
+    }
+
+    #[test]
+    fn parse_bpm_clamps() {
+        assert_eq!(parse_bpm("5"), Some(20.0));
+        assert_eq!(parse_bpm("100000"), Some(999.0));
+    }
+
+    #[test]
+    fn parse_bpm_garbage_is_none() {
+        assert_eq!(parse_bpm(""), None);
+        assert_eq!(parse_bpm("fast"), None);
+        assert_eq!(parse_bpm("bpm"), None);
+    }
+
+    #[test]
+    fn parse_bpm_drives_set_bpm_action() {
+        let mut app = fresh();
+        if let Some(v) = parse_bpm("96") {
+            app.apply(Action::SetBpm(v));
+        }
+        assert_eq!(app.project.bpm, 96.0);
     }
 
     #[test]

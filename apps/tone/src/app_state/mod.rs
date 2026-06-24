@@ -73,7 +73,7 @@ pub use midi::{MidiCC, MidiNote, NudgeAmount, NudgeDirection};
 pub use midi_control::{MappingTarget, MidiDevice, MidiDeviceKind, MidiMapping};
 pub use mixer::{EqBand, MixerChannel};
 pub use plugins::{BuiltinSynth, BuiltinSynthKind, DrumKit, PluginFormat, PluginInstance, SamplerLoop};
-pub use project::ToneProject;
+pub use project::{parse_bpm, ToneProject};
 pub use recording::{PunchConfig, RecordingSession, TakeInfo, TakeManager};
 pub use scenes::{ArrangementMode, FollowAction, Scene, SceneSlot};
 pub use score_view::{Clef, ChordQuality, ChordSymbol, QuantizeDisplay, ScoreView, StemDirection};

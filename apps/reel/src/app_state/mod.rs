@@ -27,6 +27,9 @@ mod media;
 mod multicam;
 mod proxy;
 pub mod timeline;
+pub mod transitions;
+pub mod edl;
+mod color_curves;
 
 // --- Batch 5 modules ---------------------------------------------------------
 pub mod reel_project;
@@ -45,6 +48,9 @@ use media::AppMediaExt;
 use multicam::AppMulticamExt;
 use proxy::AppProxyExt;
 use timeline::AppTimelineExt;
+use transitions::AppTransitionsExt;
+use edl::AppEdlExt;
+use color_curves::AppColorCurvesExt;
 use apply_batch5::AppBatch5Ext;
 
 // --- Public re-exports -------------------------------------------------------
@@ -57,13 +63,18 @@ pub use audio::{
 };
 
 // Captions domain
-pub use captions::{Caption, CaptionB9, CaptionPosition, CaptionStyle, CaptionStyleB9};
+pub use captions::{
+    parse_inline_tags, Caption, CaptionB9, CaptionPosition, CaptionStyle, CaptionStyleB9, StyledRun,
+};
 
 // Color domain
 pub use color::{
     ColorManagementConfig, ColorSpace, ColorWheelMode, ColorWheels, DisplayColorSpace,
     GpuiMarker, LumetriColorConfig, LumetriPanel, MarkerKind, RgbCurves, WorkingColorSpace,
 };
+
+// Color curves domain (HSL secondary curves)
+pub use color_curves::HslCurves;
 
 // Export presets domain
 pub use export_presets::{
@@ -496,6 +507,14 @@ pub enum Action {
     AddDiagonalWipe { index: usize },
     AddPixelDissolve { index: usize },
 
+    // --- Transition geometry suite (see app_state/transitions.rs) ---
+    AddSlideTransition { index: usize, direction: timeline::SlideDirection, duration: f32 },
+    AddSpinTransition { index: usize, direction: timeline::SpinDirection },
+    AddZoomTransition2 { index: usize, grow: bool },
+    AddCubeFoldTransition { index: usize, direction: timeline::CubeDirection },
+    AddPushTransition { index: usize, direction: timeline::WipeDir },
+    AddWipeTransition2 { index: usize, direction: timeline::WipeDir },
+
     // --- Wave 15: proxy media ---
     SetProxyPath { index: usize, path: PathBuf },
     ClearProxy { index: usize },
@@ -549,6 +568,8 @@ pub enum Action {
     AddCaption(Caption),
     RemoveCaption(usize),
     EditCaption { index: usize, caption: Caption },
+    SetCaptionPosition { index: usize, position: CaptionPosition },
+    SetCaptionCueColor { index: usize, color: [f32; 4] },
     ImportSrt(PathBuf),
     ExportSrt(PathBuf),
     ToggleCaptionsPanel,
@@ -585,6 +606,11 @@ pub enum Action {
     MoveTimeRemapKey { clip_idx: usize, key_idx: usize, source_t: f32 },
     RemoveTimeRemapKey { clip_idx: usize, key_idx: usize },
     SetFreezeFrame { clip_idx: usize, at_t: f32 },
+
+    // --- Speed-factor time remap (piecewise integration) ---
+    SetTimeRemapSpeedKeys { clip_idx: usize, keys: Vec<(f32, f32)> },
+    AddTimeRemapSpeedKey { clip_idx: usize, timeline_t: f32, factor: f32 },
+    AddSpeedFreezeFrame { clip_idx: usize, at_t: f32, hold_secs: f32 },
 
     // --- Batch 5: LUFS metering ---
     UpdateLufsMeters { power: f32 },
@@ -643,6 +669,18 @@ pub enum Action {
     ExportFcpXml(std::path::PathBuf),
     ImportFcpXml(std::path::PathBuf),
     ExportOtio(std::path::PathBuf),
+
+    // --- EDL / FCP-XML writers (real content, see app_state/edl.rs) ---
+    WriteEdl { path: std::path::PathBuf },
+    WriteFcpXml { path: std::path::PathBuf },
+
+    // --- HSL secondary curves + 3DL LUT (see app_state/color_curves.rs) ---
+    SetHslHueVsHue(Vec<[f32; 2]>),
+    SetHslHueVsSat(Vec<[f32; 2]>),
+    SetHslHueVsLuma(Vec<[f32; 2]>),
+    ResetHslCurves,
+    Load3dlLut { path: std::path::PathBuf },
+    ExportCubeLut { path: std::path::PathBuf },
 
     // --- Batch 8: audio suite ---
     ToggleAudioSuitePanel,
@@ -983,6 +1021,10 @@ pub struct App {
     pub rgb_curves: RgbCurves,
     pub curves_channel: u8,
 
+    // --- HSL secondary curves + 3DL/.cube LUT --------------------------------
+    pub hsl_curves: HslCurves,
+    pub last_cube_export_path: Option<std::path::PathBuf>,
+
     // --- Batch 4: audio effect chains per track ------------------------------
     pub audio_effects: Vec<Vec<AudioEffect>>,
     pub track_fx_open: Vec<bool>,
@@ -1189,6 +1231,8 @@ impl App {
             sequence_sample_rate: 48000,
             rgb_curves: RgbCurves::default(),
             curves_channel: 0,
+            hsl_curves: HslCurves::default(),
+            last_cube_export_path: None,
             audio_effects: vec![Vec::new(); n_tracks],
             track_fx_open: vec![false; n_tracks],
             track_fx_expanded: vec![None; n_tracks],
@@ -1343,6 +1387,8 @@ impl App {
             Action::AddCaption(_)
             | Action::RemoveCaption(_)
             | Action::EditCaption { .. }
+            | Action::SetCaptionPosition { .. }
+            | Action::SetCaptionCueColor { .. }
             | Action::ImportSrt(_)
             | Action::ExportSrt(_)
             | Action::ToggleCaptionsPanel
@@ -1619,6 +1665,32 @@ impl App {
             | Action::UpdateSequenceSettingsB5 { .. }
             | Action::NestSequenceB5 { .. } => {
                 self.apply_batch5(action);
+            }
+
+            // --- Transition geometry suite -----------------------------------
+            Action::AddSlideTransition { .. }
+            | Action::AddSpinTransition { .. }
+            | Action::AddZoomTransition2 { .. }
+            | Action::AddCubeFoldTransition { .. }
+            | Action::AddPushTransition { .. }
+            | Action::AddWipeTransition2 { .. } => {
+                self.apply_transitions(action);
+            }
+
+            // --- EDL / FCP-XML export ----------------------------------------
+            Action::WriteEdl { .. }
+            | Action::WriteFcpXml { .. } => {
+                self.apply_edl(action);
+            }
+
+            // --- HSL secondary curves + 3DL LUT ------------------------------
+            Action::SetHslHueVsHue { .. }
+            | Action::SetHslHueVsSat { .. }
+            | Action::SetHslHueVsLuma { .. }
+            | Action::ResetHslCurves
+            | Action::Load3dlLut { .. }
+            | Action::ExportCubeLut { .. } => {
+                self.apply_color_curves(action);
             }
 
             // --- Timeline domain (catch-all for remaining actions) ------------

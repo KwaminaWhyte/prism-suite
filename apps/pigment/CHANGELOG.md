@@ -6,6 +6,14 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line + comprehensive text input
+- **Runnable script editor** — floating multi-line `prism_ui::TextArea` for the rhai/line-DSL sandbox; Cmd+Enter / Run → `RunCurrentScript`, live script log.
+- **New-document / image-size dialog** — typeable width/height/resolution → `NewDocument`/`SetImageSize`/`SetCanvasSize`/`SetPrintResolution`.
+- **Typeable numerics** — brush size/hardness/opacity + free-transform rotation/skew (steppers kept as live display).
+- +7 tests (452 → 459).
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField`)

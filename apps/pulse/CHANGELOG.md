@@ -7,6 +7,14 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line + comprehensive text input
+- **Expression editor → multi-line `prism_ui::TextArea`** — type AE-style multi-line rhai expressions (Cmd+Enter → `SetExpression` + `EvaluateExpression`); chips still quick-insert.
+- **Effect-browser search box** — live `SetEffectQuery` filtering as you type.
+- **Typeable numerics** — comp settings (W/H/FPS/Duration) + layer transform (X/Y/scale/rotation/opacity); also fixed comp-settings seeding so the panel shows before first Apply.
+- +13 tests (1034 → 1047). (`mod.rs` kept under 1000 via `geom_util.rs` extraction.)
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField`)

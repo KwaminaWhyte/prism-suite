@@ -7,6 +7,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line + comprehensive text input
+- **MusicGen prompt → multi-line `prism_ui::TextArea`** — type multi-line AI-generation prompts (`SetAiPrompt`); style-tag chips still append.
+- **Typeable numerics** — clip gain (dB) / pitch (semitones) / length (beats), and mixer track volume (%) + pan (L/C/R or signed %).
+- +17 tests (742 → 759).
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField`)

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line + comprehensive text input
+- **Typeable clip numerics** — opacity, speed, audio gain (dB), scale X/Y, position X/Y (single-axis edits preserve the other axis).
+- **Multi-line captions** — selected cue text via `prism_ui::TextArea` → `SetCueText`.
+- **Media-bin search box** — `TextField` filters the active bin by name → `SetBinQuery`.
+- +18 tests (356 → 374).
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField`)

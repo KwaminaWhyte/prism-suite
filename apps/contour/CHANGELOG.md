@@ -7,6 +7,14 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line + comprehensive text input
+- **Typeable inspector numerics** — X/Y/W/H, stroke width, opacity, rotate-by, font size (steppers kept).
+- **Multi-line text objects** — on-canvas type editor upgraded to `prism_ui::TextArea` (newlines preserved; Cmd+Enter / click-away commits).
+- **Layers filter box** — `TextField` filters layer rows by name → `SetLayerFilter`.
+- +12 tests (821 → 833).
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField`)

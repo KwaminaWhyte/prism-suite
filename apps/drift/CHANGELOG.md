@@ -8,6 +8,13 @@ Versioning follows the workspace `version` in the root `Cargo.toml`.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line + comprehensive text input
+- **Script editor + AI prompts → multi-line `prism_ui::TextArea`** — multi-line frame/rhai scripts (Cmd+Enter runs via `SetScriptSource`) and multi-line AnimateDiff / AI-script prompts.
+- **Typeable inspector numerics** — transform Pos X/Y, Scale X/Y, Rotation, Opacity, a keyframe-value row, and document FPS/W/H/Duration.
+- +17 tests (655 → 672). `main.rs` trimmed 906 → 782 (extracted `numeric.rs` + `text_fields.rs`).
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField`)

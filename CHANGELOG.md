@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-24
+
+### Added — Multi-line text + comprehensive text-input coverage
+- New shared **`prism_ui::TextArea`** — a multi-line editor (plain Enter = newline,
+  Cmd/Ctrl+Enter = submit, vertical line motion, selection, line-granular scroll)
+  built on a line-aware extension of `TextInputState` (`move_up`/`move_down`,
+  `line_start`/`line_end`, `insert_newline`); prism-ui now 51 tests.
+- A second, **comprehensive** text-input pass across all six apps (the 0.11.0 pass
+  added the first spots; this makes typing pervasive) — multi-line editors + typeable
+  numeric fields + search/filter boxes:
+  - **Pigment** — runnable multi-line script editor (`TextArea`), new-doc/image-size dialog, typeable brush size/hardness/opacity + transform rotation/skew.
+  - **Contour** — typeable inspector numerics (X/Y/W/H, stroke, opacity, rotation, font size), multi-line text objects, layers filter box.
+  - **Pulse** — multi-line expression editor (`TextArea`), effect-browser search, typeable comp-settings + layer-transform numerics.
+  - **Reel** — typeable clip opacity/speed/gain/scale/position, multi-line captions, media-bin search.
+  - **Drift** — multi-line script editor + AI prompts, typeable inspector numerics (pos/scale/rotation/opacity/keyframe/doc).
+  - **Tone** — multi-line MusicGen prompt, typeable clip gain/pitch/length + track volume/pan.
+- Full workspace suite green: Pigment 459, Contour 833, Pulse 1047, Reel 374, Drift 672, Tone 759, prism-ui 51 (+ other shared crates).
+- Still deferred in `TextArea`: IME/marked-text and mouse caret placement (the element retains shaped-line geometry to add them without an API change).
+
 ## [0.11.0] - 2026-06-24
 
 ### Added — Real text input (`prism_ui::TextField` across all six apps)

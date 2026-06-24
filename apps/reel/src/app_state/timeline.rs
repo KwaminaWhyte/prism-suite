@@ -577,6 +577,12 @@ impl AppTimelineExt for App {
                     self.host.mark_dirty();
                 }
             }
+            Action::SetClipOpacity { index, opacity } => {
+                if let Some(clip) = self.project.clips.get_mut(index) {
+                    clip.opacity = opacity.clamp(0.0, 1.0);
+                    self.host.mark_dirty();
+                }
+            }
             Action::ToggleTrackEnabled(ti) => {
                 if let Some(track) = self.project.tracks.get_mut(ti) {
                     track.enabled = !track.enabled;
@@ -882,6 +888,20 @@ mod tests {
         if let ClipSource::Audio(a) = &app.project.clips[idx].source {
             assert!((a.gain - MAX_AUDIO_GAIN).abs() < 1e-5);
         }
+    }
+
+    #[test]
+    fn set_clip_opacity_clamps_0_to_1() {
+        let mut app = App::new();
+        app.apply(Action::SetClipOpacity { index: 0, opacity: 0.5 });
+        assert!((app.project.clips[0].opacity - 0.5).abs() < 1e-5);
+        // Above 1.0 clamps down, below 0.0 clamps up.
+        app.apply(Action::SetClipOpacity { index: 0, opacity: 2.0 });
+        assert!((app.project.clips[0].opacity - 1.0).abs() < 1e-5);
+        app.apply(Action::SetClipOpacity { index: 0, opacity: -0.3 });
+        assert!(app.project.clips[0].opacity.abs() < 1e-5);
+        // Out-of-range index is a silent no-op (doesn't panic).
+        app.apply(Action::SetClipOpacity { index: 999, opacity: 0.2 });
     }
 
 

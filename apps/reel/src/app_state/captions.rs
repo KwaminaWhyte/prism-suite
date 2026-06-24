@@ -183,6 +183,12 @@ impl AppCaptionsExt for App {
             Action::EditCaption { index, caption } => {
                 if index < self.captions.len() { self.captions[index] = caption; }
             }
+            Action::SetCueText { index, text } => {
+                if let Some(c) = self.captions.get_mut(index) {
+                    c.text = text;
+                    self.host.mark_dirty();
+                }
+            }
             Action::SetCaptionPosition { index, position } => {
                 if let Some(c) = self.captions.get_mut(index) {
                     c.style.position = position;
@@ -332,6 +338,22 @@ mod tests {
         app.apply(Action::AddCaptionB9(CaptionB9::default()));
         app.apply(Action::SetCaptionText { idx: 0, text: "Updated text".to_string() });
         assert_eq!(app.captions_b9[0].text, "Updated text");
+    }
+
+    #[test]
+    fn test_set_cue_text_multiline() {
+        let mut app = App::new();
+        app.apply(Action::AddCaption(Caption {
+            start_secs: 0.0,
+            end_secs: 3.0,
+            text: "first".into(),
+            style: CaptionStyle::default(),
+        }));
+        // Multi-line cue text round-trips through SetCueText (panel TextArea).
+        app.apply(Action::SetCueText { index: 0, text: "line one\nline two".to_string() });
+        assert_eq!(app.captions[0].text, "line one\nline two");
+        // Out-of-range index is a silent no-op (doesn't panic).
+        app.apply(Action::SetCueText { index: 99, text: "ignored".to_string() });
     }
 
     #[test]

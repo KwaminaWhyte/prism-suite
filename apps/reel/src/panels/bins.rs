@@ -9,11 +9,14 @@ use gpui::{div, px, svg, AnyElement, Context, InteractiveElement, IntoElement, P
 use prism_ui::{colors, section_header, Icon};
 
 use crate::app_state::{Action, App};
+use crate::panels::TextFields;
 use crate::Reel;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let selected_bin = app.selected_bin;
     let selected_clip = app.selected_bin_clip;
+    // Case-insensitive name filter from the search box.
+    let query = app.bin_query.trim().to_lowercase();
 
     // Bin tab row.
     let bin_tabs = app
@@ -49,6 +52,8 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
         bin.clips
             .iter()
             .enumerate()
+            // Keep the true clip index `ci` so actions stay correct after filtering.
+            .filter(|(_, clip)| query.is_empty() || clip.name.to_lowercase().contains(&query))
             .map(|(ci, clip)| {
                 let is_sel = selected_clip == Some(ci);
                 let name = clip.name.clone();
@@ -176,6 +181,17 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
                 .text_color(colors::text_primary()),
         );
 
+    // Search box (filters the active bin's clips by name) — SetBinQuery.
+    let search_box: AnyElement = match fields.get("bin-search").cloned() {
+        Some(f) => f.into_any_element(),
+        None => div()
+            .px_2().py(px(2.0)).rounded_sm()
+            .bg(colors::surface_overlay())
+            .text_color(colors::text_disabled()).text_size(px(10.0))
+            .child("Search clips…")
+            .into_any_element(),
+    };
+
     div()
         .flex()
         .flex_col()
@@ -197,6 +213,13 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
                         .children(bin_tabs)
                         .child(add_bin_btn)
                         .child(import_btn),
+                )
+                // Search box row.
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .child(search_box),
                 )
                 // Clip list.
                 .child(

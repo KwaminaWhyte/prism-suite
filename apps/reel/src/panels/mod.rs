@@ -58,6 +58,7 @@ pub mod graphics;
 pub mod inspector;
 pub mod markers;
 pub mod mixer;
+pub mod numeric_parse;
 pub mod render_bar;
 pub mod scopes;
 pub mod sequence_settings;
@@ -70,7 +71,7 @@ pub mod workspaces;
 use std::collections::HashMap;
 
 use gpui::{div, px, Entity, IntoElement, ParentElement, Styled};
-use prism_ui::{colors, TextField};
+use prism_ui::{colors, TextArea, TextField};
 
 /// Shared chrome metrics so every panel/stub agrees on the layout.
 pub const DOCK_W: f32 = 280.0;
@@ -84,6 +85,13 @@ pub const TIMELINE_H: f32 = 160.0;
 /// see `main.rs`. Looking a key up that wasn't pre-created returns `None`, in
 /// which case the panel falls back to a non-editable label.
 pub type TextFields = HashMap<String, Entity<TextField>>;
+
+/// The root view's registry of persistent, focusable multi-line [`TextArea`]
+/// views, keyed by a stable string (e.g. `"cue-text-2"`). The multi-line
+/// analog of [`TextFields`]; the Captions panel uses it for cue text. Looking
+/// up a missing key returns `None`, in which case the panel falls back to a
+/// non-editable label.
+pub type TextAreas = HashMap<String, Entity<TextArea>>;
 
 /// A labeled placeholder body used by stub panels until their real content
 /// lands. Renders the title and a hint inside a section-colored box so the

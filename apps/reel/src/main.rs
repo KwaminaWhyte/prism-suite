@@ -44,7 +44,7 @@ use gpui::{
     InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderImage,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
-use prism_ui::{colors, TextField};
+use prism_ui::{colors, TextArea, TextField};
 
 use panels::{DOCK_W, TIMELINE_H, TOOLBAR_H};
 
@@ -70,6 +70,13 @@ struct Reel {
     /// focus / caret / selection). [`Reel::text_field`] lazily creates each one
     /// with an `on_submit` that dispatches an [`Action`] back through `app.apply`.
     text_fields: HashMap<String, Entity<TextField>>,
+    /// Persistent, focusable multi-line [`TextArea`] views keyed by a stable
+    /// string (e.g. `"cue-text-2"`). The multi-line companion to `text_fields`,
+    /// used where the edited value spans lines (caption cue text). Same lifetime
+    /// reasoning: the entities must survive across the stateless per-frame panel
+    /// renders to keep their caret / selection / focus. Submitted via
+    /// **Cmd/Ctrl+Enter** (plain Enter inserts a newline) through `app.apply`.
+    text_areas: HashMap<String, Entity<TextArea>>,
 }
 
 impl Reel {
@@ -80,6 +87,7 @@ impl Reel {
             export: None,
             last_image: None,
             text_fields: HashMap::new(),
+            text_areas: HashMap::new(),
         }
     }
 
@@ -126,6 +134,49 @@ impl Reel {
         });
         self.text_fields.insert(key, field.clone());
         field
+    }
+
+    /// Get-or-create a persistent multi-line [`TextArea`] keyed by `key`. The
+    /// multi-line analog of [`Reel::text_field`]: the area is built once with
+    /// `placeholder`, seeded `initial`, fixed `width`, `rows` visible lines, and
+    /// an `on_submit` (**Cmd/Ctrl+Enter** — plain Enter inserts a newline) that
+    /// maps the typed text to an [`Action`] via `make_action` and dispatches it
+    /// through `self.app.apply`. Subsequent calls return the SAME entity so
+    /// typing state persists across frames.
+    fn text_area(
+        &mut self,
+        key: impl Into<String>,
+        placeholder: &str,
+        initial: &str,
+        width: Pixels,
+        rows: usize,
+        make_action: impl Fn(&str) -> Option<Action> + 'static,
+        cx: &mut Context<Self>,
+    ) -> Entity<TextArea> {
+        let key = key.into();
+        if let Some(area) = self.text_areas.get(&key) {
+            return area.clone();
+        }
+        let weak = cx.weak_entity();
+        let placeholder = placeholder.to_string();
+        let initial = initial.to_string();
+        let area = cx.new(|cx| {
+            TextArea::new(cx)
+                .placeholder(placeholder)
+                .initial_value(initial)
+                .width(width)
+                .rows(rows)
+                .on_submit(move |text, _win, app| {
+                    if let Some(action) = make_action(text) {
+                        let _ = weak.update(app, |reel, cx| {
+                            reel.app.apply(action);
+                            cx.notify();
+                        });
+                    }
+                })
+        });
+        self.text_areas.insert(key, area.clone());
+        area
     }
 
     /// Ensure a persistent [`TextField`] exists for every name/text the visible
@@ -187,6 +238,103 @@ impl Reel {
                     move |t| Some(Action::SetTitleText { index: i, text: t.to_string() }),
                     cx,
                 );
+            }
+        }
+
+        // Selected clip's typeable numeric inspector fields (parse → clamp →
+        // existing Set* action; the +/− steppers stay). Snapshot the values
+        // first so the immutable `self.app` borrow ends before field creation.
+        if let Some(i) = self.app.selected {
+            use crate::panels::numeric_parse as np;
+            const NUM_W: f32 = 64.0;
+            if let Some(clip) = self.app.project.clips.get(i) {
+                let opacity_pct = clip.opacity * 100.0;
+                let speed_pct = clip.speed * 100.0;
+                let scale_x = clip.motion_scale_x * 100.0;
+                let scale_y = clip.motion_scale_y * 100.0;
+                let pos_x = clip.motion_x;
+                let pos_y = clip.motion_y;
+                let is_audio = matches!(&clip.source, app_state::ClipSource::Audio(_));
+                let gain = match &clip.source {
+                    app_state::ClipSource::Audio(a) => a.effective_gain(),
+                    _ => 1.0,
+                };
+
+                // Opacity % (0–100 → 0.0–1.0).
+                self.text_field(
+                    format!("clip-opacity-{i}"),
+                    "%",
+                    &format!("{opacity_pct:.0}%"),
+                    px(NUM_W),
+                    move |t| np::parse_percent(t, 0.0, 100.0)
+                        .map(|p| Action::SetClipOpacity { index: i, opacity: p / 100.0 }),
+                    cx,
+                );
+
+                if is_audio {
+                    // Audio gain in dB (−inf..+max), parsed to a linear gain.
+                    self.text_field(
+                        format!("clip-gain-{i}"),
+                        "dB",
+                        &np::gain_to_db_string(gain),
+                        px(NUM_W),
+                        move |t| np::parse_db_to_gain(t, app_state::MAX_AUDIO_GAIN)
+                            .map(|gain| Action::SetClipGain { index: i, gain }),
+                        cx,
+                    );
+                } else {
+                    // Speed % (non-audio only — mirrors the stepper row).
+                    self.text_field(
+                        format!("clip-speed-{i}"),
+                        "%",
+                        &format!("{speed_pct:.0}%"),
+                        px(NUM_W),
+                        move |t| np::parse_percent(t, 1.0, 1000.0)
+                            .map(|pct| Action::SetClipSpeed(i, pct)),
+                        cx,
+                    );
+                    // Scale X / Y % and Position X / Y px (motion transform).
+                    self.text_field(
+                        format!("clip-scale-x-{i}"),
+                        "%",
+                        &format!("{scale_x:.0}%"),
+                        px(NUM_W),
+                        move |t| np::parse_percent(t, 1.0, 1000.0).map(|sx| {
+                            Action::SetClipMotionScale { clip_idx: i, sx: sx / 100.0, sy: f32::NAN }
+                        }),
+                        cx,
+                    );
+                    self.text_field(
+                        format!("clip-scale-y-{i}"),
+                        "%",
+                        &format!("{scale_y:.0}%"),
+                        px(NUM_W),
+                        move |t| np::parse_percent(t, 1.0, 1000.0).map(|sy| {
+                            Action::SetClipMotionScale { clip_idx: i, sx: f32::NAN, sy: sy / 100.0 }
+                        }),
+                        cx,
+                    );
+                    self.text_field(
+                        format!("clip-pos-x-{i}"),
+                        "px",
+                        &format!("{pos_x:.0}"),
+                        px(NUM_W),
+                        move |t| np::parse_clamped(t, -10000.0, 10000.0).map(|x| {
+                            Action::SetClipMotion { clip_idx: i, x, y: f32::NAN }
+                        }),
+                        cx,
+                    );
+                    self.text_field(
+                        format!("clip-pos-y-{i}"),
+                        "px",
+                        &format!("{pos_y:.0}"),
+                        px(NUM_W),
+                        move |t| np::parse_clamped(t, -10000.0, 10000.0).map(|y| {
+                            Action::SetClipMotion { clip_idx: i, x: f32::NAN, y }
+                        }),
+                        cx,
+                    );
+                }
             }
         }
 
@@ -287,6 +435,51 @@ impl Reel {
                 },
                 cx,
             );
+        }
+
+        // Media-bin clip search box (Bins panel) — SetBinQuery, filtering the
+        // active bin's clip list by name. `on_change` would be ideal but the
+        // field is submit-driven; Enter applies the filter.
+        if self.app.bins_open {
+            let initial = self.app.bin_query.clone();
+            self.text_field(
+                "bin-search",
+                "Search clips…",
+                &initial,
+                px(150.0),
+                |t| Some(Action::SetBinQuery(t.trim().to_string())),
+                cx,
+            );
+        }
+    }
+
+    /// Ensure a persistent multi-line [`TextArea`] exists for every editable
+    /// multi-line value the visible panels render this frame (currently each
+    /// caption's cue text in the Captions panel). Mirrors
+    /// [`Reel::prepare_text_fields`] but for `TextArea`s. Idempotent: existing
+    /// areas are returned unchanged so typing state survives across frames.
+    fn prepare_text_areas(&mut self, cx: &mut Context<Self>) {
+        if self.app.show_captions_panel {
+            // Snapshot (index, text) so the immutable borrow ends before the
+            // `&mut self` area-creation calls.
+            let cues: Vec<(usize, String)> = self
+                .app
+                .captions
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (i, c.text.clone()))
+                .collect();
+            for (i, text) in cues {
+                self.text_area(
+                    format!("cue-text-{i}"),
+                    "Caption text (Cmd/Ctrl+Enter to apply)",
+                    &text,
+                    px(220.0),
+                    2,
+                    move |t| Some(Action::SetCueText { index: i, text: t.to_string() }),
+                    cx,
+                );
+            }
         }
     }
 
@@ -467,12 +660,15 @@ impl Render for Reel {
         // params, the active sequence name, export path). Must run BEFORE the
         // `&self.app` borrow below, since it needs `&mut self`.
         self.prepare_text_fields(cx);
+        // Same for the multi-line TextAreas (caption cue text).
+        self.prepare_text_areas(cx);
 
         // Build panel elements (read-only &App + cx for Action listeners).
         // `&self.text_fields` co-borrows alongside `&self.app` (both immutable);
         // panels look up their persistent input views by key.
         let app = &self.app;
         let text_fields = &self.text_fields;
+        let text_areas = &self.text_areas;
         let toolbar = panels::toolbar::render(app, export_label, cx);
         let inspector = panels::inspector::render(app, text_fields, cx);
         let mixer_panel = if app.show_mixer {
@@ -491,7 +687,7 @@ impl Render for Reel {
             None
         };
         let bins_panel = if app.bins_open {
-            Some(panels::bins::render(app, cx))
+            Some(panels::bins::render(app, text_fields, cx))
         } else {
             None
         };
@@ -501,7 +697,7 @@ impl Render for Reel {
             None
         };
         let captions_panel = if app.show_captions_panel {
-            Some(panels::captions::render(app, cx))
+            Some(panels::captions::render(app, text_areas, cx))
         } else {
             None
         };

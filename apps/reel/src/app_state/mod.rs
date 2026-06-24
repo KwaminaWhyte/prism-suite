@@ -286,6 +286,7 @@ impl App {
             Action::AddCaption(_)
             | Action::RemoveCaption(_)
             | Action::EditCaption { .. }
+            | Action::SetCueText { .. }
             | Action::SetCaptionPosition { .. }
             | Action::SetCaptionCueColor { .. }
             | Action::ImportSrt(_)
@@ -434,6 +435,7 @@ impl App {
 
             // --- Media domain ------------------------------------------------
             Action::ToggleBins
+            | Action::SetBinQuery(_)
             | Action::AddBin(_)
             | Action::SelectBin(_)
             | Action::ImportToBin { .. }

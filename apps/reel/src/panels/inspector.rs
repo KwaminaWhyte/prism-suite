@@ -58,11 +58,24 @@ pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl In
             rows.push(field("Start", format!("{:.2}s", clip.start)).into_any_element());
             rows.push(field("Duration", format!("{:.2}s", clip.duration)).into_any_element());
             rows.push(field("End", format!("{:.2}s", clip.end())).into_any_element());
-            rows.push(field("Opacity", format!("{:.0}%", clip.opacity * 100.0)).into_any_element());
+            // Opacity — typeable (parse % → SetClipOpacity), falls back to label.
+            rows.push(numeric_input(
+                "Opacity",
+                &format!("clip-opacity-{index}"),
+                format!("{:.0}%", clip.opacity * 100.0),
+                fields,
+            ));
 
             if let ClipSource::Audio(audio) = &clip.source {
                 // --- Per-clip audio volume (gain) ---
                 let gain = audio.effective_gain();
+                // Typeable gain in dB (parse dB → linear gain → SetClipGain).
+                rows.push(numeric_input(
+                    "Gain (dB)",
+                    &format!("clip-gain-{index}"),
+                    crate::panels::numeric_parse::gain_to_db_string(gain),
+                    fields,
+                ));
                 rows.push(
                     stepper(
                         "vol",
@@ -218,6 +231,36 @@ pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl In
                 cx,
             ).into_any_element());
 
+            // --- Motion transform (non-audio clips only): typeable scale/pos ---
+            if !matches!(&clip.source, ClipSource::Audio(_)) {
+                rows.push(section_header("Motion").into_any_element());
+                rows.push(divider().into_any_element());
+                rows.push(numeric_input(
+                    "Scale X %",
+                    &format!("clip-scale-x-{index}"),
+                    format!("{:.0}%", clip.motion_scale_x * 100.0),
+                    fields,
+                ));
+                rows.push(numeric_input(
+                    "Scale Y %",
+                    &format!("clip-scale-y-{index}"),
+                    format!("{:.0}%", clip.motion_scale_y * 100.0),
+                    fields,
+                ));
+                rows.push(numeric_input(
+                    "Pos X",
+                    &format!("clip-pos-x-{index}"),
+                    format!("{:.0}", clip.motion_x),
+                    fields,
+                ));
+                rows.push(numeric_input(
+                    "Pos Y",
+                    &format!("clip-pos-y-{index}"),
+                    format!("{:.0}", clip.motion_y),
+                    fields,
+                ));
+            }
+
             // --- Speed ramp (non-audio clips only) ---
             if !matches!(&clip.source, ClipSource::Audio(_)) {
                 let speed_pct = clip.speed * 100.0;
@@ -234,6 +277,13 @@ pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl In
                             .into_any_element(),
                     );
                 }
+                // Typeable speed % (parse % → SetClipSpeed) above the stepper.
+                rows.push(numeric_input(
+                    "Speed %",
+                    &format!("clip-speed-{index}"),
+                    format!("{:.0}%", speed_pct),
+                    fields,
+                ));
                 rows.push(stepper_row(
                     "speed", "Speed %",
                     format!("{:.0}%", speed_pct),
@@ -461,6 +511,37 @@ fn field(label: &str, value: String) -> impl IntoElement {
 /// pre-created by the root view. Used for the clip-name (RenameClip) and title
 /// text (SetTitleText) rows.
 fn field_input(
+    label: &str,
+    key: &str,
+    fallback: String,
+    fields: &TextFields,
+) -> gpui::AnyElement {
+    let value: gpui::AnyElement = match fields.get(key).cloned() {
+        Some(f) => f.into_any_element(),
+        None => div()
+            .px_2().py(px(2.0)).rounded_sm()
+            .bg(colors::surface_overlay())
+            .text_color(colors::text_primary()).text_size(px(11.0))
+            .child(fallback)
+            .into_any_element(),
+    };
+    div()
+        .flex().items_center().justify_between().px_3().py_1().gap_2()
+        .child(
+            div().text_color(colors::text_secondary()).text_size(px(11.0))
+                .child(label.to_string()),
+        )
+        .child(value)
+        .into_any_element()
+}
+
+/// A labelled row whose value is a right-aligned, compact, typeable numeric
+/// [`TextField`] looked up by `key`. Identical wiring to [`field_input`] but
+/// styled for a short numeric input (fixed narrow width set when the field was
+/// created in `Reel::prepare_text_fields`). Falls back to a non-editable label
+/// (`fallback`) when the field wasn't pre-created. The field's `on_submit`
+/// parses + clamps the typed text and dispatches the matching `Set*` action.
+fn numeric_input(
     label: &str,
     key: &str,
     fallback: String,

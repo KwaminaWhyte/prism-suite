@@ -104,6 +104,9 @@ pub struct App {
     pub bins_open: bool,
     pub selected_bin: usize,
     pub selected_bin_clip: Option<usize>,
+    /// Case-insensitive name filter for the active bin's clip list (empty = all).
+    /// Driven by the bins-panel search box; see `panels::bins`.
+    pub bin_query: String,
 
     // --- Wave 13: chapter markers / links / export presets -------------------
     pub chapter_markers: Vec<(f32, String)>,
@@ -361,6 +364,7 @@ impl App {
             bins_open: false,
             selected_bin: 0,
             selected_bin_clip: None,
+            bin_query: String::new(),
             chapter_markers: Vec::new(),
             linked_clips: std::collections::HashSet::new(),
             export_presets: Vec::new(),

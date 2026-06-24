@@ -105,6 +105,7 @@ impl AppMediaExt for App {
         match action {
             // --- Bins (Media Browser) ---
             Action::ToggleBins => { self.bins_open = !self.bins_open; }
+            Action::SetBinQuery(q) => { self.bin_query = q; }
             Action::AddBin(name) => { self.bins.push(Bin { name, clips: Vec::new() }); }
             Action::SelectBin(idx) => {
                 if idx < self.bins.len() {
@@ -255,6 +256,17 @@ mod tests {
         // Out-of-bounds select is a no-op.
         app.apply(Action::SelectBin(999));
         assert_eq!(app.selected_bin, initial_count);
+    }
+
+    #[test]
+    fn test_set_bin_query() {
+        let mut app = App::new();
+        assert!(app.bin_query.is_empty());
+        app.apply(Action::SetBinQuery("shot".to_string()));
+        assert_eq!(app.bin_query, "shot");
+        // Clearing it resets to the show-all state.
+        app.apply(Action::SetBinQuery(String::new()));
+        assert!(app.bin_query.is_empty());
     }
 
     #[test]

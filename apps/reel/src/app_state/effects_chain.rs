@@ -55,15 +55,19 @@ impl AppEffectsExt for App {
             }
             Action::SetClipMotion { clip_idx, x, y } => {
                 if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.motion_x = x;
-                    c.motion_y = y;
+                    // A NaN axis means "leave this axis unchanged" — lets a single
+                    // typeable X-or-Y field edit one component without clobbering
+                    // the other.
+                    if x.is_finite() { c.motion_x = x; }
+                    if y.is_finite() { c.motion_y = y; }
                     self.host.mark_dirty();
                 }
             }
             Action::SetClipMotionScale { clip_idx, sx, sy } => {
                 if let Some(c) = self.project.clips.get_mut(clip_idx) {
-                    c.motion_scale_x = sx.max(0.01);
-                    c.motion_scale_y = sy.max(0.01);
+                    // NaN axis = "leave unchanged" (single-axis typeable field).
+                    if sx.is_finite() { c.motion_scale_x = sx.max(0.01); }
+                    if sy.is_finite() { c.motion_scale_y = sy.max(0.01); }
                     self.host.mark_dirty();
                 }
             }
@@ -179,6 +183,23 @@ mod tests {
         let c = &app.project.clips[0];
         assert!(c.motion_scale_x >= 0.01);
         assert!(c.motion_scale_y >= 0.01);
+    }
+
+    #[test]
+    fn test_clip_motion_nan_axis_is_kept() {
+        let mut app = App::new();
+        app.apply(Action::SetClipMotion { clip_idx: 0, x: 100.0, y: 200.0 });
+        // Editing only X (Y = NaN) leaves Y untouched.
+        app.apply(Action::SetClipMotion { clip_idx: 0, x: 42.0, y: f32::NAN });
+        let c = &app.project.clips[0];
+        assert!((c.motion_x - 42.0).abs() < 1e-5);
+        assert!((c.motion_y - 200.0).abs() < 1e-5, "Y preserved across single-axis edit");
+        // Same for scale: editing only Y leaves X.
+        app.apply(Action::SetClipMotionScale { clip_idx: 0, sx: 2.0, sy: 3.0 });
+        app.apply(Action::SetClipMotionScale { clip_idx: 0, sx: f32::NAN, sy: 5.0 });
+        let c = &app.project.clips[0];
+        assert!((c.motion_scale_x - 2.0).abs() < 1e-5, "X preserved");
+        assert!((c.motion_scale_y - 5.0).abs() < 1e-5);
     }
 
     #[test]

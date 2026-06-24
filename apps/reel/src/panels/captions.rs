@@ -5,9 +5,10 @@ use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
 use prism_ui::{colors, section_header, divider};
 
 use crate::app_state::{Action, App, Caption, CaptionStyle};
+use crate::panels::TextAreas;
 use crate::Reel;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, areas: &TextAreas, cx: &mut Context<Reel>) -> impl IntoElement {
     let t = app.time;
 
     let mut rows: Vec<gpui::AnyElement> = Vec::new();
@@ -16,27 +17,38 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
         let start_t = cap.start_secs;
         let rm_id = gpui::SharedString::from(format!("cap-rm-{i}"));
         let row_id = gpui::SharedString::from(format!("cap-row-{i}"));
+        // Editable, multi-line cue text via the persistent TextArea registry.
+        // Cmd/Ctrl+Enter applies (SetCueText); falls back to a static label.
+        let cue_body: gpui::AnyElement = match areas.get(&format!("cue-text-{i}")).cloned() {
+            Some(a) => a.into_any_element(),
+            None => div()
+                .text_color(colors::text_primary())
+                .text_size(px(11.0))
+                .child(cap.text.clone())
+                .into_any_element(),
+        };
         rows.push(
             div()
                 .id(row_id)
-                .flex().flex_row().items_center().justify_between()
-                .px_3().py_1()
+                .flex().flex_row().items_start().justify_between()
+                .px_3().py_1().gap_2()
                 .bg(if active {
                     gpui::Rgba { r: 0.5, g: 0.4, b: 0.0, a: 0.3 }
                 } else {
                     colors::surface_bg()
                 })
-                .cursor_pointer()
-                .on_click(cx.listener(move |root, _ev, _win, cx| {
-                    root.app.time = start_t;
-                    root.app.host.mark_dirty();
-                    cx.notify();
-                }))
                 .child(
-                    div().flex().flex_col().gap(px(1.0))
-                        .child(div().text_color(colors::text_primary()).text_size(px(11.0)).child(cap.text.clone()))
-                        .child(div().text_color(colors::text_secondary()).text_size(px(9.0))
-                            .child(format!("{:.2}s \u{2013} {:.2}s", cap.start_secs, cap.end_secs)))
+                    div().flex_1().flex().flex_col().gap(px(2.0))
+                        .child(cue_body)
+                        .child(
+                            div().id(("cap-seek", i)).cursor_pointer()
+                                .text_color(colors::text_secondary()).text_size(px(9.0))
+                                .on_click(cx.listener(move |root, _ev, _win, cx| {
+                                    root.app.time = start_t;
+                                    root.app.host.mark_dirty();
+                                    cx.notify();
+                                }))
+                                .child(format!("{:.2}s \u{2013} {:.2}s", cap.start_secs, cap.end_secs)))
                 )
                 .child(
                     div().id(rm_id).w(px(18.0)).h(px(18.0))

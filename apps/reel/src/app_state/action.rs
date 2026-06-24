@@ -60,6 +60,9 @@ pub enum Action {
     // --- Per-clip audio volume ---
     SetClipGain { index: usize, gain: f32 },
 
+    // --- Per-clip opacity (0.0–1.0; typeable inspector field) ---
+    SetClipOpacity { index: usize, opacity: f32 },
+
     // --- Color grade ---
     SetClipGrade { index: usize, grade: ColorGrade },
 
@@ -143,6 +146,9 @@ pub enum Action {
     RemoveFromBin { bin_idx: usize, clip_idx: usize },
     SelectBinClip { bin_idx: usize, clip_idx: usize },
     InsertClipFromBin { bin_clip_idx: usize, track_idx: usize, at_t: f32 },
+    /// Filter the active bin's clip list to names containing this query
+    /// (case-insensitive; empty = show all). Drives the bins panel search box.
+    SetBinQuery(String),
 
     // --- Wave 13: film dissolve, editable transition duration ---
     SetTransitionDuration { track_idx: usize, trans_idx: usize, duration: f32 },
@@ -229,6 +235,11 @@ pub enum Action {
     AddCaption(Caption),
     RemoveCaption(usize),
     EditCaption { index: usize, caption: Caption },
+    /// Replace just the cue text of caption `index` in `App::captions` (the
+    /// list the Captions panel renders). Multi-line: the typed text may contain
+    /// `\n` line breaks. Distinct from `SetCaptionText`, which targets the
+    /// separate `captions_b9` list.
+    SetCueText { index: usize, text: String },
     SetCaptionPosition { index: usize, position: CaptionPosition },
     SetCaptionCueColor { index: usize, color: [f32; 4] },
     ImportSrt(PathBuf),

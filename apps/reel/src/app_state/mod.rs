@@ -31,6 +31,13 @@ pub mod transitions;
 pub mod edl;
 mod color_curves;
 
+// --- New feature modules -----------------------------------------------------
+mod graphics_templates;
+mod proxy_workflow;
+mod render_cache;
+mod prefs_keys;
+mod workspaces;
+
 // --- Batch 5 modules ---------------------------------------------------------
 pub mod reel_project;
 mod apply_batch5;
@@ -101,6 +108,30 @@ pub use media::{
 
 // Proxy domain
 pub use proxy::{ClipProxy, ProxyFormat, ProxySettings};
+
+// Graphics-templates domain (Essential Graphics / Motion Graphics Templates)
+pub use graphics_templates::{
+    GraphicsInstance, GraphicsTemplate, GtExposedProp, GtLayer, GtPropTarget, GtPropValue,
+    GtShapeKind, GtShapeLayer, GtTextLayer,
+};
+
+// Proxy-workflow domain (proxy job model + proxy/full toggle)
+pub use proxy_workflow::{
+    PlaybackSource, ProxyJob, ProxyJobState, ProxyResolution, ProxyWorkflow,
+};
+
+// Render-cache domain (background render cache + render bar)
+pub use render_cache::{CacheRange, CacheSegment, RenderBarStatus, RenderCache};
+
+// Preferences + keybindings domain
+pub use prefs_keys::{
+    EditorCommand, KeyChord, Keymap, PlaybackResolution, Preferences, ScratchKind,
+};
+
+// Workspaces domain (named panel layouts)
+pub use workspaces::{
+    Panel, PanelLayout, PanelSlot, Region, Workspace, WorkspaceManager,
+};
 
 // Timeline domain — all the big domain types + constants defined there
 pub use timeline::{
@@ -915,6 +946,54 @@ pub enum Action {
     SetActiveSequenceB5 { sequence_id: usize },
     UpdateSequenceSettingsB5 { sequence_id: usize, width: Option<u32>, height: Option<u32>, frame_rate: Option<f64> },
     NestSequenceB5 { sequence_id: usize, into_sequence_id: usize, at_time_s: f64 },
+
+    // --- Essential Graphics / Motion Graphics Templates ----------------------
+    AddGraphicsTemplate(GraphicsTemplate),
+    RemoveGraphicsTemplate(usize),
+    ExposeTemplateProp { template_idx: usize, label: String, target: GtPropTarget },
+    SetTemplatePropValue { template_idx: usize, prop_idx: usize, value: GtPropValue },
+    InstantiateGraphicsTemplate { template_idx: usize, start: f32, duration: f32 },
+    SetGraphicsInstanceValue { instance_idx: usize, label: String, value: GtPropValue },
+    RemoveGraphicsInstance(usize),
+
+    // --- Proxy workflow (job model + proxy/full toggle) ----------------------
+    SetProxyWorkflowResolution(ProxyResolution),
+    QueueProxyJob { clip_idx: usize, resolution: ProxyResolution, path: std::path::PathBuf },
+    StartProxyJob(usize),
+    CompleteProxyJob(usize),
+    FailProxyJob(usize),
+    AttachProxyWorkflow { clip_idx: usize, path: std::path::PathBuf },
+    DetachProxyWorkflow { clip_idx: usize },
+    SetPlaybackSource(PlaybackSource),
+    ToggleProxyFull,
+
+    // --- Background render cache ----------------------------------------------
+    RenderCacheRange { start: f32, end: f32 },
+    InvalidateRenderCache { start: f32, end: f32 },
+    PruneRenderCache,
+    ClearRenderCache,
+    SetRenderCacheCapacity(usize),
+
+    // --- Preferences + remappable keybindings ---------------------------------
+    SetPrefAutosaveEnabled(bool),
+    SetPrefAutosaveInterval(u32),
+    SetPrefMaxVersions(u32),
+    SetPrefScratchDisk { kind: ScratchKind, path: std::path::PathBuf },
+    SetPrefPlaybackResolution(PlaybackResolution),
+    SetPrefPausedResolution(PlaybackResolution),
+    SetPrefDefaultTransition(f32),
+    RemapKeybinding { command: EditorCommand, chord: KeyChord },
+    ResetKeymap,
+    LoadKeymapJson(String),
+
+    // --- Workspaces (named panel layouts) -------------------------------------
+    SwitchWorkspace(usize),
+    SwitchWorkspaceByName(String),
+    SaveWorkspaceLayout(PanelLayout),
+    ResetWorkspace,
+    AddWorkspace(String),
+    RemoveWorkspace(usize),
+    TogglePanelVisible(Panel),
 }
 
 // --- App struct --------------------------------------------------------------
@@ -1170,6 +1249,25 @@ pub struct App {
     pub sequences_b5: Vec<reel_project::SequenceSettingsB5>,
     pub active_sequence_id: usize,
     pub next_sequence_id: usize,
+
+    // --- Essential Graphics / Motion Graphics Templates ----------------------
+    pub graphics_templates: Vec<GraphicsTemplate>,
+    pub graphics_instances: Vec<GraphicsInstance>,
+
+    // --- Proxy workflow (job model + proxy/full toggle) ----------------------
+    pub proxy_workflow: ProxyWorkflow,
+
+    // --- Background render cache ----------------------------------------------
+    pub render_cache: RenderCache,
+
+    // --- Preferences + remappable keybindings ---------------------------------
+    pub preferences: Preferences,
+    pub keymap: Keymap,
+    /// Commands that conflicted with the most recent keybinding remap.
+    pub last_keybind_conflicts: Vec<EditorCommand>,
+
+    // --- Workspaces (named panel layouts) -------------------------------------
+    pub workspaces: WorkspaceManager,
 }
 
 impl App {
@@ -1341,6 +1439,15 @@ impl App {
             sequences_b5: vec![reel_project::SequenceSettingsB5::default_1080p(0, "Sequence 01")],
             active_sequence_id: 0,
             next_sequence_id: 1,
+            // --- New feature modules ------------------------------------------
+            graphics_templates: Vec::new(),
+            graphics_instances: Vec::new(),
+            proxy_workflow: ProxyWorkflow::default(),
+            render_cache: RenderCache::default(),
+            preferences: Preferences::default(),
+            keymap: Keymap::premiere_defaults(),
+            last_keybind_conflicts: Vec::new(),
+            workspaces: WorkspaceManager::default(),
         }
     }
 
@@ -1723,6 +1830,64 @@ impl App {
             | Action::Load3dlLut { .. }
             | Action::ExportCubeLut { .. } => {
                 self.apply_color_curves(action);
+            }
+
+            // --- Essential Graphics / Motion Graphics Templates --------------
+            Action::AddGraphicsTemplate(_)
+            | Action::RemoveGraphicsTemplate(_)
+            | Action::ExposeTemplateProp { .. }
+            | Action::SetTemplatePropValue { .. }
+            | Action::InstantiateGraphicsTemplate { .. }
+            | Action::SetGraphicsInstanceValue { .. }
+            | Action::RemoveGraphicsInstance(_) => {
+                self.apply_graphics_templates(action);
+            }
+
+            // --- Proxy workflow ----------------------------------------------
+            Action::SetProxyWorkflowResolution(_)
+            | Action::QueueProxyJob { .. }
+            | Action::StartProxyJob(_)
+            | Action::CompleteProxyJob(_)
+            | Action::FailProxyJob(_)
+            | Action::AttachProxyWorkflow { .. }
+            | Action::DetachProxyWorkflow { .. }
+            | Action::SetPlaybackSource(_)
+            | Action::ToggleProxyFull => {
+                self.apply_proxy_workflow(action);
+            }
+
+            // --- Background render cache -------------------------------------
+            Action::RenderCacheRange { .. }
+            | Action::InvalidateRenderCache { .. }
+            | Action::PruneRenderCache
+            | Action::ClearRenderCache
+            | Action::SetRenderCacheCapacity(_) => {
+                self.apply_render_cache(action);
+            }
+
+            // --- Preferences + remappable keybindings ------------------------
+            Action::SetPrefAutosaveEnabled(_)
+            | Action::SetPrefAutosaveInterval(_)
+            | Action::SetPrefMaxVersions(_)
+            | Action::SetPrefScratchDisk { .. }
+            | Action::SetPrefPlaybackResolution(_)
+            | Action::SetPrefPausedResolution(_)
+            | Action::SetPrefDefaultTransition(_)
+            | Action::RemapKeybinding { .. }
+            | Action::ResetKeymap
+            | Action::LoadKeymapJson(_) => {
+                self.apply_prefs_keys(action);
+            }
+
+            // --- Workspaces (named panel layouts) ----------------------------
+            Action::SwitchWorkspace(_)
+            | Action::SwitchWorkspaceByName(_)
+            | Action::SaveWorkspaceLayout(_)
+            | Action::ResetWorkspace
+            | Action::AddWorkspace(_)
+            | Action::RemoveWorkspace(_)
+            | Action::TogglePanelVisible(_) => {
+                self.apply_workspaces(action);
             }
 
             // --- Timeline domain (catch-all for remaining actions) ------------

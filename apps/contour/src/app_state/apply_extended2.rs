@@ -176,12 +176,9 @@ impl App {
                 }
             }
             Action::ApplyPatternBrushToSelected => {
-                if let Some(i) = self.selected {
-                    if let Some(shape) = self.doc.shapes.get_mut(i) {
-                        shape.set_stroke_width(self.pattern_brush_config.scale / 100.0);
-                        self.host.mark_dirty();
-                    }
-                }
+                // Real pattern brush: tile a unit shape along each selected path's
+                // tangent at the configured spacing (see `apply_batch12`).
+                self.apply_pattern_brush_to_selected();
             }
 
             Action::LivePaintStroke { x: _, y: _, color, width } => {

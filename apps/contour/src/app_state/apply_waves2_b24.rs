@@ -38,7 +38,8 @@ impl App {
                 }
             }
             Action::EditSymbol2(id) => {
-                log::info!("EditSymbol2({id}) — stub");
+                // Enter the symbol's nested edit context (real, propagating).
+                self.apply(Action::EnterSymbolEdit(id));
             }
             Action::DeleteSymbol(id) => {
                 self.symbol_lib.remove(id);

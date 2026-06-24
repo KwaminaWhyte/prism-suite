@@ -62,6 +62,7 @@ mod apply_batch10;
 mod tests_batch10;
 mod apply_batch11;
 mod geometry_warp;
+mod apply_batch12;
 pub(super) mod helpers;
 use helpers::{shape_to_svg, rgba_to_hex, path_to_svg_d, import_svg, parse_svg_path_d};
 pub(super) mod helpers_geo;
@@ -1362,6 +1363,30 @@ pub enum Action {
     SetPdfPermissions { printing: bool, editing: bool, copying: bool },
     /// Export the document as PDF to `path` (stub: records path in status).
     ExportAsPdf { path: String },
+
+    // =========================================================
+    // Batch 12: Chart geometry, Document Setup, Symbol Edit
+    // (Pattern Brush reuses the existing `ApplyPatternBrushToSelected` action.)
+    // =========================================================
+    /// Set the document setup default artboard size (document points).
+    SetDocSetupSize { width: f32, height: f32 },
+    /// Set the document display / ruler unit.
+    SetDocSetupUnit(DocUnit),
+    /// Set the document colour working space.
+    SetDocSetupColorMode(DocColorMode),
+    /// Set per-side bleed (document points): `[top, right, bottom, left]`.
+    SetDocSetupBleed { top: f32, right: f32, bottom: f32, left: f32 },
+    /// Create a brand-new document from the current [`DocumentSetup`] (clears the
+    /// canvas and seeds an artboard at the configured size).
+    NewDocumentFromSetup,
+
+    /// Enter symbol-edit mode for symbol `id`: load its master shapes into the
+    /// canvas for in-place editing.
+    EnterSymbolEdit(u64),
+    /// Exit symbol-edit mode, writing the edited shapes back to the symbol
+    /// definition (propagating to every placed instance) and restoring the
+    /// document artwork.
+    ExitSymbolEdit,
 }
 
 /// The single shared application state. Owns the host + document and the panel-
@@ -1757,6 +1782,20 @@ pub struct App {
     // --- Batch 10 (new): PDF Export State ---
     /// Detailed PDF export configuration.
     pub pdf_export_config: PdfExportConfig,
+
+    // --- Batch 12: Document Setup ---
+    /// Document-level setup (artboard dimensions, units, colour mode, bleed).
+    pub doc_setup: DocumentSetup,
+
+    // --- Batch 12: Symbol Edit Mode ---
+    /// When `Some(id)`, the editor is **inside** symbol `id`'s definition: the
+    /// symbol's master shapes are loaded into `doc.shapes` for editing, and
+    /// `ExitSymbolEdit` writes them back to the library (propagating to every
+    /// instance). `None` = editing the document normally.
+    pub editing_symbol: Option<u64>,
+    /// The document shapes saved on entering symbol-edit mode, restored on exit
+    /// so the main artwork is untouched by an in-place symbol edit.
+    pub symbol_edit_backup: Option<Vec<Shape>>,
 }
 
 impl App {
@@ -1943,6 +1982,9 @@ impl App {
             extrude_3d: std::collections::HashMap::new(),
             revolve_3d: std::collections::HashMap::new(),
             pdf_export_config: PdfExportConfig::default(),
+            doc_setup: DocumentSetup::new(),
+            editing_symbol: None,
+            symbol_edit_backup: None,
         }
     }
 

@@ -330,6 +330,16 @@ impl AppBatch5Ext for App {
                 // Stub: acknowledge that sequence_id is nested
                 let _ = sequence_id;
             }
+            Action::RenameSequence { sequence_id, name } => {
+                // Ignore a blank name so a fully-cleared field never wipes the
+                // sequence's label; trim surrounding whitespace from typed input.
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    if let Some(s) = self.sequences_b5.iter_mut().find(|s| s.id == sequence_id) {
+                        s.name = trimmed.to_string();
+                    }
+                }
+            }
 
             _ => {}
         }

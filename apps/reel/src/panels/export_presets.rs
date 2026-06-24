@@ -5,9 +5,10 @@ use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
 use prism_ui::{colors, section_header, divider};
 
 use crate::app_state::{Action, App, ExportPreset};
+use crate::panels::TextFields;
 use crate::Reel;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let mut rows: Vec<gpui::AnyElement> = Vec::new();
     for (i, preset) in app.export_preset_list.iter().enumerate() {
         let name = preset.name.clone();
@@ -53,8 +54,19 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
     let cur_h = app.project.height;
     let cur_fps = app.project.fps;
 
+    // Editable export output path (real typing → SetExportPath on Enter).
+    let path_row = div()
+        .flex().flex_col().gap_1().px_3().py_2()
+        .child(
+            div().text_color(colors::text_secondary()).text_size(px(10.0))
+                .child("Output path"),
+        )
+        .children(fields.get("export-path").cloned());
+
     div().flex().flex_col()
         .child(section_header("Export Presets"))
+        .child(divider())
+        .child(path_row)
         .child(divider())
         .children(rows)
         .child(

@@ -20,6 +20,7 @@ use gpui::{
 use prism_ui::{colors, section_header, divider};
 
 use crate::app_state::{Action, App, MogrParam, MogrParamValue, MogrTemplate};
+use crate::panels::TextFields;
 use crate::Reel;
 
 /// A small palette colours cycle through when clicked.
@@ -135,33 +136,29 @@ fn param_row(
     template_idx: usize,
     param_idx: usize,
     param: &MogrParam,
+    fields: &TextFields,
     cx: &mut Context<Reel>,
 ) -> gpui::AnyElement {
     let name = param.name.clone();
     let control: gpui::AnyElement = match &param.value {
         MogrParamValue::Text(t) => {
-            let shown = if t.is_empty() { "(empty)".to_string() } else { t.clone() };
-            let seed = format!("{name} text");
-            // Click seeds/cycles a placeholder so the action is exercised.
-            div()
-                .id(gpui::SharedString::from(format!("mp-text-{template_idx}-{param_idx}")))
-                .px(px(6.0))
-                .py(px(2.0))
-                .min_w(px(96.0))
-                .rounded_sm()
-                .bg(colors::surface_overlay())
-                .text_color(colors::text_primary())
-                .text_size(px(10.0))
-                .cursor_pointer()
-                .hover(|s| s.bg(colors::tool_hover()))
-                .on_click(cx.listener(move |root, _e, _w, cx| {
-                    root.app.apply(Action::SetMogrParamText {
-                        template_idx, param_idx, text: seed.clone(),
-                    });
-                    cx.notify();
-                }))
-                .child(shown)
-                .into_any_element()
+            // Real typing: render the persistent TextField for this param (seeded
+            // from the current value, dispatches SetMogrParamText on Enter). Falls
+            // back to a static label if the field wasn't pre-created.
+            let key = format!("mogr-text-{template_idx}-{param_idx}");
+            if let Some(field) = fields.get(&key).cloned() {
+                field.into_any_element()
+            } else {
+                let shown = if t.is_empty() { "(empty)".to_string() } else { t.clone() };
+                div()
+                    .px(px(6.0)).py(px(2.0)).min_w(px(96.0))
+                    .rounded_sm()
+                    .bg(colors::surface_overlay())
+                    .text_color(colors::text_primary())
+                    .text_size(px(10.0))
+                    .child(shown)
+                    .into_any_element()
+            }
         }
         MogrParamValue::Number(v) => {
             let v = *v;
@@ -254,7 +251,7 @@ fn param_row(
         .into_any_element()
 }
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let active = app.active_mogr;
     let selected_clip = app.selected;
 
@@ -277,7 +274,7 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
     if let Some(ai) = active {
         if let Some(t) = app.mogr_templates.get(ai) {
             for (pi, p) in t.params.iter().enumerate() {
-                param_rows.push(param_row(ai, pi, p, cx));
+                param_rows.push(param_row(ai, pi, p, fields, cx));
             }
         }
     }

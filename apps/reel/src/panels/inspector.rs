@@ -15,10 +15,10 @@ use gpui::{
 use prism_ui::{colors, badge, divider, section_header};
 
 use crate::app_state::{Action, App, ClipSource, ColorGrade, HslSecondaryGrade, MAX_AUDIO_GAIN, SpeedCurve};
+use crate::panels::{color_wheels, TextFields};
 use crate::Reel;
-use crate::panels::color_wheels;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let mut rows: Vec<gpui::AnyElement> = Vec::new();
 
     match app.selected.and_then(|i| app.project.clips.get(i)) {
@@ -47,7 +47,12 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
                 ClipSource::NestedClip { duration_secs, clips, .. } =>
                     format!("Nested  {:.2}s ({} clips)", duration_secs, clips.len()),
             };
-            rows.push(field("Name", clip.name.clone()).into_any_element());
+            rows.push(field_input(
+                "Name",
+                &format!("clip-name-{index}"),
+                clip.name.clone(),
+                fields,
+            ));
             rows.push(field("Source", source).into_any_element());
             rows.push(field("Track", format!("V{}", clip.track + 1)).into_any_element());
             rows.push(field("Start", format!("{:.2}s", clip.start)).into_any_element());
@@ -79,7 +84,14 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
             } else if let ClipSource::Title { text, font_size, .. } = &clip.source {
                 // --- Title clip fields ---
                 rows.push(section_header("Title").into_any_element());
-                rows.push(field("Text", text.clone()).into_any_element());
+                // Real typing: the title text drives SetTitleText, which marks
+                // the host dirty so the program preview re-renders live.
+                rows.push(field_input(
+                    "Text",
+                    &format!("title-text-{index}"),
+                    text.clone(),
+                    fields,
+                ));
                 let fs = *font_size;
                 rows.push(stepper_row(
                     "font-size", "Font Size",
@@ -442,6 +454,35 @@ fn field(label: &str, value: String) -> impl IntoElement {
                 .text_size(px(11.0))
                 .child(value),
         )
+}
+
+/// A labelled row whose value is an editable [`TextField`] looked up by `key`.
+/// Falls back to a non-editable label (`fallback`) when the field wasn't
+/// pre-created by the root view. Used for the clip-name (RenameClip) and title
+/// text (SetTitleText) rows.
+fn field_input(
+    label: &str,
+    key: &str,
+    fallback: String,
+    fields: &TextFields,
+) -> gpui::AnyElement {
+    let value: gpui::AnyElement = match fields.get(key).cloned() {
+        Some(f) => f.into_any_element(),
+        None => div()
+            .px_2().py(px(2.0)).rounded_sm()
+            .bg(colors::surface_overlay())
+            .text_color(colors::text_primary()).text_size(px(11.0))
+            .child(fallback)
+            .into_any_element(),
+    };
+    div()
+        .flex().items_center().justify_between().px_3().py_1().gap_2()
+        .child(
+            div().text_color(colors::text_secondary()).text_size(px(11.0))
+                .child(label.to_string()),
+        )
+        .child(value)
+        .into_any_element()
 }
 
 /// A −/value/+ stepper row that emits an [`Action`] on each button. `dec` / `inc`

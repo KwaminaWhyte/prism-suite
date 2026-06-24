@@ -67,13 +67,23 @@ pub mod tracks;
 pub mod viewer;
 pub mod workspaces;
 
-use gpui::{div, px, IntoElement, ParentElement, Styled};
-use prism_ui::colors;
+use std::collections::HashMap;
+
+use gpui::{div, px, Entity, IntoElement, ParentElement, Styled};
+use prism_ui::{colors, TextField};
 
 /// Shared chrome metrics so every panel/stub agrees on the layout.
 pub const DOCK_W: f32 = 280.0;
 pub const TOOLBAR_H: f32 = 40.0;
 pub const TIMELINE_H: f32 = 160.0;
+
+/// The root view's registry of persistent, focusable [`TextField`] views, keyed
+/// by a stable string (e.g. `"clip-name-3"`). Panels that expose real typing
+/// take this read-only so they can render the field for a given key. The root
+/// view (`Reel`) owns the map and creates each field via `Reel::text_field`;
+/// see `main.rs`. Looking a key up that wasn't pre-created returns `None`, in
+/// which case the panel falls back to a non-editable label.
+pub type TextFields = HashMap<String, Entity<TextField>>;
 
 /// A labeled placeholder body used by stub panels until their real content
 /// lands. Renders the title and a hint inside a section-colored box so the

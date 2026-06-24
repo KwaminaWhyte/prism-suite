@@ -648,4 +648,13 @@ pub enum Action {
     AddWorkspace(String),
     RemoveWorkspace(usize),
     TogglePanelVisible(Panel),
+
+    // --- Real-typing rename (TextField-driven) --------------------------------
+    /// Rename a clip in `project.clips` by index. Empty names are ignored so a
+    /// fully-cleared field never blanks the clip label.
+    RenameClip { index: usize, name: String },
+    /// Rename a track in `project.tracks` by index. Empty names are ignored.
+    RenameTrack { index: usize, name: String },
+    /// Rename a Batch-5 sequence by `id`. Empty names are ignored.
+    RenameSequence { sequence_id: usize, name: String },
 }

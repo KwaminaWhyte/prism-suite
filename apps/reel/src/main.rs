@@ -35,15 +35,16 @@ mod welcome;
 
 use program_frame::{GlobalGrade, kelvin_to_rgb_gain};
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use app_state::App;
+use app_state::{Action, App};
 use gpui::{
-    div, img, px, size, AppContext, Application, Bounds, Context, FocusHandle,
-    InteractiveElement, IntoElement, ParentElement, Render, RenderImage,
+    div, img, px, size, AppContext, Application, Bounds, Context, Entity, FocusHandle,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderImage,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
-use prism_ui::colors;
+use prism_ui::{colors, TextField};
 
 use panels::{DOCK_W, TIMELINE_H, TOOLBAR_H};
 
@@ -62,6 +63,13 @@ struct Reel {
     /// (a cached/paused frame returns the same `id` and keeps its single tile).
     /// Without this, every newly-bridged preview frame leaks one atlas tile.
     last_image: Option<Arc<RenderImage>>,
+    /// Persistent, focusable [`TextField`] views keyed by a stable string
+    /// (e.g. `"clip-name-3"`, `"title-text-7"`, `"export-path"`). Panels are
+    /// stateless `render(&App, cx)` functions called fresh each frame, so the
+    /// field *entities* must live here to survive across frames (keeping their
+    /// focus / caret / selection). [`Reel::text_field`] lazily creates each one
+    /// with an `on_submit` that dispatches an [`Action`] back through `app.apply`.
+    text_fields: HashMap<String, Entity<TextField>>,
 }
 
 impl Reel {
@@ -71,6 +79,214 @@ impl Reel {
             app: App::new(),
             export: None,
             last_image: None,
+            text_fields: HashMap::new(),
+        }
+    }
+
+    /// Get-or-create a persistent [`TextField`] keyed by `key`. On first call the
+    /// field is built with `placeholder`, seeded `initial`, fixed `width`, and an
+    /// `on_submit` (Enter) that maps the typed text to an [`Action`] via
+    /// `make_action` and dispatches it through `self.app.apply` (the single
+    /// mutation choke point). Subsequent calls return the SAME entity so typing
+    /// state (caret, selection, focus) persists across frames.
+    ///
+    /// `make_action` returning `None` means "ignore this submission" (e.g. the
+    /// target row no longer exists). The dispatch runs inside a
+    /// `WeakEntity<Reel>::update`, the standard way a child entity mutates the
+    /// root view from a plain `&mut gpui::App` callback context.
+    fn text_field(
+        &mut self,
+        key: impl Into<String>,
+        placeholder: &str,
+        initial: &str,
+        width: Pixels,
+        make_action: impl Fn(&str) -> Option<Action> + 'static,
+        cx: &mut Context<Self>,
+    ) -> Entity<TextField> {
+        let key = key.into();
+        if let Some(field) = self.text_fields.get(&key) {
+            return field.clone();
+        }
+        let weak = cx.weak_entity();
+        let placeholder = placeholder.to_string();
+        let initial = initial.to_string();
+        let field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder(placeholder)
+                .initial_value(initial)
+                .width(width)
+                .on_submit(move |text, _win, app| {
+                    if let Some(action) = make_action(text) {
+                        let _ = weak.update(app, |reel, cx| {
+                            reel.app.apply(action);
+                            cx.notify();
+                        });
+                    }
+                })
+        });
+        self.text_fields.insert(key, field.clone());
+        field
+    }
+
+    /// Ensure a persistent [`TextField`] exists for every name/text the visible
+    /// panels can edit this frame (clip / track names, the selected title clip's
+    /// text, marker labels, Essential-Graphics text params, the active sequence
+    /// name, and the export output path). Each field is keyed by identity so the
+    /// caret follows the row, not a shared slot. Idempotent: existing fields are
+    /// returned unchanged so typing state survives across frames. Panels then
+    /// look these up by the same key in `self.text_fields`.
+    ///
+    /// Field width is fixed here (rather than filling) so the fields read as
+    /// compact inline inputs inside the dock rows.
+    fn prepare_text_fields(&mut self, cx: &mut Context<Self>) {
+        const NAME_W: f32 = 150.0;
+
+        // Clip names (one field per clip) — RenameClip by index.
+        for i in 0..self.app.project.clips.len() {
+            let name = self.app.project.clips[i].name.clone();
+            self.text_field(
+                format!("clip-name-{i}"),
+                "Clip name",
+                &name,
+                px(NAME_W),
+                move |t| Some(Action::RenameClip { index: i, name: t.to_string() }),
+                cx,
+            );
+        }
+
+        // Track names (one field per track) — RenameTrack by index.
+        for ti in 0..self.app.project.tracks.len() {
+            let name = self.app.project.tracks[ti].name.clone();
+            self.text_field(
+                format!("track-name-{ti}"),
+                "Track name",
+                &name,
+                px(NAME_W),
+                move |t| Some(Action::RenameTrack { index: ti, name: t.to_string() }),
+                cx,
+            );
+        }
+
+        // Selected clip's inline title text — SetTitleText (updates the program
+        // preview live since the apply path marks the host dirty). Extract the
+        // text first so the `self.app` borrow ends before `&mut self` below.
+        if let Some(i) = self.app.selected {
+            let title_text = match self.app.project.clips.get(i) {
+                Some(clip) => match &clip.source {
+                    app_state::ClipSource::Title { text, .. } => Some(text.clone()),
+                    _ => None,
+                },
+                None => None,
+            };
+            if let Some(text) = title_text {
+                self.text_field(
+                    format!("title-text-{i}"),
+                    "Title text",
+                    &text,
+                    px(200.0),
+                    move |t| Some(Action::SetTitleText { index: i, text: t.to_string() }),
+                    cx,
+                );
+            }
+        }
+
+        // Marker labels — RenameMarker by index (only when the panel is open).
+        if self.app.show_markers_panel {
+            for i in 0..self.app.gpui_markers.len() {
+                let name = self.app.gpui_markers[i].name.clone();
+                self.text_field(
+                    format!("marker-name-{i}"),
+                    "Marker name",
+                    &name,
+                    px(150.0),
+                    move |t| Some(Action::RenameMarker { index: i, name: t.to_string() }),
+                    cx,
+                );
+            }
+        }
+
+        // Essential-Graphics text params for the active template — SetMogrParamText.
+        // Snapshot the (param_idx, initial-text) pairs first so the immutable
+        // `self.app` borrow ends before the `&mut self` field creation calls.
+        if self.app.mogr_library_open {
+            if let Some(ai) = self.app.active_mogr {
+                let text_params: Vec<(usize, String)> = self
+                    .app
+                    .mogr_templates
+                    .get(ai)
+                    .map(|tmpl| {
+                        tmpl.params
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(pi, p)| match &p.value {
+                                app_state::MogrParamValue::Text(t) => Some((pi, t.clone())),
+                                _ => None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for (pi, initial) in text_params {
+                    self.text_field(
+                        format!("mogr-text-{ai}-{pi}"),
+                        "Text",
+                        &initial,
+                        px(140.0),
+                        move |s| Some(Action::SetMogrParamText {
+                            template_idx: ai,
+                            param_idx: pi,
+                            text: s.to_string(),
+                        }),
+                        cx,
+                    );
+                }
+            }
+        }
+
+        // Active sequence name — RenameSequence (sequence settings overlay).
+        if self.app.show_sequence_settings {
+            let active_id = self.app.active_sequence_id;
+            let seq_name = self
+                .app
+                .sequences_b5
+                .iter()
+                .find(|s| s.id == active_id)
+                .map(|s| s.name.clone());
+            if let Some(name) = seq_name {
+                self.text_field(
+                    "seq-name",
+                    "Sequence name",
+                    &name,
+                    px(190.0),
+                    move |t| Some(Action::RenameSequence {
+                        sequence_id: active_id,
+                        name: t.to_string(),
+                    }),
+                    cx,
+                );
+            }
+        }
+
+        // Export output path (Export Presets panel) — SetExportPath.
+        if self.app.show_export_presets {
+            let initial = self.app.last_export_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            self.text_field(
+                "export-path",
+                "Output path (e.g. /Users/me/out.mp4)",
+                &initial,
+                px(240.0),
+                |t| {
+                    let trimmed = t.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(Action::SetExportPath(std::path::PathBuf::from(trimmed)))
+                    }
+                },
+                cx,
+            );
         }
     }
 
@@ -245,10 +461,20 @@ impl Render for Reel {
         // The running export's status label (if any), shown in the toolbar.
         let export_label = self.export.as_ref().map(|j| j.status.label());
 
+        // Ensure a persistent, focusable TextField exists for every editable
+        // name/text the visible panels render this frame (clip/track names, the
+        // selected title clip's text, marker labels, Essential-Graphics text
+        // params, the active sequence name, export path). Must run BEFORE the
+        // `&self.app` borrow below, since it needs `&mut self`.
+        self.prepare_text_fields(cx);
+
         // Build panel elements (read-only &App + cx for Action listeners).
+        // `&self.text_fields` co-borrows alongside `&self.app` (both immutable);
+        // panels look up their persistent input views by key.
         let app = &self.app;
+        let text_fields = &self.text_fields;
         let toolbar = panels::toolbar::render(app, export_label, cx);
-        let inspector = panels::inspector::render(app, cx);
+        let inspector = panels::inspector::render(app, text_fields, cx);
         let mixer_panel = if app.show_mixer {
             Some(panels::mixer::render(app, cx))
         } else {
@@ -270,7 +496,7 @@ impl Render for Reel {
             None
         };
         let sequence_settings_panel = if app.show_sequence_settings {
-            Some(panels::sequence_settings::render(app, cx))
+            Some(panels::sequence_settings::render(app, text_fields, cx))
         } else {
             None
         };
@@ -280,22 +506,22 @@ impl Render for Reel {
             None
         };
         let markers_panel = if app.show_markers_panel {
-            Some(panels::markers::render(app, cx))
+            Some(panels::markers::render(app, text_fields, cx))
         } else {
             None
         };
         let export_presets_panel = if app.show_export_presets {
-            Some(panels::export_presets::render(app, cx))
+            Some(panels::export_presets::render(app, text_fields, cx))
         } else {
             None
         };
         let graphics_panel = if app.mogr_library_open {
-            Some(panels::graphics::render(app, cx))
+            Some(panels::graphics::render(app, text_fields, cx))
         } else {
             None
         };
         let render_bar = panels::render_bar::render(app, cx);
-        let tracks = panels::tracks::render(app, cx);
+        let tracks = panels::tracks::render(app, text_fields, cx);
         let timeline = panels::timeline::render(app, cx);
 
         let dual_viewer = self.app.dual_viewer;

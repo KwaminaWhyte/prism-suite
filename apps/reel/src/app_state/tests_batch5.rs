@@ -570,6 +570,23 @@ mod tests_batch5 {
     }
 
     #[test]
+    fn test_rename_sequence() {
+        let mut app = App::new();
+        let id = app.sequences_b5[0].id;
+        app.apply(Action::RenameSequence { sequence_id: id, name: "Main Edit".into() });
+        assert_eq!(app.sequences_b5[0].name, "Main Edit");
+        // Whitespace is trimmed.
+        app.apply(Action::RenameSequence { sequence_id: id, name: "  Trimmed  ".into() });
+        assert_eq!(app.sequences_b5[0].name, "Trimmed");
+        // Blank names are ignored.
+        app.apply(Action::RenameSequence { sequence_id: id, name: "   ".into() });
+        assert_eq!(app.sequences_b5[0].name, "Trimmed");
+        // Unknown id is a no-op (does not panic).
+        app.apply(Action::RenameSequence { sequence_id: 99999, name: "Nope".into() });
+        assert_eq!(app.sequences_b5[0].name, "Trimmed");
+    }
+
+    #[test]
     fn test_parade_and_vectorscope_type() {
         let mut app = App::new();
         app.apply(Action::SetParadeType(ParadeType::Yuv));

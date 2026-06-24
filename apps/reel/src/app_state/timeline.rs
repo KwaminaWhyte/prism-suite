@@ -933,4 +933,25 @@ mod tests {
         assert_eq!(app.project.clips[0].time_remap_keys.len(), before);
     }
 
+    #[test]
+    fn set_title_text_updates_clip_source() {
+        // The TextField-driven title text path: AddTitle seeds a Title clip,
+        // SetTitleText replaces its text (and marks the host dirty for a live
+        // program re-render).
+        let mut app = App::new();
+        app.apply(Action::AddTitle);
+        let idx = app.selected.expect("AddTitle selects the new title clip");
+        match &app.project.clips[idx].source {
+            ClipSource::Title { text, .. } => assert_eq!(text, "Title Text"),
+            other => panic!("expected a Title source, got {other:?}"),
+        }
+        app.apply(Action::SetTitleText { index: idx, text: "Opening Credits".into() });
+        match &app.project.clips[idx].source {
+            ClipSource::Title { text, .. } => assert_eq!(text, "Opening Credits"),
+            other => panic!("expected a Title source, got {other:?}"),
+        }
+        // Out-of-bounds / non-title clips are no-ops (must not panic).
+        app.apply(Action::SetTitleText { index: 9999, text: "x".into() });
+    }
+
 }

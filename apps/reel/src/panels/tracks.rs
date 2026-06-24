@@ -18,9 +18,10 @@ use gpui::prelude::FluentBuilder;
 use prism_ui::{colors, badge, section_header, Icon};
 
 use crate::app_state::{Action, App};
+use crate::panels::TextFields;
 use crate::Reel;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let t = app.time;
     let selected = app.selected;
 
@@ -63,7 +64,14 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
                                 .text_color(eye_color),
                         ),
                 )
-                .child(div().flex_1().child(track.name.clone()))
+                .child(
+                    div().flex_1().children(
+                        fields.get(&format!("track-name-{ti}")).cloned()
+                    ).when(
+                        !fields.contains_key(&format!("track-name-{ti}")),
+                        |d| d.child(track.name.clone()),
+                    ),
+                )
                 .child(
                     div()
                         .text_color(colors::text_secondary())
@@ -107,7 +115,14 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
                     .child(
                         div().w(px(10.0)).h(px(10.0)).rounded_sm().bg(gpui::rgb(rgb_u32(swatch))),
                     )
-                    .child(div().flex_1().text_size(px(12.0)).child(clip.name.clone()))
+                    .child(
+                        div().flex_1().text_size(px(12.0)).children(
+                            fields.get(&format!("clip-name-{i}")).cloned()
+                        ).when(
+                            !fields.contains_key(&format!("clip-name-{i}")),
+                            |d| d.child(clip.name.clone()),
+                        ),
+                    )
                     .child(
                         div()
                             .text_color(colors::text_secondary())

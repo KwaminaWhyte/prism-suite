@@ -566,7 +566,8 @@ impl App {
             | Action::DeleteSequenceB5 { .. }
             | Action::SetActiveSequenceB5 { .. }
             | Action::UpdateSequenceSettingsB5 { .. }
-            | Action::NestSequenceB5 { .. } => {
+            | Action::NestSequenceB5 { .. }
+            | Action::RenameSequence { .. } => {
                 self.apply_batch5(action);
             }
 

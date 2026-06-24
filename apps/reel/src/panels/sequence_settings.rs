@@ -6,9 +6,10 @@ use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
 use prism_ui::{colors, section_header, divider};
 
 use crate::app_state::{Action, App, ColorSpace};
+use crate::panels::TextFields;
 use crate::Reel;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let w = app.project.width;
     let h = app.project.height;
     let fps = app.project.fps;
@@ -17,6 +18,15 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
 
     // Pre-build rows
     let mut rows: Vec<gpui::AnyElement> = Vec::new();
+
+    // Editable sequence name (real typing → RenameSequence on Enter).
+    rows.push(section_header("Name").into_any_element());
+    rows.push(divider().into_any_element());
+    rows.push(
+        div().flex().items_center().px_3().py_1()
+            .children(fields.get("seq-name").cloned())
+            .into_any_element(),
+    );
 
     // Resolution steppers
     rows.push(section_header("Resolution").into_any_element());

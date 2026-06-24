@@ -1,13 +1,15 @@
 //! Markers panel — timeline marker list with In/Out/Chapter/Comment.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{div, px, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled};
 use prism_ui::{colors, section_header, divider};
 
 use crate::app_state::{Action, App, MarkerKind};
+use crate::panels::TextFields;
 use crate::Reel;
 
-pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
+pub fn render(app: &App, fields: &TextFields, cx: &mut Context<Reel>) -> impl IntoElement {
     let work_in = app.work_area_in;
     let work_out = app.work_area_out;
 
@@ -59,8 +61,15 @@ pub fn render(app: &App, cx: &mut Context<Reel>) -> impl IntoElement {
                 }))
                 .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(color))
                 .child(
-                    div().flex_1().flex().flex_col()
-                        .child(div().text_color(colors::text_primary()).text_size(px(11.0)).child(marker.name.clone()))
+                    div().flex_1().flex().flex_col().gap_1()
+                        .child(
+                            div().children(fields.get(&format!("marker-name-{i}")).cloned())
+                                .when(
+                                    !fields.contains_key(&format!("marker-name-{i}")),
+                                    |d| d.text_color(colors::text_primary()).text_size(px(11.0))
+                                        .child(marker.name.clone()),
+                                ),
+                        )
                         .child(div().text_color(colors::text_secondary()).text_size(px(9.0))
                             .child(format!("{} @ {:.2}s", marker.kind.label(), marker.time_secs)))
                 )

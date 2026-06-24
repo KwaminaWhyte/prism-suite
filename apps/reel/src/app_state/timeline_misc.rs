@@ -132,8 +132,88 @@ impl App {
                 self.host.mark_dirty();
             }
             Action::SetSampleRate(rate) => { self.sequence_sample_rate = rate; }
+            // --- Real-typing rename (TextField-driven) ----------------------
+            Action::RenameClip { index, name } => {
+                // Ignore a blank name so a fully-cleared field never wipes the
+                // clip's label; trim surrounding whitespace from typed input.
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    if let Some(c) = self.project.clips.get_mut(index) {
+                        c.name = trimmed.to_string();
+                    }
+                }
+            }
+            Action::RenameTrack { index, name } => {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    if let Some(t) = self.project.tracks.get_mut(index) {
+                        t.name = trimmed.to_string();
+                    }
+                }
+            }
             other => return Some(other),
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::super::{App, Action};
+    use crate::app_state::timeline::Track;
+
+    #[test]
+    fn test_rename_clip() {
+        let mut app = App::new();
+        // Project::new() seeds at least one clip; if not, the action is a no-op
+        // and we add one to exercise the path.
+        if app.project.clips.is_empty() {
+            app.project.tracks.push(Track { name: "V1".into(), enabled: true });
+            app.project.clips.push(crate::app_state::timeline::Clip::default());
+        }
+        app.apply(Action::RenameClip { index: 0, name: "Intro Shot".into() });
+        assert_eq!(app.project.clips[0].name, "Intro Shot");
+    }
+
+    #[test]
+    fn test_rename_clip_trims_and_ignores_blank() {
+        let mut app = App::new();
+        if app.project.clips.is_empty() {
+            app.project.tracks.push(Track { name: "V1".into(), enabled: true });
+            app.project.clips.push(crate::app_state::timeline::Clip::default());
+        }
+        app.apply(Action::RenameClip { index: 0, name: "  Padded  ".into() });
+        assert_eq!(app.project.clips[0].name, "Padded");
+        // A blank / whitespace-only name is ignored, leaving the prior label.
+        app.apply(Action::RenameClip { index: 0, name: "   ".into() });
+        assert_eq!(app.project.clips[0].name, "Padded");
+    }
+
+    #[test]
+    fn test_rename_clip_out_of_bounds_is_noop() {
+        let mut app = App::new();
+        // Should not panic for an index past the end.
+        app.apply(Action::RenameClip { index: 9999, name: "X".into() });
+    }
+
+    #[test]
+    fn test_rename_track() {
+        let mut app = App::new();
+        if app.project.tracks.is_empty() {
+            app.project.tracks.push(Track { name: "V1".into(), enabled: true });
+        }
+        app.apply(Action::RenameTrack { index: 0, name: "Camera A".into() });
+        assert_eq!(app.project.tracks[0].name, "Camera A");
+    }
+
+    #[test]
+    fn test_rename_track_ignores_blank() {
+        let mut app = App::new();
+        if app.project.tracks.is_empty() {
+            app.project.tracks.push(Track { name: "V1".into(), enabled: true });
+        }
+        let original = app.project.tracks[0].name.clone();
+        app.apply(Action::RenameTrack { index: 0, name: "".into() });
+        assert_eq!(app.project.tracks[0].name, original);
     }
 }

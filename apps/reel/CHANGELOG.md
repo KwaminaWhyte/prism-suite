@@ -8,6 +8,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
+### Added — Feature waves 1–3 (parity push)
+- **Time-remap keyframes + freeze-frame** — `time_remap_speed_keys` on a clip,
+  sampled by piecewise-linear integration of the speed curve (factor 0 = freeze)
+  in `program_frame.rs`.
+- **Transition geometry suite** — Slide, Spin, Zoom, Cube-fold, directional
+  Push/Wipe as progress-driven A/B warps (`app_state/transitions.rs` +
+  `timeline_transitions.rs`).
+- **EDL + FCP-XML export** — CMX 3600 EDL and xmeml v5 FCP XML writers
+  (`app_state/edl.rs`).
+- **HSL secondary curves + 3DL LUT** — hue-vs-hue/sat/luma grading; `.3dl` import
+  and `.cube` export (`app_state/color_curves.rs`).
+- **Caption positions + styled inline tags** — per-cue position overrides and
+  `<b>/<i>/<u>/<font>` inline styling on burn-in.
+- **Export codec matrix** — containers (MP4/MOV/MKV/WebM/PNGseq/EXRseq) × video
+  (H.264/H.265/ProRes/VP9/AV1/DNxHR) × audio (AAC/PCM/FLAC) with a pure,
+  unit-tested ffmpeg-arg generator (`export_codecs.rs`).
+- **Multicam sync + angle switch** — waveform cross-correlation + timecode sync,
+  per-time angle selections sampled into cut segments (`app_state/multicam.rs`).
+- **Project management** — media offline/online, relink (path remap), consolidate
+  manifest (`app_state/project_mgmt.rs`).
+- **Autosave / crash recovery** — count-driven versioned snapshot ring with
+  restore (`app_state/autosave.rs`).
+- **Essential Graphics templates** — text/shape template layers with exposed
+  editable props + timeline instantiation (`app_state/graphics_templates.rs`).
+- **Proxy workflow** — proxy job model (½/¼ res), attach/detach, proxy↔full
+  playback/export toggle (`app_state/proxy_workflow.rs`).
+- **Background render cache** — timeline segments keyed by clip-stack hash + range,
+  edit invalidation, ring eviction, render-bar status (`app_state/render_cache.rs`).
+- **Preferences + remappable keybindings** — prefs (autosave/scratch/playback res/
+  default transition) + Premiere-like keymap with conflict detection + JSON
+  (`app_state/prefs_keys.rs`).
+- **Workspaces** — named panel layouts (Editing/Color/Audio/Effects/Graphics),
+  switch/save/reset (`app_state/workspaces.rs`).
+
+### Changed — File organization
+- Split `timeline.rs` (2367 lines, over the ~1000-line limit) into `timeline.rs`
+  core + `timeline_clips` / `timeline_selection` / `timeline_transitions` /
+  `timeline_playback`, with `apply_timeline` delegating to the sub-routers.
+
 ### Fixed
 - **GPU sprite-atlas memory leak during playback.** RAM grew unbounded and was never released while playing. gpui's sprite atlas only frees an image's GPU tile via an explicit `Window::drop_image`, and the host (`canvas_host::sample_and_bridge`) builds a brand-new `RenderImage` (new image id) on every re-sample/playback frame — so every frame leaked one atlas tile, unbounded. Fixed by holding the previously-painted preview image (`Reel::last_image`) and calling `window.drop_image(prev)` whenever a new-id frame replaces it, bounding the atlas to ~one preview frame. A cached/paused frame returns the same id and keeps its single tile.
 

@@ -8,6 +8,13 @@ Versioning follows the workspace `version` in the root `Cargo.toml`.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
+### Fixed
+- `test_queue_animatediff` aligned with the synchronous-stub behaviour: queuing an
+  AnimateDiff job completes immediately (adds motion keyframes, marks the job
+  `Done`), so the test no longer asserts a transient `Queued` status.
+
 ### Added
 
 #### Core Data Model

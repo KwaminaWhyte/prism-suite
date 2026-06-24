@@ -7,6 +7,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
 ### Added
 
 - **Project model** — `ToneProject` with BPM (20–999), time signature, sample rate (44100/48000/88200/96000), bit depth (16/24/32), key, and scale. Defaults: 120 BPM, 4/4, 44100 Hz, 24-bit, C Major.

@@ -6,6 +6,42 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
+### Added — Feature waves 1–3 (parity push)
+
+- **Smudge / Surface Blur / Path Blur / Smart Sharpen** — read-modify-write smudge
+  brush, edge-preserving (bilateral) surface blur, directional path blur, and
+  Smart-Sharpen wiring (`filters_extra.rs`, `app_state/filters_advanced.rs`).
+- **Layer styles — Satin + Pattern Overlay bake** — destructive rasterization for
+  the two remaining styles (`app_state/layer_styles_extra.rs`).
+- **Free Transform — rotation + skew** — extends translate/scale with a composed
+  scale·rotate·skew·translate matrix (`app_state/transform_extra.rs`).
+- **Red-eye removal** — desaturate-toward-luma + darken on red-dominant pixels in a
+  click radius (`app_state/redeye.rs`).
+- **Smart Objects (non-destructive)** — embed a layer's pixels + a re-applicable
+  transform and filter stack; update re-renders source→transform→filters into the
+  layer; bake commits and drops the embed (`app_state/smart_objects_rich.rs`).
+- **Actions / batch automation** — record actions into named sets and replay them,
+  with a re-entrancy guard (`app_state/automation.rs`).
+- **Scripting sandbox** — `rhai` engine exposing document/layer/selection query +
+  mutate ops, plus a line-DSL fallback (`app_state/scripting.rs`).
+- **Rich preferences** — Performance/Color/Interface/File-Handling panes with serde
+  JSON load/save (`app_state/prefs.rs`).
+- **Per-artboard export** — per-artboard format/scale/naming/quality metadata and a
+  computed export plan (`app_state/artboards.rs`).
+- **Native PSD serializer** — hand-rolled `.psd` writer (header, image resources,
+  per-layer bounds/blend/opacity/name, RLE channel data, merged composite) with an
+  RLE/raw compression toggle (`app_state/psd_export.rs`).
+- **Guides / rulers / smart guides** — add/move/lock/clear guides, snap-to-guide,
+  ruler units, and edge/center smart-guide alignment (`app_state/guides.rs`).
+- **Color management** — RGB/Grayscale/CMYK/Lab working modes with RGB↔CMYK and
+  RGB↔Lab conversion, assign/convert working space (`app_state/color_management.rs`).
+- **Keyboard-shortcut remap** — command→chord map with Photoshop-like defaults,
+  conflict detection, JSON load/save (`app_state/shortcuts.rs`).
+- **Navigator + multi-doc tabs** — open-document tab list with active tab + dirty
+  flag, navigator viewport pan/zoom (`app_state/navigator.rs`).
+
 ### Fixed
 
 - **GPU sprite-atlas RAM leak.** RAM grew unbounded across a session and never released. gpui's sprite atlas only frees an image's GPU tile via an explicit `Window::drop_image`, and the canvas host produces a brand-new `RenderImage` (new image id) on every dirty composite — and with `request_animation_frame` the root can redraw continuously — so each redraw leaked one atlas tile. Fixed by holding the previously-painted image (`Pigment::last_image`) and calling `window.drop_image(prev)` whenever a new-id frame replaces it, bounding the atlas to ~one composite frame. An idle/cached frame returns the same image id, so its tile is kept.

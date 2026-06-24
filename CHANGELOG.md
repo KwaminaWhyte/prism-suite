@@ -9,6 +9,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-24
+
+Three parallel feature waves across the four lower-parity apps (Pigment, Contour,
+Pulse, Reel). All new logic lives in per-app domain modules — the shared engine
+crates (`prism-core`, `prism-io`, `prism-media`, `prism-color`, `prism-canvas`,
+`prism-ui`) are unchanged. Full workspace test suite green: Pigment 439, Contour
+813, Pulse 1019, Reel 349, Drift 635, Tone 703.
+
+### Added — Per-app features (see each app's changelog)
+- **Pigment** — non-destructive Smart Objects; actions/batch automation; rhai
+  scripting sandbox; rich preferences; per-artboard export; native PSD serializer;
+  guides/rulers/smart-guides; color management (CMYK/Lab); remappable keyboard
+  shortcuts; navigator + multi-doc tabs; surface/path blur, satin + pattern-overlay
+  bake, free-transform rotate/skew, red-eye.
+- **Contour** — outline-text; full Pathfinder (Divide/Trim/Merge/Crop/Outline/
+  Minus-Back); perspective + envelope distort; Live Paint; real raster→vector
+  Image Trace; pattern brush; chart/graph generation; document setup; symbol-edit
+  mode; CPU Extrude/Revolve 3D; gradient mesh; PNG/SVG/EPS/PDF export; color picker
+  + preferences.
+- **Pulse** — full After-Effects expression API (`loopOut/In/InOut`, `valueAtTime`,
+  `wiggle`, `ease`, `posterizeTime`); output modules; preferences; disk-cache
+  manager; ML-free rotobrush; audio mixer; mask editor; fractal-noise + turbulent-
+  displace; per-layer motion blur; time-stretch/remap; keying suite (chroma/color/
+  luma + spill); distortion fx (corner-pin/bezier/wave/roughen); 3D lights &
+  materials; shape repeater + trim paths; render-format module.
+- **Reel** — time-remap keyframes + freeze-frame; transition suite; EDL/FCP-XML
+  export; HSL secondary curves; 3DL LUT; caption positions; export codec matrix
+  (ProRes/H.26x/VP9/AV1/DNxHR ffmpeg-arg builder); multicam waveform/timecode sync;
+  project relink/consolidate; autosave/crash recovery; Essential-Graphics
+  templates; proxy workflow; background render cache; preferences + remappable
+  keybindings; workspaces.
+
+### Changed — File organization
+- Split oversized source files to respect the ~1000-line rule. **Pulse**:
+  `composition.rs`, `effects_chain.rs`, `mod.rs`, `actions.rs` → focused sibling
+  modules + a new `dispatch.rs` action router. **Reel**: `timeline.rs` (2367 lines)
+  → `timeline.rs` core + `timeline_clips` / `timeline_selection` /
+  `timeline_transitions` / `timeline_playback`.
+
+### Fixed — Drift
+- `test_queue_animatediff` asserted a `Queued` status the synchronous stub never
+  produces (queuing completes immediately — adds motion keyframes and marks the
+  job `Done`); test aligned with the intended behaviour.
+
 ## [0.8.0] - 2026-06-19
 
 ### Changed — Repository

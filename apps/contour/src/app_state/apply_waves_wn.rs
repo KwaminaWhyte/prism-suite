@@ -182,7 +182,8 @@ impl App {
                 self.show_welcome = false;
             }
 
-            _ => {}
+            // Batch 13 tail: real 3D expand, gradient mesh, export, picker, prefs.
+            a => self.apply_batch13(a),
         }
     }
 }

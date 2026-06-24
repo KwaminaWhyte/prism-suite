@@ -27,6 +27,8 @@ use super::{
     MotionEasing,
     ShapeItemKind, ShapeGroupTransform, MergeMode,
     CellPatternKind, GradientEffectKind,
+    OutputModule, OutputModuleFormat, OutputCodec, ColorDepth,
+    PreviewQuality,
 };
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -763,6 +765,68 @@ pub enum Action {
     SetBusCompressor { bus_id: usize, threshold: f32, ratio: f32 },
     SetMasterVolume(f32),
     SetMasterPan(f32),
+
+    // --- AE feature pass: Output Modules ---
+    /// Add an output module to the render-queue output config list.
+    AddOutputModule(OutputModule),
+    /// Remove the output module at `idx`.
+    RemoveOutputModule(usize),
+    /// Set the container format of output module `idx` (re-derives codec/depth).
+    SetOutputModuleFormat { idx: usize, format: OutputModuleFormat },
+    /// Set the codec of output module `idx`.
+    SetOutputModuleCodec { idx: usize, codec: OutputCodec },
+    /// Set the colour depth of output module `idx`.
+    SetOutputModuleDepth { idx: usize, depth: ColorDepth },
+    /// Set the output scale (fraction of comp res) of module `idx`.
+    SetOutputModuleScale { idx: usize, scale: f32 },
+    /// Set an explicit output resolution for module `idx`.
+    SetOutputModuleResolution { idx: usize, width: u32, height: u32 },
+    /// Set the frame range `[start, end)` of module `idx`.
+    SetOutputModuleRange { idx: usize, start: u32, end: u32 },
+    /// Enable/disable audio in module `idx`.
+    SetOutputModuleAudio { idx: usize, enabled: bool },
+
+    // --- AE feature pass: Preferences ---
+    /// Open/close the Preferences dialog.
+    TogglePreferences,
+    SetPrefUndoLevels(u32),
+    SetPrefAutosaveMinutes(u32),
+    SetPrefShowTooltips(bool),
+    SetPrefUiScale(f32),
+    SetPrefDarkTheme(bool),
+    SetPrefMotionPathKeyframes(u32),
+    SetPrefDiskCacheDir(String),
+    SetPrefDiskCacheMaxGb(f32),
+    SetPrefRamReserve(f32),
+    SetPrefConformFps(f32),
+    SetPrefPreviewQuality(PreviewQuality),
+    SetPrefFastDraft(bool),
+    /// Persist the current preferences to a JSON file at `path`.
+    SavePreferences(PathBuf),
+    /// Load preferences from a JSON file at `path`.
+    LoadPreferences(PathBuf),
+    /// Reset all preferences to their defaults.
+    ResetPreferences,
+
+    // --- AE feature pass: Disk Cache Manager ---
+    SetCacheDir(PathBuf),
+    SetCacheMaxGb(f32),
+    CacheInsert { key: String, size: u64 },
+    CacheTouch(String),
+    PurgeDiskCache,
+    EvictDiskCache,
+
+    // --- AE feature pass: Audio mixer expansion ---
+    AddMixerTrack { layer_id: usize, name: String },
+    RemoveMixerTrack { layer_id: usize },
+    SetTrackGainDb { layer_id: usize, gain_db: f32 },
+    SetTrackPan { layer_id: usize, pan: f32 },
+    SetTrackMute { layer_id: usize, muted: bool },
+    SetTrackSolo { layer_id: usize, solo: bool },
+    SetTrackOutputBus { layer_id: usize, bus_id: Option<usize> },
+    SetMasterGainDb(f32),
+    SetMasterBusPan(f32),
+    SetMasterBusMute(bool),
 }
 
 impl Action {

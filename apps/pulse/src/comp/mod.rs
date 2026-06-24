@@ -26,7 +26,7 @@ mod camera;
 mod distort;
 mod effect;
 mod effect_browser;
-mod expr;
+pub(crate) mod expr;
 mod fonts;
 mod footage;
 mod generate;

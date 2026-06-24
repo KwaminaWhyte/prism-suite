@@ -141,7 +141,229 @@ pub struct CameraTrackSolve {
 }
 
 
+// ── Rotobrush propagation (ML-free segmentation) ────────────────────────────
+//
+// A real, testable mask algorithm: seed a foreground colour from the rotobrush
+// add-strokes, **threshold-segment** every pixel by chroma + luma distance to
+// that seed, then **propagate** the mask to the next/previous frame via a
+// bounded flood-fill that grows the previous frame's mask into pixels whose
+// colour is within tolerance. No ML, no global state — pure pixel math over
+// RGBA8 buffers, so it's fully deterministic and unit-testable.
+
+/// A binary segmentation mask over a `width × height` frame (row-major,
+/// `true` = foreground / inside the matte).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RotoMask {
+    pub width: u32,
+    pub height: u32,
+    pub fg: Vec<bool>,
+}
+
+impl RotoMask {
+    /// An all-background mask of the given size.
+    pub fn empty(width: u32, height: u32) -> Self {
+        Self { width, height, fg: vec![false; (width as usize) * (height as usize)] }
+    }
+
+    /// Number of foreground pixels.
+    pub fn foreground_count(&self) -> usize {
+        self.fg.iter().filter(|&&b| b).count()
+    }
+
+    #[inline]
+    fn idx(&self, x: u32, y: u32) -> usize {
+        (y as usize) * (self.width as usize) + (x as usize)
+    }
+}
+
+/// Squared perceptual distance between two RGBA8 pixels, combining a luma term
+/// and a chroma (colour-difference) term — the basis of the threshold segment.
+fn pixel_distance_sq(a: &[u8; 4], b: &[u8; 4]) -> f32 {
+    let (ar, ag, ab) = (a[0] as f32, a[1] as f32, a[2] as f32);
+    let (br, bg, bb) = (b[0] as f32, b[1] as f32, b[2] as f32);
+    // Rec.601 luma.
+    let la = 0.299 * ar + 0.587 * ag + 0.114 * ab;
+    let lb = 0.299 * br + 0.587 * bg + 0.114 * bb;
+    let dl = la - lb;
+    // Chroma = remaining RGB differences after removing luma bias (cheap proxy).
+    let dr = ar - br;
+    let dg = ag - bg;
+    let db = ab - bb;
+    let chroma = dr * dr + dg * dg + db * db;
+    // Weight luma and chroma roughly equally (normalize chroma by 3 channels).
+    dl * dl + chroma / 3.0
+}
+
+/// Read the RGBA8 pixel at `(x, y)` from a tightly-packed buffer.
+#[inline]
+fn pixel_at(pixels: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
+    let i = ((y as usize) * (width as usize) + (x as usize)) * 4;
+    [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
+}
+
+/// Average the RGBA8 colour under a set of layer-local stroke points (rounded to
+/// the nearest pixel, clamped in-bounds). Returns `None` if no point lands inside.
+pub fn seed_color(pixels: &[u8], width: u32, height: u32, pts: &[[f32; 2]]) -> Option<[u8; 4]> {
+    let mut acc = [0u64; 4];
+    let mut n = 0u64;
+    for p in pts {
+        let x = p[0].round();
+        let y = p[1].round();
+        if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
+            continue;
+        }
+        let px = pixel_at(pixels, width, x as u32, y as u32);
+        for c in 0..4 {
+            acc[c] += px[c] as u64;
+        }
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    Some([
+        (acc[0] / n) as u8,
+        (acc[1] / n) as u8,
+        (acc[2] / n) as u8,
+        (acc[3] / n) as u8,
+    ])
+}
+
+/// **Segment** a frame: every pixel within `tolerance` (perceptual distance) of
+/// `seed` becomes foreground. `tolerance` is in the same squared-distance units
+/// as [`pixel_distance_sq`].
+pub fn segment_frame(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    seed: &[u8; 4],
+    tolerance: f32,
+) -> RotoMask {
+    let mut mask = RotoMask::empty(width, height);
+    let tol_sq = tolerance * tolerance;
+    for y in 0..height {
+        for x in 0..width {
+            let px = pixel_at(pixels, width, x, y);
+            if pixel_distance_sq(&px, seed) <= tol_sq {
+                let i = mask.idx(x, y);
+                mask.fg[i] = true;
+            }
+        }
+    }
+    mask
+}
+
+/// **Propagate** a mask from a previous frame onto a new frame.
+///
+/// Flood-fills outward from the previous mask's foreground pixels into the new
+/// frame, keeping any pixel whose colour is within `tolerance` of the seed (the
+/// mask only grows where the new frame still looks like the matte). This models
+/// AE's rotobrush "propagate to next frame": the mask sticks to the subject as it
+/// moves, bounded by the colour tolerance. Deterministic BFS over 4-neighbours.
+pub fn propagate_mask(
+    prev: &RotoMask,
+    next_pixels: &[u8],
+    width: u32,
+    height: u32,
+    seed: &[u8; 4],
+    tolerance: f32,
+) -> RotoMask {
+    let mut out = RotoMask::empty(width, height);
+    if prev.width != width || prev.height != height {
+        return out;
+    }
+    let tol_sq = tolerance * tolerance;
+    let w = width as usize;
+    let h = height as usize;
+    let mut queue: std::collections::VecDeque<(u32, u32)> = std::collections::VecDeque::new();
+
+    let within = |x: u32, y: u32| -> bool {
+        let px = pixel_at(next_pixels, width, x, y);
+        pixel_distance_sq(&px, seed) <= tol_sq
+    };
+
+    // Seed the BFS from previous-mask foreground pixels that still match in the
+    // new frame.
+    for y in 0..height {
+        for x in 0..width {
+            let i = (y as usize) * w + (x as usize);
+            if prev.fg[i] && within(x, y) {
+                out.fg[i] = true;
+                queue.push_back((x, y));
+            }
+        }
+    }
+
+    // Grow into adjacent in-tolerance pixels (BFS, bounded by the buffer).
+    while let Some((x, y)) = queue.pop_front() {
+        let mut neighbors: Vec<(u32, u32)> = Vec::with_capacity(4);
+        if x > 0 { neighbors.push((x - 1, y)); }
+        if (x as usize) + 1 < w { neighbors.push((x + 1, y)); }
+        if y > 0 { neighbors.push((x, y - 1)); }
+        if (y as usize) + 1 < h { neighbors.push((x, y + 1)); }
+        for (nx, ny) in neighbors {
+            let ni = (ny as usize) * w + (nx as usize);
+            if !out.fg[ni] && within(nx, ny) {
+                out.fg[ni] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    out
+}
+
 impl App {
+    /// Run a full rotobrush segment-and-propagate pass for a layer's strokes
+    /// against the supplied per-frame RGBA8 buffers.
+    ///
+    /// `frames` is `[(frame_index, width, height, pixels)]` covering the keyframe
+    /// frame plus the frames to propagate into (forward and/or backward). The
+    /// keyframe is segmented from the layer's **add** strokes; each subsequent
+    /// frame's mask is propagated from its neighbour. Returns the per-frame masks
+    /// in the input order. A pure helper — it does not mutate `self`.
+    pub fn rotobrush_segment_and_propagate(
+        &self,
+        layer_id: usize,
+        key_frame: u32,
+        tolerance: f32,
+        frames: &[(u32, u32, u32, Vec<u8>)],
+    ) -> Vec<(u32, RotoMask)> {
+        let ci = self.active_comp_index();
+        let Some(layer) = self.project.comps.get(ci).and_then(|c| c.layers.get(layer_id)) else {
+            return Vec::new();
+        };
+        // Gather add-stroke points on the key frame (subtract strokes excluded).
+        let key_pts: Vec<[f32; 2]> = layer
+            .rotobrush_strokes
+            .iter()
+            .filter(|s| s.frame == key_frame && !s.is_subtract)
+            .flat_map(|s| s.pts.iter().copied())
+            .collect();
+
+        let Some((_, kw, kh, kpix)) = frames.iter().find(|(fi, ..)| *fi == key_frame) else {
+            return Vec::new();
+        };
+        let Some(seed) = seed_color(kpix, *kw, *kh, &key_pts) else {
+            return Vec::new();
+        };
+
+        // Segment the key frame, then propagate outward to neighbours in order.
+        let mut results: Vec<(u32, RotoMask)> = Vec::with_capacity(frames.len());
+        let mut prev_mask: Option<RotoMask> = None;
+        for (fi, w, h, pix) in frames {
+            let mask = if *fi == key_frame {
+                segment_frame(pix, *w, *h, &seed, tolerance)
+            } else if let Some(pm) = &prev_mask {
+                propagate_mask(pm, pix, *w, *h, &seed, tolerance)
+            } else {
+                segment_frame(pix, *w, *h, &seed, tolerance)
+            };
+            prev_mask = Some(mask.clone());
+            results.push((*fi, mask));
+        }
+        results
+    }
+
     pub(super) fn apply_tracking(&mut self, action: Action) {
         match action {
             // --- Batch 2: Track Camera ---
@@ -647,5 +869,109 @@ mod tests {
         app.apply(Action::ClearRotobrushStrokes { layer_id: 0 });
         let ci = app.active_comp_index();
         assert!(app.project.comps[ci].layers[0].rotobrush_strokes.is_empty());
+    }
+
+    // --- Rotobrush propagation (segmentation) tests ----------------------------
+
+    /// Build a `w×h` RGBA8 frame, filling a centered `bw×bh` block with `fg` over
+    /// a `bg` background.
+    fn block_frame(w: u32, h: u32, bx: u32, by: u32, bw: u32, bh: u32, fg: [u8; 4], bg: [u8; 4]) -> Vec<u8> {
+        let mut px = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let inside = x >= bx && x < bx + bw && y >= by && y < by + bh;
+                let c = if inside { fg } else { bg };
+                px.extend_from_slice(&c);
+            }
+        }
+        px
+    }
+
+    #[test]
+    fn test_seed_color_averages_strokes() {
+        let red = [200, 20, 20, 255];
+        let blue = [20, 20, 200, 255];
+        let frame = block_frame(8, 8, 2, 2, 4, 4, red, blue);
+        // A stroke point inside the red block.
+        let seed = seed_color(&frame, 8, 8, &[[3.0, 3.0]]).unwrap();
+        assert_eq!(seed, red);
+        // Out-of-bounds points ignored → None when all are out.
+        assert!(seed_color(&frame, 8, 8, &[[100.0, 100.0]]).is_none());
+    }
+
+    #[test]
+    fn test_segment_frame_selects_foreground() {
+        let red = [200, 20, 20, 255];
+        let blue = [20, 20, 200, 255];
+        let frame = block_frame(8, 8, 2, 2, 4, 4, red, blue);
+        let mask = segment_frame(&frame, 8, 8, &red, 30.0);
+        // The 4×4 red block should be foreground; background excluded.
+        assert_eq!(mask.foreground_count(), 16);
+        assert!(mask.fg[mask.idx(3, 3)]);
+        assert!(!mask.fg[mask.idx(0, 0)]);
+    }
+
+    #[test]
+    fn test_propagate_mask_tracks_moved_block() {
+        let red = [200, 20, 20, 255];
+        let blue = [20, 20, 200, 255];
+        // Frame 0: red block at (2,2); frame 1: block moved to (3,2).
+        let f0 = block_frame(10, 8, 2, 2, 4, 4, red, blue);
+        let f1 = block_frame(10, 8, 3, 2, 4, 4, red, blue);
+        let mask0 = segment_frame(&f0, 10, 8, &red, 30.0);
+        assert_eq!(mask0.foreground_count(), 16);
+        let mask1 = propagate_mask(&mask0, &f1, 10, 8, &red, 30.0);
+        // The propagated mask should cover the moved block (overlap connects the
+        // flood-fill), so it finds all 16 red pixels in their new position.
+        assert_eq!(mask1.foreground_count(), 16);
+        assert!(mask1.fg[mask1.idx(4, 3)]); // inside the moved block
+        assert!(!mask1.fg[mask1.idx(0, 0)]); // background untouched
+    }
+
+    #[test]
+    fn test_propagate_mask_does_not_leak_to_background() {
+        let red = [200, 20, 20, 255];
+        let blue = [20, 20, 200, 255];
+        let f0 = block_frame(8, 8, 2, 2, 4, 4, red, blue);
+        // Next frame is all-background: nothing matches the seed → empty mask.
+        let f1 = vec![20u8, 20, 200, 255].repeat(64);
+        let mask0 = segment_frame(&f0, 8, 8, &red, 30.0);
+        let mask1 = propagate_mask(&mask0, &f1, 8, 8, &red, 30.0);
+        assert_eq!(mask1.foreground_count(), 0);
+    }
+
+    #[test]
+    fn test_rotobrush_segment_and_propagate_pipeline() {
+        let mut app = App::new();
+        let red = [200, 20, 20, 255];
+        let blue = [20, 20, 200, 255];
+        // Add an add-stroke on frame 0 inside the red block.
+        app.apply(Action::AddRotobrushStroke {
+            layer_id: 0,
+            frame: 0,
+            pts: vec![[3.0, 3.0]],
+        });
+        let f0 = block_frame(10, 8, 2, 2, 4, 4, red, blue);
+        let f1 = block_frame(10, 8, 3, 2, 4, 4, red, blue);
+        let frames = vec![(0u32, 10u32, 8u32, f0), (1u32, 10u32, 8u32, f1)];
+        let masks = app.rotobrush_segment_and_propagate(0, 0, 30.0, &frames);
+        assert_eq!(masks.len(), 2);
+        assert_eq!(masks[0].0, 0);
+        assert_eq!(masks[0].1.foreground_count(), 16);
+        // Frame 1 mask tracks the moved block.
+        assert_eq!(masks[1].0, 1);
+        assert_eq!(masks[1].1.foreground_count(), 16);
+    }
+
+    #[test]
+    fn test_rotobrush_pipeline_empty_without_strokes() {
+        let app = App::new();
+        let red = [200, 20, 20, 255];
+        let blue = [20, 20, 200, 255];
+        let f0 = block_frame(8, 8, 2, 2, 4, 4, red, blue);
+        let frames = vec![(0u32, 8u32, 8u32, f0)];
+        // No strokes on the layer → no seed → empty result.
+        let masks = app.rotobrush_segment_and_propagate(0, 0, 30.0, &frames);
+        assert!(masks.is_empty());
     }
 }

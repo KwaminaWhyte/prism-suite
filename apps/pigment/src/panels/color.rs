@@ -12,14 +12,46 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, rgba, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, rgba, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use prism_ui::{colors, divider, font_size, section_header};
+use prism_ui::{colors, divider, font_size, section_header, TextField};
 use crate::app_state::hsv_to_rgb;
 
 use crate::app_state::{Action, App};
 use crate::Pigment;
+
+/// Parse a `#RRGGBB` / `RRGGBB` (or `#RGB`) hex color into a straight sRGB
+/// `[r, g, b, a]` in 0..1 (alpha always 1.0). Accepts an optional leading `#`,
+/// surrounding whitespace, and is case-insensitive. Returns `None` on any
+/// malformed input so the caller can ignore a bad entry.
+pub fn parse_hex_color(input: &str) -> Option<[f32; 4]> {
+    let s = input.trim().trim_start_matches('#');
+    let bytes = match s.len() {
+        // #RGB shorthand → expand each nibble (e.g. "f0a" → "ff00aa").
+        3 => {
+            let mut out = [0u8; 3];
+            for (i, c) in s.chars().enumerate() {
+                let v = c.to_digit(16)? as u8;
+                out[i] = v << 4 | v;
+            }
+            out
+        }
+        6 => {
+            let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+            [r, g, b]
+        }
+        _ => return None,
+    };
+    Some([
+        bytes[0] as f32 / 255.0,
+        bytes[1] as f32 / 255.0,
+        bytes[2] as f32 / 255.0,
+        1.0,
+    ])
+}
 
 /// 8/255 ≈ 0.0314 per stepper click.
 const STEP: f32 = 8.0 / 255.0;
@@ -36,7 +68,7 @@ fn pack(c: [f32; 4]) -> u32 {
     (r << 24) | (g << 16) | (b << 8) | a
 }
 
-pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
+pub fn render(app: &App, hex_field: &Entity<TextField>, cx: &mut Context<Pigment>) -> impl IntoElement {
     let c = app.brush.color;
     let (r8, g8, b8) = (to_u8(c[0]), to_u8(c[1]), to_u8(c[2]));
     let h = app.fg_hue;
@@ -175,6 +207,23 @@ pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
         // Header
         .child(section_header("Color"))
         .child(divider())
+        // Hex entry — type a `#RRGGBB` value and press Enter to set the color.
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(colors::text_secondary())
+                        .text_size(px(font_size::XS))
+                        .child("Hex"),
+                )
+                .child(div().flex_1().min_w_0().child(hex_field.clone())),
+        )
         // HSV hue wheel strip
         .child(
             div()
@@ -427,4 +476,52 @@ fn swatch_cell(
             root.app.apply(Action::SetBrushColor(color));
             cx.notify();
         }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_hex_color;
+
+    fn approx(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+
+    #[test]
+    fn parses_full_hash_hex() {
+        let c = parse_hex_color("#FF8000").unwrap();
+        assert!(approx(c, [1.0, 128.0 / 255.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn parses_without_hash_and_lowercase() {
+        let c = parse_hex_color("00ff00").unwrap();
+        assert!(approx(c, [0.0, 1.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn parses_with_surrounding_whitespace() {
+        let c = parse_hex_color("  #ffffff  ").unwrap();
+        assert!(approx(c, [1.0, 1.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn parses_three_digit_shorthand() {
+        // "#f0a" → ff00aa
+        let c = parse_hex_color("#f0a").unwrap();
+        assert!(approx(c, [1.0, 0.0, 170.0 / 255.0, 1.0]));
+    }
+
+    #[test]
+    fn rejects_bad_input() {
+        assert!(parse_hex_color("").is_none());
+        assert!(parse_hex_color("#12").is_none());
+        assert!(parse_hex_color("#12345").is_none());
+        assert!(parse_hex_color("nothex").is_none());
+        assert!(parse_hex_color("#GGGGGG").is_none());
+    }
+
+    #[test]
+    fn alpha_is_always_opaque() {
+        assert_eq!(parse_hex_color("#000000").unwrap()[3], 1.0);
+    }
 }

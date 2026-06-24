@@ -39,11 +39,12 @@ use app_state::Action;
 use gpui::prelude::FluentBuilder;
 use gpui::{
     canvas, deferred, div, img, px, rgb, rgba, size, AppContext, Application, Bounds, Context,
-    FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
     ParentElement, Pixels, Point, Render, RenderImage, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
-use prism_ui::{colors, font_size};
+use prism_core::LayerId;
+use prism_ui::{colors, font_size, TextField};
 
 use panels::{DOCK_W, STRIP_W, TOOLBAR_H};
 
@@ -73,6 +74,19 @@ struct Pigment {
     /// differs from the current one (an idle/cached frame returns the same image →
     /// keep its tile).
     last_image: Option<Arc<RenderImage>>,
+
+    // ── Real editable text fields (prism_ui::TextField) ──────────────────────
+    /// The layer currently being renamed + the live field seeded with its name.
+    /// `None` when no rename is in progress. The layers panel renders the field
+    /// in place of the name label for this row; `on_submit` emits `RenameLayer`.
+    rename_field: Option<(LayerId, Entity<TextField>)>,
+    /// Persistent hex-color entry field for the color panel (`#RRGGBB` → color).
+    hex_field: Entity<TextField>,
+    /// Persistent PSD output-path field for the export panel.
+    psd_path_field: Entity<TextField>,
+    /// Text-tool content field: while a text run is being placed, this field's
+    /// content IS the run's string (pushed via `SetTextContent` on change).
+    text_tool_field: Entity<TextField>,
 }
 
 impl Focusable for Pigment {
@@ -245,6 +259,42 @@ impl Pigment {
     }
 }
 
+impl Pigment {
+    /// Begin renaming layer `id`: build a fresh `TextField` seeded with the
+    /// current name, focus it, and store it so the layers panel renders it in
+    /// place of the label. `on_submit` emits `RenameLayer` against the main view
+    /// and clears the rename field (committing the edit).
+    fn start_rename(&mut self, id: LayerId, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        // Weak handle so the submit closure can dispatch back to this view.
+        let weak = cx.entity().downgrade();
+        let field = cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Layer name")
+                .initial_value(name)
+                .on_submit(move |text, _win, app| {
+                    let text = text.to_string();
+                    if let Some(entity) = weak.upgrade() {
+                        entity.update(app, |root, cx| {
+                            root.app.apply(Action::RenameLayer { id, name: text });
+                            root.rename_field = None;
+                            cx.notify();
+                        });
+                    }
+                })
+        });
+        window.focus(&field.focus_handle(cx));
+        self.rename_field = Some((id, field));
+    }
+
+    /// Programmatically set the PSD path field's text (e.g. after a Browse…
+    /// native dialog returns a path).
+    fn set_psd_path_field(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.psd_path_field.update(cx, |f, cx| {
+            f.set_text(path, window, cx);
+        });
+    }
+}
+
 /// Wraps a dock panel with a small "⤢" detach button in the header.
 /// Returns a plain div — floating/detached state is shown via a deferred
 /// overlay added separately to the root view.
@@ -334,12 +384,20 @@ impl Render for Pigment {
         // Batch 4: autosave banner and print/plugin overlays.
         let autosave_pending = self.app.autosave_restore_pending;
 
+        // Clone the field entities up front so the panel calls (which take
+        // `&self.app`, an immutable borrow of `self`) don't conflict with reading
+        // these `self` fields.
+        let hex_field = self.hex_field.clone();
+        let psd_path_field = self.psd_path_field.clone();
+        let text_tool_field = self.text_tool_field.clone();
+        let rename_field = self.rename_field.clone();
+
         // Build panel elements (read-only &App + cx for Action listeners).
         let app = &self.app;
         let toolbar = panels::toolbar::render(app, cx);
-        let tool_options = panels::tool_options::render(app, cx);
+        let tool_options = panels::tool_options::render(app, &text_tool_field, cx);
         let tools = panels::tools::render(app, cx);
-        let color = panels::color::render(app, cx);
+        let color = panels::color::render(app, &hex_field, cx);
         let adjustments = panels::adjustments::render(app, cx);
         let histogram = panels::histogram::render(app, cx);
         let channels = panels::channels::render(app, cx);
@@ -347,7 +405,8 @@ impl Render for Pigment {
         let plugins = panels::plugins::render(app, cx);
         let navigator = panels::navigator::render(app, cx);
         let doc_tabs = panels::navigator::render_tabs(app, cx);
-        let layers = panels::layers::render(app, cx);
+        let psd_export = panels::psd_export::render(app, &psd_path_field, cx);
+        let layers = panels::layers::render(app, rename_field.as_ref(), cx);
         let layer_style_panel = if app.style_panel_open {
             Some(panels::layer_style::render(app, cx))
         } else {
@@ -639,11 +698,32 @@ impl Render for Pigment {
                                             // Cmd+Z / text typing reach our handler.
                                             window.focus(&this.focus);
                                             if let Some(doc) = this.window_to_doc(ev.position) {
+                                                let was_text = this.app.text_editing();
                                                 this.app.begin_drag(
                                                     doc,
                                                     ev.modifiers.alt,
                                                     ev.modifiers.shift,
                                                 );
+                                                // A Text-tool click placed a fresh run:
+                                                // seed the content field with the run's
+                                                // current string (empty for a new run) and
+                                                // focus it so the user types real text.
+                                                // Deferred so `set_text`'s `on_change`
+                                                // (which dispatches back into THIS view)
+                                                // runs after this listener releases the
+                                                // entity — avoiding a reentrant update.
+                                                if !was_text && this.app.text_editing() {
+                                                    let seed =
+                                                        this.app.text_content().to_string();
+                                                    let field = this.text_tool_field.clone();
+                                                    window.defer(cx, move |window, cx| {
+                                                        field.update(cx, |f, cx| {
+                                                            f.set_text(seed, window, cx);
+                                                        });
+                                                        let fh = field.focus_handle(cx);
+                                                        window.focus(&fh);
+                                                    });
+                                                }
                                                 cx.notify();
                                             }
                                         }),
@@ -689,6 +769,7 @@ impl Render for Pigment {
                             .child(dockable_wrap("Channels", channels, app, cx))
                             .child(dockable_wrap("History", history, app, cx))
                             .child(dockable_wrap("Plugins", plugins, app, cx))
+                            .child(dockable_wrap("Export PSD", psd_export, app, cx))
                             .child(dockable_wrap("Layers", layers, app, cx))
                             .when_some(layer_style_panel, |s: Stateful<gpui::Div>, p| s.child(p)),
                     ),
@@ -883,6 +964,73 @@ fn main() {
                     }
                     let focus = cx.focus_handle();
                     window.focus(&focus);
+
+                    // ── Build the persistent editable text fields ──
+                    // Each captures a weak handle to THIS view (resolves once
+                    // construction completes) so its submit/change closure can
+                    // dispatch an Action back through `App::apply`.
+
+                    // Hex color: parse `#RRGGBB` on Enter and set the brush color.
+                    let weak_hex: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let hex_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("#RRGGBB")
+                            .on_submit(move |text, _win, app| {
+                                if let Some(color) = panels::color::parse_hex_color(text) {
+                                    if let Some(entity) = weak_hex.upgrade() {
+                                        entity.update(app, |root, cx| {
+                                            root.app.apply(Action::SetBrushColor(color));
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            })
+                    });
+
+                    // PSD output path: feed `SetPsdExportPath` on Enter.
+                    let weak_psd: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let psd_path_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("/path/to/output.psd")
+                            .on_submit(move |text, _win, app| {
+                                let path = text.to_string();
+                                if let Some(entity) = weak_psd.upgrade() {
+                                    entity.update(app, |root, cx| {
+                                        root.app.apply(Action::SetPsdExportPath(path));
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                    });
+
+                    // Text-tool content: push the full run string into the active
+                    // text layer on every change (real typing onto the canvas).
+                    let weak_text: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let weak_text_submit: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let text_tool_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("Type your text…")
+                            .on_change(move |text, _win, app| {
+                                let content = text.to_string();
+                                if let Some(entity) = weak_text.upgrade() {
+                                    entity.update(app, |root, cx| {
+                                        root.app.apply(Action::SetTextContent(content));
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                            // Enter commits the run (drops the edit handle); the
+                            // rasterized pixels stay on the layer.
+                            .on_submit(move |_text, _win, app| {
+                                if let Some(entity) = weak_text_submit.upgrade() {
+                                    entity.update(app, |root, cx| {
+                                        root.app.commit_text();
+                                        cx.notify();
+                                    });
+                                }
+                            })
+                    });
+
                     Pigment {
                         app,
                         canvas_bounds: Rc::new(Cell::new(None)),
@@ -890,6 +1038,10 @@ fn main() {
                         sel_boundary: Vec::new(),
                         sel_gen_cached: u64::MAX, // force a first trace
                         last_image: None,
+                        rename_field: None,
+                        hex_field,
+                        psd_path_field,
+                        text_tool_field,
                     }
                 })
             },

@@ -339,6 +339,15 @@ impl App {
                     self.sync_host_order_dirty();
                 }
             }
+            Action::RenameLayer { id, name } => {
+                if let Some(l) = self.doc.layers.get_mut(id) {
+                    // Ignore empty names so a layer never loses its label entirely.
+                    let trimmed = name.trim();
+                    if !trimmed.is_empty() {
+                        l.name = trimmed.to_string();
+                    }
+                }
+            }
             Action::AddAdjustment(kind) => {
                 let adj = kind.to_adjustment();
                 let id = self.doc.layers.add_adjustment(adj);
@@ -776,5 +785,32 @@ mod tests {
         let s = Shadow::default();
         assert_eq!(s.blur, 0.0);  // derive(Default) — all f32 = 0
         assert_eq!(s.opacity, 0.0);
+    }
+
+    #[test]
+    fn test_rename_layer_sets_name() {
+        let mut app = App::new();
+        let id = app.doc.layers.layers[0].id;
+        app.apply(Action::RenameLayer { id, name: "Background Copy".into() });
+        let l = app.doc.layers.get(id).unwrap();
+        assert_eq!(l.name, "Background Copy");
+    }
+
+    #[test]
+    fn test_rename_layer_trims_whitespace() {
+        let mut app = App::new();
+        let id = app.doc.layers.layers[0].id;
+        app.apply(Action::RenameLayer { id, name: "  Padded Name  ".into() });
+        assert_eq!(app.doc.layers.get(id).unwrap().name, "Padded Name");
+    }
+
+    #[test]
+    fn test_rename_layer_ignores_empty() {
+        let mut app = App::new();
+        let id = app.doc.layers.layers[0].id;
+        let original = app.doc.layers.get(id).unwrap().name.clone();
+        app.apply(Action::RenameLayer { id, name: "   ".into() });
+        // Whitespace-only name is ignored so the layer keeps a usable label.
+        assert_eq!(app.doc.layers.get(id).unwrap().name, original);
     }
 }

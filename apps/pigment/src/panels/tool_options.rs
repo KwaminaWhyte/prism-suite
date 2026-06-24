@@ -11,15 +11,19 @@
 //! cx.notify()` (the `panels/mod.rs` convention); `app` is read-only.
 
 use gpui::{
-    div, px, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    div, px, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled,
 };
-use prism_ui::{colors, font_size};
+use prism_ui::{colors, font_size, TextField};
 
 use crate::app_state::{Action, App, HealMode, LiquifyMode, Tool};
 use crate::Pigment;
 
-pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    text_tool_field: &Entity<TextField>,
+    cx: &mut Context<Pigment>,
+) -> impl IntoElement {
     let mut row = div()
         .flex()
         .flex_row()
@@ -142,6 +146,28 @@ pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
                 Action::SetTextSize(app.text_size + 2.0),
                 cx,
             ));
+            // While a text run is being placed, show a real editable field whose
+            // content is the run's string. `on_change` (wired at creation in
+            // main.rs) pushes the full string into the layer via SetTextContent,
+            // so the user types real text onto the canvas. Click the canvas with
+            // the Text tool first to start a run.
+            if app.text_editing() {
+                row = row
+                    .child(
+                        div()
+                            .text_color(colors::text_secondary())
+                            .text_size(px(font_size::XS))
+                            .child("Text"),
+                    )
+                    .child(div().w(px(280.0)).child(text_tool_field.clone()));
+            } else {
+                row = row.child(
+                    div()
+                        .text_color(colors::text_secondary())
+                        .text_size(px(font_size::XS))
+                        .child("Click the canvas to start typing"),
+                );
+            }
         }
         Tool::Dodge | Tool::Burn => {
             let is_dodge = app.active == Tool::Dodge;

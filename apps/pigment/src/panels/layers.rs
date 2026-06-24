@@ -15,11 +15,11 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 use prism_core::{Adjustment, BlendMode, LayerId, LayerKind};
-use prism_ui::{colors, divider, font_size, icon_colored, section_header, spacing, Icon};
+use prism_ui::{colors, divider, font_size, icon_colored, section_header, spacing, Icon, TextField};
 
 use crate::app_state::{Action, App};
 use crate::panels::adjust_edit::adjustment_editor;
@@ -63,7 +63,11 @@ fn layer_kind_label(kind: &LayerKind) -> Option<String> {
     }
 }
 
-pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    rename_field: Option<&(LayerId, Entity<TextField>)>,
+    cx: &mut Context<Pigment>,
+) -> impl IntoElement {
     let active = app.doc.active_layer;
     let layers = &app.doc.layers.layers;
     let count = layers.len();
@@ -93,6 +97,11 @@ pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
                 _ => None,
             };
             let kind_label = layer_kind_label(&l.kind);
+            // If THIS row is the one being renamed, grab its live TextField entity
+            // so the name label is replaced by an editable field.
+            let renaming: Option<Entity<TextField>> = rename_field
+                .filter(|(rid, _)| *rid == id)
+                .map(|(_, field)| field.clone());
             let has_mask = app.masked_layers.contains(&id);
             let is_smart = app.smart_objects.contains_key(&id);
             // Smart filter sub-items for this layer.
@@ -184,12 +193,38 @@ pub fn render(app: &App, cx: &mut Context<Pigment>) -> impl IntoElement {
                                 .flex()
                                 .items_center()
                                 .gap_1()
-                                .child(
-                                    div()
-                                        .text_color(name_color)
-                                        .text_size(px(font_size::MD))
-                                        .child(name),
-                                )
+                                // When this row is being renamed, show the editable
+                                // TextField; otherwise the name label (double-click
+                                // to start a rename).
+                                .map(|s| match renaming.clone() {
+                                    Some(field) => s.child(
+                                        div().flex_1().min_w_0().child(field),
+                                    ),
+                                    None => {
+                                        let name_for_edit = name.clone();
+                                        s.child(
+                                            div()
+                                                .id(("lyr-name", id.0))
+                                                .text_color(name_color)
+                                                .text_size(px(font_size::MD))
+                                                .cursor_pointer()
+                                                .on_click(cx.listener(
+                                                    move |root, ev: &gpui::ClickEvent, win, cx| {
+                                                        if ev.click_count() >= 2 {
+                                                            root.start_rename(
+                                                                id,
+                                                                name_for_edit.clone(),
+                                                                win,
+                                                                cx,
+                                                            );
+                                                            cx.notify();
+                                                        }
+                                                    },
+                                                ))
+                                                .child(name),
+                                        )
+                                    }
+                                })
                                 // Mask present marker (a small "M" chip).
                                 .when(has_mask, |s| {
                                     s.child(

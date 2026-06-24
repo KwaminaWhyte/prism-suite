@@ -63,6 +63,7 @@ pub mod layers;
 pub mod navigator;
 pub mod plugins;
 pub mod print;
+pub mod psd_export;
 pub mod tool_options;
 pub mod toolbar;
 pub mod tools;

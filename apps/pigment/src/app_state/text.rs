@@ -13,8 +13,39 @@ impl App {
     pub(super) fn apply_text(&mut self, action: Action) {
         match action {
             Action::SetTextSize(s) => self.text_size = s.clamp(6.0, 400.0),
+            Action::SetTextContent(s) => {
+                self.set_text_content(&s);
+            }
             _ => {}
         }
+    }
+
+    /// Replace the in-progress text run's whole string and re-rasterize the layer.
+    /// Used by the Text tool's editable `TextField`: instead of feeding one
+    /// keystroke at a time through [`App::text_input`], the field owns the full
+    /// string and pushes it here on every change. Returns `true` if a text edit
+    /// was active and consumed the content; `false` (no-op) otherwise.
+    pub fn set_text_content(&mut self, content: &str) -> bool {
+        let Some(edit) = self.text_edit.as_mut() else {
+            return false;
+        };
+        edit.string = content.to_string();
+        let (layer, origin, string) = (edit.layer, edit.origin, edit.string.clone());
+        self.host.update_text_layer(
+            layer,
+            &string,
+            self.text_size,
+            self.brush.color,
+            origin,
+            prism_io::text::TextAlign::Left,
+            None,
+        );
+        true
+    }
+
+    /// The string content of the in-progress text run (empty when none active).
+    pub fn text_content(&self) -> &str {
+        self.text_edit.as_ref().map(|e| e.string.as_str()).unwrap_or("")
     }
 
     // ---- Text tool -----------------------------------------------------------
@@ -160,5 +191,43 @@ mod tests {
     fn test_text_cursor_doc_pos_none() {
         let app = App::new();
         assert!(app.text_cursor_doc_pos().is_none());
+    }
+
+    #[test]
+    fn test_set_text_content_no_edit_is_noop() {
+        let mut app = App::new();
+        // No active text edit → returns false and changes nothing.
+        assert!(!app.set_text_content("hello"));
+        assert_eq!(app.text_content(), "");
+    }
+
+    #[test]
+    fn test_set_text_content_replaces_run() {
+        let mut app = App::new();
+        // Begin a text edit, then push full-string content through the TextField path.
+        app.place_text([10.0, 20.0]);
+        assert!(app.text_editing());
+        assert!(app.set_text_content("Hello, world"));
+        assert_eq!(app.text_content(), "Hello, world");
+        // A second set fully replaces (not appends) the run.
+        assert!(app.set_text_content("Replaced"));
+        assert_eq!(app.text_content(), "Replaced");
+    }
+
+    #[test]
+    fn test_set_text_content_action_dispatch() {
+        let mut app = App::new();
+        app.place_text([5.0, 5.0]);
+        app.apply(Action::SetTextContent("via action".to_string()));
+        assert_eq!(app.text_content(), "via action");
+    }
+
+    #[test]
+    fn test_set_text_content_empty_clears() {
+        let mut app = App::new();
+        app.place_text([0.0, 0.0]);
+        app.set_text_content("non-empty");
+        assert!(app.set_text_content(""));
+        assert_eq!(app.text_content(), "");
     }
 }

@@ -710,6 +710,7 @@ impl App {
             // layers
             Action::ToggleLayerVisible(_) | Action::SelectLayer(_) | Action::SetLayerOpacity(_, _)
             | Action::MoveLayer { .. } | Action::DeleteLayer(_) | Action::SetLayerBlend(_, _)
+            | Action::RenameLayer { .. }
             | Action::AddAdjustment(_) | Action::SetAdjustment(_, _)
             | Action::AddMask(_) | Action::DeleteMask(_) | Action::ToggleEditMask
             | Action::SetAdjustmentCurve(_, _) | Action::SelectAll | Action::FlattenLayers
@@ -815,7 +816,7 @@ impl App {
             => self.apply_transform_extra(action),
 
             // text
-            Action::SetTextSize(_) => self.apply_text(action),
+            Action::SetTextSize(_) | Action::SetTextContent(_) => self.apply_text(action),
 
             // smart_objects
             Action::ConvertToSmartObject(_) | Action::EditSmartObject(_) | Action::RasterizeSmartObject(_)

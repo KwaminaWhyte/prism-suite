@@ -36,6 +36,9 @@ pub enum Action {
     ToggleGradientDither,
     /// Set the Text-tool point size (px).
     SetTextSize(f32),
+    /// Replace the in-progress Text-tool run's string content (from a typed
+    /// `TextField`), re-rasterizing the layer. No-op when no text edit is active.
+    SetTextContent(String),
 
     // --- Layers ---
     /// Toggle a layer's visibility (re-composites — marks host dirty).
@@ -51,6 +54,8 @@ pub enum Action {
     DeleteLayer(LayerId),
     /// Set a layer's blend mode (re-composites — marks host dirty).
     SetLayerBlend(LayerId, BlendMode),
+    /// Rename a layer (pure model state; no recomposite needed).
+    RenameLayer { id: LayerId, name: String },
 
     // --- Color ---
     /// Append the current/given color to the swatch palette (pure UI state).

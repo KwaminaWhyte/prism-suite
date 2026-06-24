@@ -49,7 +49,11 @@ mod workspace;
 // GPUI host modules (formerly contour-gpui)
 mod app_state;
 mod canvas_host;
+mod color_picker_window;
+mod document_setup_window;
+mod export_window;
 mod panels;
+mod preferences_window;
 mod welcome;
 
 use prism_ui::{colors as ui_colors, PrismAssets};
@@ -680,6 +684,80 @@ impl Contour {
             viewport,
         });
         cx.notify();
+    }
+
+    /// Open the floating **Document Setup** window. It receives a
+    /// `WeakEntity<Contour>` so its controls dispatch Actions into this view and
+    /// read `app.doc_setup` back. `WindowKind::Floating` per CLAUDE.md.
+    fn open_document_setup(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let bounds = Bounds::centered(None, size(px(520.0), px(400.0)), cx);
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| document_setup_window::DocumentSetupView::new(focus, weak))
+            },
+        );
+    }
+
+    /// Open the floating **Export** window (format picker + destination).
+    fn open_export(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let bounds = Bounds::centered(None, size(px(640.0), px(480.0)), cx);
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| export_window::ExportView::new(focus, weak))
+            },
+        );
+    }
+
+    /// Open the floating **Color Picker** window (HSB/RGB/CMYK/Hex).
+    fn open_color_picker(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let bounds = Bounds::centered(None, size(px(280.0), px(360.0)), cx);
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| color_picker_window::ColorPickerView::new(focus, weak))
+            },
+        );
+    }
+
+    /// Open the floating **Preferences** window (undo / snap / grid / unit).
+    fn open_preferences(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let bounds = Bounds::centered(None, size(px(720.0), px(560.0)), cx);
+        let _ = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                kind: WindowKind::Floating,
+                ..Default::default()
+            },
+            |win, cx| {
+                let focus = cx.focus_handle();
+                win.focus(&focus);
+                cx.new(|_cx| preferences_window::PreferencesView::new(focus, weak))
+            },
+        );
     }
 }
 

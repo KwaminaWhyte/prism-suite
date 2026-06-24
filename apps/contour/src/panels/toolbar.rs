@@ -169,12 +169,27 @@ pub fn render(app: &App, cx: &mut Context<Contour>) -> impl IntoElement {
             }
         }));
 
-    // Right group: zoom / tool / status — pinned right, never shrunk.
+    // Right group: window launchers / zoom / tool / status — pinned right, never
+    // shrunk.
     let right = div()
         .flex_shrink_0()
         .flex()
         .items_center()
         .gap_4()
+        // Floating-window launchers: Document Setup, Export, Color, Preferences.
+        .child(zoom_btn("open-doc-setup", "Setup", cx, |root, cx| {
+            root.open_document_setup(cx);
+        }))
+        .child(zoom_btn("open-export", "Export", cx, |root, cx| {
+            root.open_export(cx);
+        }))
+        .child(zoom_btn("open-color", "Color", cx, |root, cx| {
+            root.open_color_picker(cx);
+        }))
+        .child(zoom_btn("open-prefs", "Prefs", cx, |root, cx| {
+            root.open_preferences(cx);
+        }))
+        .child(div().w(px(1.0)).h(px(18.0)).bg(colors::surface_border()))
         // Zoom controls: −  NNN%  ＋  Reset. The buttons anchor zoom to the
         // viewport-local origin (`anchor: None, viewport: (0,0)`), keeping the
         // artboard's placed corner stable; cursor-anchored zoom is on scroll.

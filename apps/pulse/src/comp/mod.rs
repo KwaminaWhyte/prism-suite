@@ -77,7 +77,7 @@ pub use generate::{CellType, FractalType, GenerateEffect, Overflow, RampShape};
 pub use key::{apply_key_effects, KeyEffect};
 pub use keyframe::{Ease, Handle, Interp, Track};
 pub use marker::{next_marker_time, prev_marker_time, Marker, WorkArea};
-pub use mask::{mask_stack_coverage, Mask, MaskMode};
+pub use mask::{mask_stack_coverage, Mask, MaskMode, MaskVertex};
 pub use matte::MatteMode;
 pub use motion_blur::{MotionBlur, Prop};
 // The motion-path sampler is the deliverable's pure spatial-curve API: rendering

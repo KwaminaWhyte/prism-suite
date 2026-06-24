@@ -281,9 +281,16 @@ mod tests {
 
     #[test]
     fn test_save_and_load_roundtrip_to_disk() {
-        let dir = std::env::temp_dir().join("pulse_prefs_test");
+        // Unique path (pid + nanos) so parallel test runs never collide on a
+        // shared filename (a fixed path could read a stale default).
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir()
+            .join(format!("pulse_prefs_test_{}_{}", std::process::id(), stamp));
         let path = dir.join("prefs.json");
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
         let mut p = Preferences::default();
         p.general.autosave_minutes = 7;
         p.media.disk_cache_dir = "/tmp/cache".to_string();
@@ -291,7 +298,7 @@ mod tests {
         let loaded = Preferences::load(&path).unwrap();
         assert_eq!(loaded.general.autosave_minutes, 7);
         assert_eq!(loaded.media.disk_cache_dir, "/tmp/cache");
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -343,16 +350,24 @@ mod tests {
     #[test]
     fn test_save_load_actions() {
         let mut app = App::new();
-        let path = std::env::temp_dir().join("pulse_prefs_action_test.json");
-        let _ = std::fs::remove_file(&path);
+        // Unique path (pid + nanos) so a stale file from a prior run can't be read.
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir()
+            .join(format!("pulse_prefs_action_{}_{}", std::process::id(), stamp));
+        let path = dir.join("prefs.json");
+        let _ = std::fs::remove_dir_all(&dir);
         app.apply(Action::SetPrefConformFps(24.0));
         app.apply(Action::SavePreferences(path.clone()));
         assert!(app.last_prefs_save_result.as_ref().unwrap().contains("Saved"));
         // Mutate then reload to confirm persistence.
         app.apply(Action::SetPrefConformFps(60.0));
         app.apply(Action::LoadPreferences(path.clone()));
-        assert!((app.preferences.media.conform_fps - 24.0).abs() < 1e-6);
-        let _ = std::fs::remove_file(&path);
+        assert!((app.preferences.media.conform_fps - 24.0).abs() < 1e-6,
+            "expected 24 after reload, got {}", app.preferences.media.conform_fps);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

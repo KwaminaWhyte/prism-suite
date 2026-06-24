@@ -110,16 +110,30 @@ impl ExprTrack {
         }
     }
 
-    /// Finite-difference **velocity** (units/sec) at `t`, AE's `velocityAtTime`.
-    /// Uses a small symmetric step; flat outside the keyed range.
+    /// **Velocity** (units/sec) at `t`, AE's `velocityAtTime`. Computed from the
+    /// slope of the keyframe segment bracketing `t` (so it stays exact on a
+    /// piecewise-linear ramp and doesn't get diluted by the held tail past the
+    /// last key). Flat outside the keyed range.
     pub fn velocity_at_time(&self, t: f32) -> f32 {
-        if self.keys.len() < 2 {
+        let keys = &self.keys;
+        if keys.len() < 2 {
             return 0.0;
         }
-        let h = 1.0 / 240.0; // sub-frame step
-        let v0 = self.value_at_time(t - h);
-        let v1 = self.value_at_time(t + h);
-        (v1 - v0) / (2.0 * h)
+        let first = keys[0];
+        let last = keys[keys.len() - 1];
+        if t <= first.0 || t >= last.0 {
+            return 0.0;
+        }
+        // Slope of the segment [a, b] containing t.
+        let i = keys.partition_point(|k| k.0 <= t);
+        let a = keys[i - 1];
+        let b = keys[i];
+        let span = b.0 - a.0;
+        if span <= f32::EPSILON {
+            0.0
+        } else {
+            (b.1 - a.1) / span
+        }
     }
 
     /// `loopOut(mode)`: extend the animation past the **last** keyframe.
@@ -707,6 +721,9 @@ mod tests {
     fn test_expr_track_from_layer() {
         let mut app = App::new();
         let ci = app.active_comp_index();
+        // Reset the X track to a clean two-key 0→100 ramp over [0,1] (the demo
+        // layer may already carry keyframes).
+        app.project.comps[ci].layers[0].track_mut(Prop::X).keys.clear();
         app.project.comps[ci].layers[0].track_mut(Prop::X).set_key(0.0, 0.0);
         app.project.comps[ci].layers[0].track_mut(Prop::X).set_key(1.0, 100.0);
         let tr = ExprTrack::from_layer(&app.project.comps[ci].layers[0], Prop::X);

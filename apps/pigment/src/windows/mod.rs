@@ -15,7 +15,9 @@
 //! `update` closure; they capture only plain values (or a weak handle) so they
 //! can live in an independent window render tree.
 
+pub mod new_document;
 pub mod preferences;
+pub mod script_editor;
 pub mod shortcuts;
 
 use gpui::{
@@ -63,6 +65,48 @@ pub fn open_shortcuts(cx: &mut gpui::App, main: WeakEntity<Pigment>) {
             let focus = cx.focus_handle();
             win.focus(&focus);
             cx.new(|_cx| shortcuts::ShortcutsView::new(focus, main))
+        },
+    );
+}
+
+/// Open the floating Script Editor window (multi-line script source + log),
+/// wired to the given main entity.
+pub fn open_script_editor(cx: &mut gpui::App, main: WeakEntity<Pigment>) {
+    let _ = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                gpui_size(px(680.0), px(640.0)),
+                cx,
+            ))),
+            kind: WindowKind::Floating,
+            ..Default::default()
+        },
+        |win, cx| {
+            let focus = cx.focus_handle();
+            win.focus(&focus);
+            cx.new(|cx| script_editor::ScriptEditorView::new(focus, main, cx))
+        },
+    );
+}
+
+/// Open the floating New / Image Size dialog (typeable width/height/resolution),
+/// wired to the given main entity.
+pub fn open_new_document(cx: &mut gpui::App, main: WeakEntity<Pigment>) {
+    let _ = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                None,
+                gpui_size(px(440.0), px(340.0)),
+                cx,
+            ))),
+            kind: WindowKind::Floating,
+            ..Default::default()
+        },
+        |win, cx| {
+            let focus = cx.focus_handle();
+            win.focus(&focus);
+            cx.new(|cx| new_document::NewDocumentView::new(focus, main, cx))
         },
     );
 }

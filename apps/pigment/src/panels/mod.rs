@@ -61,6 +61,7 @@ pub mod layer_comps;
 pub mod layer_style;
 pub mod layers;
 pub mod navigator;
+pub mod num_input;
 pub mod plugins;
 pub mod print;
 pub mod psd_export;

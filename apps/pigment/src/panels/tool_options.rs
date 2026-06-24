@@ -19,9 +19,15 @@ use prism_ui::{colors, font_size, TextField};
 use crate::app_state::{Action, App, HealMode, LiquifyMode, Tool};
 use crate::Pigment;
 
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     app: &App,
     text_tool_field: &Entity<TextField>,
+    brush_size_field: &Entity<TextField>,
+    brush_hardness_field: &Entity<TextField>,
+    brush_opacity_field: &Entity<TextField>,
+    xform_rotation_field: &Entity<TextField>,
+    xform_skew_field: &Entity<TextField>,
     cx: &mut Context<Pigment>,
 ) -> impl IntoElement {
     let mut row = div()
@@ -45,6 +51,8 @@ pub fn render(
 
     match app.active {
         Tool::Brush | Tool::Eraser | Tool::Clone => {
+            // Steppers stay as the live display; the adjacent `TextField`s let the
+            // user type an exact value (Enter → Set* action, wired in main.rs).
             row = row
                 .child(stepper(
                     "brush-size",
@@ -54,6 +62,7 @@ pub fn render(
                     Action::SetBrushSize(app.brush.size + 2.0),
                     cx,
                 ))
+                .child(brush_size_field.clone())
                 .child(stepper(
                     "brush-hard",
                     "Hardness",
@@ -62,6 +71,7 @@ pub fn render(
                     Action::SetBrushHardness(app.brush.hardness + 0.05),
                     cx,
                 ))
+                .child(brush_hardness_field.clone())
                 .child(stepper(
                     "brush-op",
                     "Opacity",
@@ -69,7 +79,8 @@ pub fn render(
                     Action::SetBrushOpacity(app.brush.opacity - 0.05),
                     Action::SetBrushOpacity(app.brush.opacity + 0.05),
                     cx,
-                ));
+                ))
+                .child(brush_opacity_field.clone());
         }
         Tool::Heal => {
             let heal_r = app.heal_radius;
@@ -219,6 +230,30 @@ pub fn render(
         Tool::Transform => {
             let tx = app.xform_translate;
             let sc = app.xform_scale;
+            let label = |s: &'static str| {
+                div()
+                    .text_color(colors::text_secondary())
+                    .text_size(px(font_size::XS))
+                    .child(s)
+            };
+            // Apply button → bake the live free-transform into pixels.
+            let apply_btn = div()
+                .id("xform-apply")
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(colors::tool_active())
+                .border_1()
+                .border_color(colors::surface_border())
+                .text_color(colors::text_primary())
+                .text_size(px(font_size::XS))
+                .cursor_pointer()
+                .hover(|s| s.bg(colors::tool_hover()))
+                .on_click(cx.listener(move |root, _ev, _win, cx| {
+                    root.app.apply(Action::ApplyFreeTransform);
+                    cx.notify();
+                }))
+                .child("Apply");
             row = row
                 .child(
                     div()
@@ -229,12 +264,13 @@ pub fn render(
                             tx[0], tx[1], sc * 100.0
                         )),
                 )
-                .child(
-                    div()
-                        .text_color(colors::text_secondary())
-                        .text_size(px(font_size::XS))
-                        .child("Drag to translate · Shift+drag to scale"),
-                );
+                // Typeable rotation + skew-X (degrees). Enter → Set* action.
+                .child(label("Rotate"))
+                .child(xform_rotation_field.clone())
+                .child(label("Skew X"))
+                .child(xform_skew_field.clone())
+                .child(apply_btn)
+                .child(label("Drag to translate · Shift+drag to scale"));
         }
         Tool::Crop => {
             let crop_info = if let Some(r) = app.crop_rect {

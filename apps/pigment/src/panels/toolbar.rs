@@ -661,6 +661,16 @@ fn menu_dropdown(cx: &mut Context<Pigment>, label: &str) -> impl IntoElement {
             ("Toggle Layers", |root, cx| { root.app.apply(Action::TogglePanel("Layers".to_string())); cx.notify(); }),
             ("Toggle Color", |root, cx| { root.app.apply(Action::TogglePanel("Color".to_string())); cx.notify(); }),
             ("Toggle History", |root, cx| { root.app.apply(Action::TogglePanel("History".to_string())); cx.notify(); }),
+            ("Script Editor…", |_root, cx| {
+                let weak = cx.entity().downgrade();
+                windows::open_script_editor(cx, weak);
+                cx.notify();
+            }),
+            ("New / Image Size…", |_root, cx| {
+                let weak = cx.entity().downgrade();
+                windows::open_new_document(cx, weak);
+                cx.notify();
+            }),
         ],
         _ => &[],
     };

@@ -87,6 +87,18 @@ struct Pigment {
     /// Text-tool content field: while a text run is being placed, this field's
     /// content IS the run's string (pushed via `SetTextContent` on change).
     text_tool_field: Entity<TextField>,
+    /// Typeable brush-size entry (px). `on_submit` parses the number → `SetBrushSize`.
+    brush_size_field: Entity<TextField>,
+    /// Typeable brush-hardness entry (%). `on_submit` → `SetBrushHardness` (0..1).
+    brush_hardness_field: Entity<TextField>,
+    /// Typeable brush-opacity entry (%). `on_submit` → `SetBrushOpacity` (0..1).
+    brush_opacity_field: Entity<TextField>,
+    /// Typeable free-transform rotation entry (degrees). `on_submit` →
+    /// `SetTransformRotation`.
+    xform_rotation_field: Entity<TextField>,
+    /// Typeable free-transform horizontal-skew entry (degrees). `on_submit` →
+    /// `SetTransformSkew` (preserving the current skew-Y).
+    xform_skew_field: Entity<TextField>,
 }
 
 impl Focusable for Pigment {
@@ -390,12 +402,26 @@ impl Render for Pigment {
         let hex_field = self.hex_field.clone();
         let psd_path_field = self.psd_path_field.clone();
         let text_tool_field = self.text_tool_field.clone();
+        let brush_size_field = self.brush_size_field.clone();
+        let brush_hardness_field = self.brush_hardness_field.clone();
+        let brush_opacity_field = self.brush_opacity_field.clone();
+        let xform_rotation_field = self.xform_rotation_field.clone();
+        let xform_skew_field = self.xform_skew_field.clone();
         let rename_field = self.rename_field.clone();
 
         // Build panel elements (read-only &App + cx for Action listeners).
         let app = &self.app;
         let toolbar = panels::toolbar::render(app, cx);
-        let tool_options = panels::tool_options::render(app, &text_tool_field, cx);
+        let tool_options = panels::tool_options::render(
+            app,
+            &text_tool_field,
+            &brush_size_field,
+            &brush_hardness_field,
+            &brush_opacity_field,
+            &xform_rotation_field,
+            &xform_skew_field,
+            cx,
+        );
         let tools = panels::tools::render(app, cx);
         let color = panels::color::render(app, &hex_field, cx);
         let adjustments = panels::adjustments::render(app, cx);
@@ -1031,6 +1057,98 @@ fn main() {
                             })
                     });
 
+                    // Brush param fields — type a number + Enter to set the value.
+                    // Each parses tolerantly (units stripped) and dispatches the
+                    // existing Set* action, which clamps in `App::apply`.
+                    let weak_bsize: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let brush_size_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("px")
+                            .width(px(56.0))
+                            .on_submit(move |text, _win, app| {
+                                if let Some(v) = panels::num_input::parse_f32(text) {
+                                    if let Some(entity) = weak_bsize.upgrade() {
+                                        entity.update(app, |root, cx| {
+                                            root.app.apply(Action::SetBrushSize(v));
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            })
+                    });
+                    let weak_bhard: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let brush_hardness_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("%")
+                            .width(px(56.0))
+                            .on_submit(move |text, _win, app| {
+                                if let Some(v) = panels::num_input::parse_percent_fraction(text) {
+                                    if let Some(entity) = weak_bhard.upgrade() {
+                                        entity.update(app, |root, cx| {
+                                            root.app.apply(Action::SetBrushHardness(v));
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            })
+                    });
+                    let weak_bopac: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let brush_opacity_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("%")
+                            .width(px(56.0))
+                            .on_submit(move |text, _win, app| {
+                                if let Some(v) = panels::num_input::parse_percent_fraction(text) {
+                                    if let Some(entity) = weak_bopac.upgrade() {
+                                        entity.update(app, |root, cx| {
+                                            root.app.apply(Action::SetBrushOpacity(v));
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            })
+                    });
+
+                    // Free-transform rotation + skew-X fields. Rotation submits
+                    // SetTransformRotation; skew-X submits SetTransformSkew while
+                    // preserving the live skew-Y (read from the model on submit).
+                    let weak_rot: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let xform_rotation_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("°")
+                            .width(px(56.0))
+                            .on_submit(move |text, _win, app| {
+                                if let Some(v) = panels::num_input::parse_f32(text) {
+                                    if let Some(entity) = weak_rot.upgrade() {
+                                        entity.update(app, |root, cx| {
+                                            root.app.apply(Action::SetTransformRotation(v));
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            })
+                    });
+                    let weak_skew: gpui::WeakEntity<Pigment> = cx.weak_entity();
+                    let xform_skew_field = cx.new(|cx| {
+                        TextField::new(cx)
+                            .placeholder("°")
+                            .width(px(56.0))
+                            .on_submit(move |text, _win, app| {
+                                if let Some(v) = panels::num_input::parse_f32(text) {
+                                    if let Some(entity) = weak_skew.upgrade() {
+                                        entity.update(app, |root, cx| {
+                                            let skew_y = root.app.xform_skew_y_deg;
+                                            root.app.apply(Action::SetTransformSkew {
+                                                skew_x: v,
+                                                skew_y,
+                                            });
+                                            cx.notify();
+                                        });
+                                    }
+                                }
+                            })
+                    });
+
                     Pigment {
                         app,
                         canvas_bounds: Rc::new(Cell::new(None)),
@@ -1042,6 +1160,11 @@ fn main() {
                         hex_field,
                         psd_path_field,
                         text_tool_field,
+                        brush_size_field,
+                        brush_hardness_field,
+                        brush_opacity_field,
+                        xform_rotation_field,
+                        xform_skew_field,
                     }
                 })
             },

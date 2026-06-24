@@ -29,6 +29,7 @@ use super::{
     CellPatternKind, GradientEffectKind,
     OutputModule, OutputModuleFormat, OutputCodec, ColorDepth,
     PreviewQuality,
+    KeyKind, LightKind, RenderCodec,
 };
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -827,6 +828,90 @@ pub enum Action {
     SetMasterGainDb(f32),
     SetMasterBusPan(f32),
     SetMasterBusMute(bool),
+
+    // ── Keying suite (keying.rs) ──────────────────────────────────────────────
+    /// Add a keyer of `kind` to a layer.
+    AddKeyer { layer_id: usize, kind: KeyKind },
+    /// Remove a layer's keyer.
+    RemoveKeyer { layer_id: usize },
+    /// Switch the keyer kind (chroma / color / luma).
+    SetKeyKind { layer_id: usize, kind: KeyKind },
+    /// Set the key color (linear RGB, clamped to `[0,1]`).
+    SetKeyColor { layer_id: usize, color: [f32; 3] },
+    /// Set a keyer scalar param by name (tolerance / softness / luma_target / spill).
+    SetKeyParam { layer_id: usize, param: &'static str, value: f32 },
+
+    // ── Distortion effects (effects_distort.rs) ───────────────────────────────
+    /// Add an identity Corner Pin sized to `w × h` for a layer.
+    AddCornerPin { layer_id: usize, w: f32, h: f32 },
+    /// Move a corner-pin corner (0=TL, 1=TR, 2=BL, 3=BR) to `(x, y)`.
+    SetCornerPinCorner { layer_id: usize, corner: u8, x: f32, y: f32 },
+    /// Remove a layer's Corner Pin.
+    RemoveCornerPin { layer_id: usize },
+    /// Add a Bezier Warp to a layer.
+    AddBezierWarp { layer_id: usize },
+    /// Set a Bezier-Warp corner displacement (0=TL, 1=TR, 2=BL, 3=BR).
+    SetBezierWarpCorner { layer_id: usize, corner: u8, dx: f32, dy: f32 },
+    /// Remove a layer's Bezier Warp.
+    RemoveBezierWarp { layer_id: usize },
+    /// Add a Wave Warp to a layer.
+    AddWaveWarp { layer_id: usize },
+    /// Set a Wave-Warp scalar param (amplitude / wavelength / direction / phase).
+    SetWaveWarpParam { layer_id: usize, param: &'static str, value: f32 },
+    /// Remove a layer's Wave Warp.
+    RemoveWaveWarp { layer_id: usize },
+    /// Add Roughen Edges to a layer.
+    AddRoughenEdges { layer_id: usize },
+    /// Set a Roughen-Edges scalar param (border / scale).
+    SetRoughenEdgesParam { layer_id: usize, param: &'static str, value: f32 },
+    /// Set the Roughen-Edges deterministic seed.
+    SetRoughenEdgesSeed { layer_id: usize, seed: u32 },
+    /// Remove a layer's Roughen Edges.
+    RemoveRoughenEdges { layer_id: usize },
+
+    // ── 3D lights & materials (lighting3d.rs) ─────────────────────────────────
+    /// Add a 3D light of `kind` to the comp.
+    AddLight3D { kind: LightKind },
+    /// Remove the 3D light at `index`.
+    RemoveLight3D { index: usize },
+    /// Set a 3D light's world position.
+    SetLight3DPosition { index: usize, pos: [f32; 3] },
+    /// Set a 3D light's color (clamped to >= 0).
+    SetLight3DColor { index: usize, color: [f32; 3] },
+    /// Set a 3D light's intensity (clamped to >= 0).
+    SetLight3DIntensity { index: usize, intensity: f32 },
+    /// Set a spot light's cone angle + feather (degrees).
+    SetLight3DCone { index: usize, angle_deg: f32, feather_deg: f32 },
+    /// Set a layer's 3D material param (ambient / diffuse / specular / shininess).
+    SetMaterial3D { layer_id: usize, param: &'static str, value: f32 },
+
+    // ── Shape repeater + trim paths (shape_repeater.rs) ───────────────────────
+    /// Add a default Repeater to a shape layer.
+    AddRepeater { layer_id: usize },
+    /// Remove a layer's Repeater.
+    RemoveRepeater { layer_id: usize },
+    /// Set the Repeater copy count (clamped `[1, 1000]`).
+    SetRepeaterCount { layer_id: usize, copies: u32 },
+    /// Set the Repeater per-copy transform offset / rotation / scale.
+    SetRepeaterTransform { layer_id: usize, offset_x: f32, offset_y: f32, rotation_deg: f32, scale: f32 },
+    /// Set the Repeater first/last-copy opacity ramp.
+    SetRepeaterOpacityRamp { layer_id: usize, start: f32, end: f32 },
+    /// Set static Trim Paths start / end / offset on a layer.
+    SetTrimPaths { layer_id: usize, start: f32, end: f32, offset: f32 },
+    /// Append an animation key to a layer's Trim Paths.
+    AddTrimKey { layer_id: usize, time_s: f32, start: f32, end: f32, offset: f32 },
+    /// Clear a layer's Trim Paths.
+    ClearTrimPaths { layer_id: usize },
+
+    // ── Render output formats (render_formats.rs) ─────────────────────────────
+    /// Set the render output codec.
+    SetRenderCodec(RenderCodec),
+    /// Set the render output frame rate (clamped `[1, 240]`).
+    SetRenderFps(f32),
+    /// Set the x264/x265 CRF quality (clamped `[0, 51]`).
+    SetRenderCrf(u8),
+    /// Enable/disable audio in the render output.
+    SetRenderAudio(bool),
 }
 
 impl Action {

@@ -1,6 +1,6 @@
 # Pulse — Open Source After Effects Alternative
 
-> **Status: ~100% parity (Batches 1–5 complete). Target ≥85%.**
+> **Status: ~72% parity (Batches 1–5 complete). Target ≥85%.**
 
 ## Batch 5 — Completed (2026-06-22)
 

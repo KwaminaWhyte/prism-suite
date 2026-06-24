@@ -4,14 +4,14 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-Open-source creative suite: six desktop apps in Rust. All six now at ~100% of their planned feature parity with industry-standard tools.
+Open-source creative suite: six desktop apps in Rust, each targeting ≥85–90% parity with industry-standard tools.
 
 | App | Analog | Domain | Status |
 |-----|--------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~100% |
-| **Contour** | Illustrator | CPU vector editor | ~100% |
-| **Pulse** | After Effects | CPU compositor / motion | ~100% |
-| **Reel** | Premiere Pro | NLE / video editor | ~100% |
+| **Pigment** | Photoshop | GPU raster editor | ~91% |
+| **Contour** | Illustrator | CPU vector editor | ~77% |
+| **Pulse** | After Effects | CPU compositor / motion | ~72% |
+| **Reel** | Premiere Pro | NLE / video editor | ~62% |
 | **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~100% |
 | **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~100% |
 

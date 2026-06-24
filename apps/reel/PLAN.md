@@ -1,6 +1,6 @@
 # Reel — Open Source Premiere Pro Alternative
 
-> **Status: ~100% parity (Phases 0–8 done, Batch 5 wave 2 done). Target ≥85% by end of Phase 7.**
+> **Status: ~62% parity (Phases 0–8 done, Batch 5 wave 2 done). Target ≥85% by end of Phase 7.**
 
 ## Batch 5 (wave 2) — Completed (2026-06-22)
 

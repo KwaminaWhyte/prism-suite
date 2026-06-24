@@ -17,7 +17,7 @@ Adobe Animate 2025 + Character Animator 2025 combined, plus a differentiated AI 
 | 5 | Export pipeline, Lottie, state machines, interactive | 80% | 650+ | Complete |
 | 6 | Polish: audio mixing, scripting, plugin API | 90% | 800+ | Complete |
 
-**Current overall parity: ~100%** — 492 tests passing.
+**Current overall parity: ~90%** — 492 tests passing.
 
 ### Batch 8 (done)
 - [x] Deformation — puppet pin anchors, deform layers (liquify/push/twist/expand), stretch-squash (14 tests)

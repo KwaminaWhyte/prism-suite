@@ -19,12 +19,12 @@
 
 | App | Analog | Domain | Status |
 |-----|--------|--------|--------|
-| **Pigment** | Photoshop | GPU raster editor | ~100% |
-| **Contour** | Illustrator | CPU vector editor | ~100% |
-| **Pulse** | After Effects | CPU compositor / motion | ~100% |
-| **Reel** | Premiere Pro | NLE / video editor | ~100% |
-| **Drift** | Adobe Animate + Char. Animator | AI-first animation | ~100% |
-| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | ~100% |
+| **Pigment** | Photoshop | GPU raster editor | ~87% |
+| **Contour** | Illustrator | CPU vector editor | ~69% |
+| **Pulse** | After Effects | CPU compositor / motion | ~64% |
+| **Reel** | Premiere Pro | NLE / video editor | ~52% |
+| **Drift** | Adobe Animate + Char. Animator | AI-first animation | scaffold |
+| **Tone** | Logic Pro / GarageBand / Ableton | AI-first music creation | scaffold |
 
 ## Repository layout
 

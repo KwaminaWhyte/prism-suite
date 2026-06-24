@@ -279,7 +279,7 @@ impl App {
                 self.host.mark_dirty();
             }
             Action::OutlineText(idx) => {
-                log::info!("contour: OutlineText(idx={idx}) — text-to-path conversion stub");
+                self.apply_outline_text(idx);
             }
             Action::SetStrokeAlignment(_align) => {
                 log::info!("contour: SetStrokeAlignment — stroke alignment stored (model stub)");

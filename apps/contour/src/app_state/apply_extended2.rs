@@ -75,15 +75,10 @@ impl App {
             }
 
             // --- Batch 9: Live Paint depth ---
-            Action::LivePaintFill { x: _, y: _, color } => {
+            Action::LivePaintFill { x, y, color } => {
                 self.default_fill = color;
-                if let Some(idx) = self.selected {
-                    if idx < self.doc.shapes.len() {
-                        self.checkpoint();
-                        self.doc.shapes[idx].set_fill_color(color);
-                        self.host.mark_dirty();
-                    }
-                }
+                self.live_paint_hit = Some((x, y));
+                self.apply_live_paint_fill(x, y, color);
             }
 
             // --- Batch 10: Gradient Mesh depth ---

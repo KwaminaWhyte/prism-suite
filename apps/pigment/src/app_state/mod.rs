@@ -29,6 +29,11 @@ mod layer_styles_extra;
 mod transform_extra;
 mod redeye;
 mod tests_shapes;
+mod psd_export;
+mod guides;
+mod color_management;
+mod shortcuts;
+mod navigator;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
@@ -44,6 +49,11 @@ pub use self::export::{PrintLayout, SmartFilter, ExportFormat, ExportPreset, Mat
 pub use self::shapes::{ExtendedShapeKind, ExtendedShapeLayer, LineCap, LineJoin, BooleanOp, PsdEncoding, PsdExportConfig, SatinEffect, ColorOverlay, GradientOverlay, PatternOverlay, GradientOverlayStyle, ContourType, BevelDirection, StyleKind};
 use self::selections::AlphaChannel;
 pub use self::selections::BlendIf;
+pub use self::psd_export::{PsdCompression, PsdDocument, PsdLayerInput, PsdHeader, serialize_psd, read_psd_header, blend_key_for_shader_id};
+pub use self::guides::{Guide, GuideOrientation, GuideState, RulerUnit, SmartGuideHit, AlignKind, detect_smart_guides};
+pub use self::color_management::{WorkingColorMode, WorkingSpace, ColorManagement, srgb_to_cmyk, cmyk_to_srgb, srgb_to_lab, lab_to_srgb, srgb_luma};
+pub use self::shortcuts::{KeyChord, ShortcutMap};
+pub use self::navigator::{DocTab, DocTabs, NavigatorView};
 
 use self::text::TextEdit;
 
@@ -1082,6 +1092,79 @@ pub enum Action {
     SetPsdEmbedColorProfile(bool),
     /// Trigger PSD export (stub — records last export path).
     ExportAsPsd { path: String },
+
+    // ---- New: Native PSD serializer -------------------------------------------
+    /// Choose RLE (true) or raw (false) channel compression for native PSD export.
+    SetPsdExportCompression(bool),
+    /// Serialize the live document with the native writer and save to `path`.
+    ExportPsdNative(std::path::PathBuf),
+
+    // ---- New: Guides / rulers / smart guides ----------------------------------
+    /// Add a canvas guide; `horizontal` true = horizontal line, else vertical.
+    AddCanvasGuide { horizontal: bool, position: f32 },
+    /// Remove a canvas guide by id (ignored if locked).
+    RemoveCanvasGuide(u64),
+    /// Clear all unlocked canvas guides.
+    ClearCanvasGuides,
+    /// Lock/unlock a canvas guide.
+    LockCanvasGuide { id: u64, locked: bool },
+    /// Move an unlocked canvas guide to a new position.
+    MoveCanvasGuide { id: u64, position: f32 },
+    /// Toggle whether dragging snaps to guides.
+    SetGuideSnapEnabled(bool),
+    /// Set the snap distance (doc px) for guide snapping.
+    SetGuideSnapDistance(f32),
+    /// Toggle guide visibility.
+    SetGuidesVisible(bool),
+    /// Set the ruler measurement unit.
+    SetRulerUnit(self::guides::RulerUnit),
+    /// Toggle smart-guide alignment detection.
+    SetSmartGuidesEnabled(bool),
+
+    // ---- New: Color management ------------------------------------------------
+    /// Set the document's working color mode (RGB/Grayscale/CMYK/Lab).
+    SetWorkingColorMode(self::color_management::WorkingColorMode),
+    /// Assign a working color space (tag only — no pixel conversion).
+    AssignWorkingSpace(self::color_management::WorkingSpace),
+    /// Convert to a working color mode + space.
+    ConvertWorkingSpace {
+        mode: self::color_management::WorkingColorMode,
+        space: self::color_management::WorkingSpace,
+    },
+    /// Toggle whether the color profile is embedded on export.
+    SetEmbedColorProfile(bool),
+
+    // ---- New: Keyboard shortcuts remap ----------------------------------------
+    /// Rebind a command to a chord string (e.g. "Cmd+Shift+S"); conflicts refused.
+    RemapShortcut { command: String, chord: String },
+    /// Remove a command's binding.
+    UnbindShortcut(String),
+    /// Reset all shortcuts to Photoshop-like defaults.
+    ResetShortcuts,
+    /// Load shortcuts from a JSON string.
+    LoadShortcutsJson(String),
+    /// Save shortcuts to a JSON file at `path`.
+    SaveShortcutsJson(std::path::PathBuf),
+
+    // ---- New: Navigator + multi-doc tabs --------------------------------------
+    /// Open a new document tab.
+    OpenDocTab { title: String, width: u32, height: u32 },
+    /// Close a document tab by id.
+    CloseDocTab(u64),
+    /// Activate a document tab by id.
+    ActivateDocTab(u64),
+    /// Activate a document tab by ordinal index.
+    ActivateDocTabIndex(usize),
+    /// Reorder a tab from one index to another.
+    ReorderDocTab { from: usize, to: usize },
+    /// Set a tab's dirty (unsaved-changes) flag.
+    SetDocTabDirty { id: u64, dirty: bool },
+    /// Set the navigator zoom factor.
+    NavigatorZoom(f32),
+    /// Pan the navigator viewport by a doc-px delta.
+    NavigatorPan { dx: f32, dy: f32 },
+    /// Re-center the navigator viewport on a doc-px point.
+    NavigatorCenter { x: f32, y: f32 },
 }
 
 
@@ -1597,6 +1680,30 @@ pub struct App {
     pub psd_export_config: crate::app_state::shapes::PsdExportConfig,
     /// Path of the last successful PSD export (stub).
     pub last_psd_export_path: Option<String>,
+
+    // ---- New: Native PSD serializer ------------------------------------------
+    /// Whether the native PSD writer uses RLE (true) or raw (false) channels.
+    pub psd_export_rle: bool,
+    /// Path of the last native PSD export (set on success).
+    pub last_psd_native_path: Option<String>,
+
+    // ---- New: Guides / rulers / smart guides ---------------------------------
+    /// Canvas guides, ruler units, and smart-guide settings.
+    pub guide_state: self::guides::GuideState,
+
+    // ---- New: Color management -----------------------------------------------
+    /// Working color mode + space metadata for the document.
+    pub color_management: self::color_management::ColorManagement,
+
+    // ---- New: Keyboard shortcuts remap ---------------------------------------
+    /// Command→keychord bindings (Photoshop-like defaults).
+    pub shortcut_map: self::shortcuts::ShortcutMap,
+
+    // ---- New: Navigator + multi-doc tabs -------------------------------------
+    /// Open document tabs and the active index.
+    pub doc_tabs: self::navigator::DocTabs,
+    /// Navigator proxy viewport (pan/zoom over the document).
+    pub navigator: self::navigator::NavigatorView,
 }
 
 // ---- Batch 6: Select Subject ------------------------------------------------
@@ -1608,6 +1715,7 @@ impl App {
     /// and seed tool/brush/view to the egui app's defaults.
     pub fn new() -> Self {
         let (host, doc) = CanvasHost::new();
+        let (nav_w, nav_h) = (host.doc_w.max(1) as f32, host.doc_h.max(1) as f32);
         Self {
             host,
             doc,
@@ -1877,6 +1985,18 @@ impl App {
             // Batch 8: PSD export config
             psd_export_config: crate::app_state::shapes::PsdExportConfig::default(),
             last_psd_export_path: None,
+            // New: native PSD serializer
+            psd_export_rle: true,
+            last_psd_native_path: None,
+            // New: guides / rulers / smart guides
+            guide_state: self::guides::GuideState::default(),
+            // New: color management
+            color_management: self::color_management::ColorManagement::default(),
+            // New: keyboard shortcuts remap
+            shortcut_map: self::shortcuts::ShortcutMap::defaults(),
+            // New: navigator + multi-doc tabs
+            doc_tabs: self::navigator::DocTabs::default(),
+            navigator: self::navigator::NavigatorView::fit(nav_w, nav_h),
         }
     }
 
@@ -2116,6 +2236,36 @@ impl App {
             // extended layer styles — destructive bake (satin / pattern overlay)
             Action::BakeSatinEffect { .. } | Action::BakePatternOverlay { .. }
             => self.apply_layer_styles_extra(action),
+
+            // native PSD serializer
+            Action::SetPsdExportCompression(_) | Action::ExportPsdNative(_)
+            => self.apply_psd_export(action),
+
+            // guides / rulers / smart guides
+            Action::AddCanvasGuide { .. } | Action::RemoveCanvasGuide(_)
+            | Action::ClearCanvasGuides | Action::LockCanvasGuide { .. }
+            | Action::MoveCanvasGuide { .. } | Action::SetGuideSnapEnabled(_)
+            | Action::SetGuideSnapDistance(_) | Action::SetGuidesVisible(_)
+            | Action::SetRulerUnit(_) | Action::SetSmartGuidesEnabled(_)
+            => self.apply_guides(action),
+
+            // color management
+            Action::SetWorkingColorMode(_) | Action::AssignWorkingSpace(_)
+            | Action::ConvertWorkingSpace { .. } | Action::SetEmbedColorProfile(_)
+            => self.apply_color_management(action),
+
+            // keyboard shortcuts remap
+            Action::RemapShortcut { .. } | Action::UnbindShortcut(_)
+            | Action::ResetShortcuts | Action::LoadShortcutsJson(_)
+            | Action::SaveShortcutsJson(_)
+            => self.apply_shortcuts(action),
+
+            // navigator + multi-doc tabs
+            Action::OpenDocTab { .. } | Action::CloseDocTab(_) | Action::ActivateDocTab(_)
+            | Action::ActivateDocTabIndex(_) | Action::ReorderDocTab { .. }
+            | Action::SetDocTabDirty { .. } | Action::NavigatorZoom(_)
+            | Action::NavigatorPan { .. } | Action::NavigatorCenter { .. }
+            => self.apply_navigator(action),
 
             _ => {}
         }

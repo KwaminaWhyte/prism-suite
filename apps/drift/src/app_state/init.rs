@@ -216,6 +216,7 @@ impl App {
             next_bg_gen_id: 1,
             ai_script_jobs: Vec::new(),
             next_ai_script_id: 1,
+            ai_script_prompt: String::new(),
             // Batch 8: Lottie / export / web / collab
             lottie_builds: Vec::new(),
             next_lottie_build_id: 1,

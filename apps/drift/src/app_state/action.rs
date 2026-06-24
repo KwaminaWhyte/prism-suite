@@ -562,6 +562,9 @@ pub enum Action {
     CompleteAiBgGen { job_id: usize, output_layer_id: usize },
     QueueAiScript { prompt: String },
     CompleteAiScript { job_id: usize, code: String },
+    /// Set the persistent natural-language prompt used for AI script generation.
+    /// Typed live via the AI script-prompt `TextField`; consumed by `QueueAiScript`.
+    SetAiScriptPrompt(String),
 
     // Lottie JSON builder / web import / media export / JS runtime / web publish / collab (Batch 8)
     BuildLottieJson { scene_id: usize, output_path: String },

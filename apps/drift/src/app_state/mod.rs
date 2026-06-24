@@ -405,6 +405,9 @@ pub struct App {
     pub next_bg_gen_id: usize,
     pub ai_script_jobs: Vec<AiScriptJob>,
     pub next_ai_script_id: usize,
+    /// Persistent natural-language prompt for AI script generation, typed live
+    /// via a `TextField`. Read by `QueueAiScript` when the user generates.
+    pub ai_script_prompt: String,
     // Batch 8: Lottie JSON builder
     pub lottie_builds: Vec<LottieJsonBuilder>,
     pub next_lottie_build_id: usize,
@@ -871,7 +874,8 @@ impl App {
             | Action::QueueAiBgGen { .. }
             | Action::CompleteAiBgGen { .. }
             | Action::QueueAiScript { .. }
-            | Action::CompleteAiScript { .. } => self.apply_onnx_inference(&action),
+            | Action::CompleteAiScript { .. }
+            | Action::SetAiScriptPrompt(_) => self.apply_onnx_inference(&action),
             // Batch 8: Lottie / export / web / collab
             Action::BuildLottieJson { .. }
             | Action::StartWebLottieImport { .. }

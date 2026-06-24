@@ -45,40 +45,8 @@ impl Drift {
             return;
         }
 
-        // If typing into the AI prompt textarea, intercept all keys
-        if self.editing_prompt {
-            match ks.key.as_str() {
-                "escape" | "enter" => {
-                    self.editing_prompt = false;
-                    cx.notify();
-                }
-                "backspace" => {
-                    let mut p = self.app.ai_motion_prompt.clone();
-                    p.pop();
-                    self.app.apply(Action::SetAiMotionPrompt(p));
-                    cx.notify();
-                }
-                key if key.len() == 1 && !m.platform && !m.control => {
-                    let ch = if m.shift {
-                        key.to_uppercase()
-                    } else {
-                        key.to_string()
-                    };
-                    let mut p = self.app.ai_motion_prompt.clone();
-                    p.push_str(&ch);
-                    self.app.apply(Action::SetAiMotionPrompt(p));
-                    cx.notify();
-                }
-                " " if !m.platform && !m.control => {
-                    let mut p = self.app.ai_motion_prompt.clone();
-                    p.push(' ');
-                    self.app.apply(Action::SetAiMotionPrompt(p));
-                    cx.notify();
-                }
-                _ => {}
-            }
-            return;
-        }
+        // The AI motion prompt is now a real `prism_ui::TextField` that owns its
+        // own key handling, so the root view no longer intercepts prompt typing.
 
         if m.platform && !m.alt && !m.control {
             match ks.key.as_str() {

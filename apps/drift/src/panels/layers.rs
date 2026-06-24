@@ -8,11 +8,20 @@
 
 use crate::app_state::{Action, App, LayerKind};
 use crate::Drift;
-use gpui::{div, svg, px, Context, InteractiveElement, IntoElement, ParentElement,
+use gpui::prelude::FluentBuilder;
+use gpui::{div, svg, px, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled};
-use prism_ui::{colors, font_size, Icon};
+use prism_ui::{colors, font_size, Icon, TextField};
 
-pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
+/// Render the layers panel. `renaming_layer` is the layer currently being
+/// renamed inline (if any); `rename_field` is the shared editable [`TextField`]
+/// shown in place of that layer's name label.
+pub fn render_layers(
+    app: &App,
+    renaming_layer: Option<usize>,
+    rename_field: Entity<TextField>,
+    cx: &mut Context<Drift>,
+) -> impl IntoElement {
     let active = app.active_layer;
 
     div()
@@ -98,6 +107,8 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
             let visible = layer.visible;
             let locked = layer.locked;
             let name = layer.name.clone();
+            let is_renaming = renaming_layer == Some(layer_id);
+            let rf = rename_field.clone();
             // Derive a display color from the layer's color_tag string.
             let tag_color: gpui::Rgba = match layer.color_tag.as_str() {
                 "red"    => gpui::rgba(0xef4444ff),
@@ -207,18 +218,42 @@ pub fn render_layers(app: &App, cx: &mut Context<Drift>) -> impl IntoElement {
                         .rounded(px(2.0))
                         .child(kind_str),
                 )
-                // Layer name
+                // Layer name — double-click to rename inline via a real TextField.
                 .child(
                     div()
+                        .id(SharedString::from(format!("name-{layer_id}")))
                         .flex_1()
-                        .text_size(px(font_size::SM))
-                        .text_color(if is_active {
-                            colors::text_primary()
-                        } else {
-                            colors::text_secondary()
-                        })
                         .overflow_hidden()
-                        .child(name),
+                        .when(is_renaming, |el: gpui::Stateful<gpui::Div>| el.child(rf.clone()))
+                        .when(!is_renaming, |el: gpui::Stateful<gpui::Div>| {
+                            let rf_start = rf.clone();
+                            let label = name.clone();
+                            let seed_name = name.clone();
+                            el.text_size(px(font_size::SM))
+                                .text_color(if is_active {
+                                    colors::text_primary()
+                                } else {
+                                    colors::text_secondary()
+                                })
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, ev: &gpui::ClickEvent, win, cx| {
+                                    if ev.click_count() >= 2 {
+                                        // Begin inline rename: seed the field with the
+                                        // current name and focus it.
+                                        this.renaming_layer = Some(layer_id);
+                                        let n = seed_name.clone();
+                                        rf_start.update(cx, |field, cx| {
+                                            field.set_text(n, win, cx);
+                                        });
+                                        win.focus(&rf_start.focus_handle(cx));
+                                        cx.notify();
+                                    } else {
+                                        this.app.apply(Action::SetActiveLayer(layer_id));
+                                        cx.notify();
+                                    }
+                                }))
+                                .child(label)
+                        }),
                 )
                 // Delete button [×]
                 .child(

@@ -309,6 +309,9 @@ impl App {
                     j.output_layer_id = Some(*output_layer_id);
                 }
             }
+            Action::SetAiScriptPrompt(prompt) => {
+                self.ai_script_prompt = prompt.clone();
+            }
             Action::QueueAiScript { prompt } => {
                 let id = self.next_ai_script_id;
                 self.next_ai_script_id += 1;
@@ -604,5 +607,39 @@ mod tests {
         a.apply(Action::QueueAiScript { prompt: "A".to_string() });
         a.apply(Action::QueueAiScript { prompt: "B".to_string() });
         assert_ne!(a.ai_script_jobs[0].id, a.ai_script_jobs[1].id);
+    }
+
+    // ── AI Script Prompt (typed live via TextField) ───────────────────────────
+
+    #[test]
+    fn test_set_ai_script_prompt_default_empty() {
+        let a = app();
+        assert!(a.ai_script_prompt.is_empty());
+    }
+
+    #[test]
+    fn test_set_ai_script_prompt() {
+        let mut a = app();
+        a.apply(Action::SetAiScriptPrompt("make layer bounce".to_string()));
+        assert_eq!(a.ai_script_prompt, "make layer bounce");
+    }
+
+    #[test]
+    fn test_set_ai_script_prompt_overwrites() {
+        let mut a = app();
+        a.apply(Action::SetAiScriptPrompt("first".to_string()));
+        a.apply(Action::SetAiScriptPrompt("second".to_string()));
+        assert_eq!(a.ai_script_prompt, "second");
+    }
+
+    #[test]
+    fn test_ai_script_prompt_feeds_queue() {
+        // The typed prompt is what the UI passes into QueueAiScript.
+        let mut a = app();
+        a.apply(Action::SetAiScriptPrompt("rotate 360".to_string()));
+        let prompt = a.ai_script_prompt.clone();
+        a.apply(Action::QueueAiScript { prompt });
+        assert_eq!(a.ai_script_jobs.len(), 1);
+        assert_eq!(a.ai_script_jobs[0].prompt, "rotate 360");
     }
 }

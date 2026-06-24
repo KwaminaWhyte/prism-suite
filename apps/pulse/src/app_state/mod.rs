@@ -45,6 +45,9 @@ mod shape_groups;
 mod audio_mixer;
 mod apply_batch5;
 mod tests_batch5;
+mod output_module;
+mod preferences;
+mod cache_manager;
 
 pub use actions::Action;
 
@@ -68,7 +71,12 @@ pub use keyframes::{GizmoDrag, WorkAreaHandle, KeyframeDrag, PreviewRect, GraphG
 pub use crate::comp::Handle as GizmoHandle2;
 pub use motion_paths::{MotionPath, MotionPathPoint, MotionEasing};
 pub use shape_groups::{ShapeLayerGroup, ShapeGroupTransform, ShapeItemKind, MergeMode, TrimMultiple};
-pub use audio_mixer::AudioBus;
+pub use audio_mixer::{AudioBus, MixerTrack, MasterBus, Mixdown, db_to_linear, linear_to_db, pan_law};
+pub use expressions::{LoopMode, ExprTrack};
+pub use tracking::{RotoMask, seed_color, segment_frame, propagate_mask};
+pub use output_module::{OutputModule, OutputModuleFormat, OutputCodec, ColorDepth};
+pub use preferences::{Preferences, GeneralPrefs, DisplayPrefs, MediaPrefs, PreviewPrefs, PreviewQuality};
+pub use cache_manager::{DiskCacheManager, CacheEntry};
 
 const UNDO_LIMIT: usize = 64;
 
@@ -405,6 +413,23 @@ pub struct App {
     pub master_volume: f32,
     pub master_pan: f32,
     pub next_bus_id: usize,
+
+    // --- AE feature pass: audio mixer expansion ---
+    /// Per-track mixer strips (gain/pan/solo/mute/routing).
+    pub mixer_tracks: Vec<MixerTrack>,
+    /// The master output bus.
+    pub master_bus: MasterBus,
+
+    // --- AE feature pass: Output Modules (render-queue output config) ---
+    pub output_modules: Vec<OutputModule>,
+
+    // --- AE feature pass: Preferences ---
+    pub preferences: Preferences,
+    pub preferences_open: bool,
+    pub last_prefs_save_result: Option<String>,
+
+    // --- AE feature pass: Disk Cache Manager ---
+    pub disk_cache: DiskCacheManager,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -541,6 +566,13 @@ impl App {
             master_volume: 1.0,
             master_pan: 0.0,
             next_bus_id: 0,
+            mixer_tracks: Vec::new(),
+            master_bus: MasterBus::default(),
+            output_modules: Vec::new(),
+            preferences: Preferences::default(),
+            preferences_open: false,
+            last_prefs_save_result: None,
+            disk_cache: DiskCacheManager::default(),
         }
     }
 
@@ -929,6 +961,55 @@ impl App {
             | Action::SetBusCompressor { .. }
             | Action::SetMasterVolume(_)
             | Action::SetMasterPan(_)) => self.apply_batch5(a),
+
+            // --- AE feature pass: Output Modules ---
+            a @ (Action::AddOutputModule(_)
+            | Action::RemoveOutputModule(_)
+            | Action::SetOutputModuleFormat { .. }
+            | Action::SetOutputModuleCodec { .. }
+            | Action::SetOutputModuleDepth { .. }
+            | Action::SetOutputModuleScale { .. }
+            | Action::SetOutputModuleResolution { .. }
+            | Action::SetOutputModuleRange { .. }
+            | Action::SetOutputModuleAudio { .. }) => self.apply_output_module(a),
+
+            // --- AE feature pass: Preferences ---
+            a @ (Action::TogglePreferences
+            | Action::SetPrefUndoLevels(_)
+            | Action::SetPrefAutosaveMinutes(_)
+            | Action::SetPrefShowTooltips(_)
+            | Action::SetPrefUiScale(_)
+            | Action::SetPrefDarkTheme(_)
+            | Action::SetPrefMotionPathKeyframes(_)
+            | Action::SetPrefDiskCacheDir(_)
+            | Action::SetPrefDiskCacheMaxGb(_)
+            | Action::SetPrefRamReserve(_)
+            | Action::SetPrefConformFps(_)
+            | Action::SetPrefPreviewQuality(_)
+            | Action::SetPrefFastDraft(_)
+            | Action::SavePreferences(_)
+            | Action::LoadPreferences(_)
+            | Action::ResetPreferences) => self.apply_preferences(a),
+
+            // --- AE feature pass: Disk Cache Manager ---
+            a @ (Action::SetCacheDir(_)
+            | Action::SetCacheMaxGb(_)
+            | Action::CacheInsert { .. }
+            | Action::CacheTouch(_)
+            | Action::PurgeDiskCache
+            | Action::EvictDiskCache) => self.apply_cache_manager(a),
+
+            // --- AE feature pass: Audio mixer expansion ---
+            a @ (Action::AddMixerTrack { .. }
+            | Action::RemoveMixerTrack { .. }
+            | Action::SetTrackGainDb { .. }
+            | Action::SetTrackPan { .. }
+            | Action::SetTrackMute { .. }
+            | Action::SetTrackSolo { .. }
+            | Action::SetTrackOutputBus { .. }
+            | Action::SetMasterGainDb(_)
+            | Action::SetMasterBusPan(_)
+            | Action::SetMasterBusMute(_)) => self.apply_audio_mixer(a),
 
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),

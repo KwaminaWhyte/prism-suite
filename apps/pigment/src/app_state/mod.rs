@@ -20,6 +20,11 @@ mod filters;
 mod text;
 mod transforms;
 mod smart_objects;
+mod smart_objects_rich;
+mod automation;
+mod scripting;
+mod prefs;
+mod artboards;
 mod ai;
 mod layer_3d;
 mod export;
@@ -28,6 +33,11 @@ mod tests_shapes;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
+pub use self::smart_objects_rich::{EmbeddedSmartObject, SmartTransform, SmartFilter as SmartObjectFilter, SmartFilterStack};
+pub use self::automation::{ActionSet, AutomationState};
+pub use self::scripting::{ScriptCmd, ScriptOutcome};
+pub use self::prefs::{PigmentPreferences, PerformancePrefs, ColorPrefs, InterfacePrefs, FileHandlingPrefs};
+pub use self::artboards::{ArtboardExportConfig, ArtboardExportFormat, ArtboardExportItem};
 pub use self::ai::{GenerativeFillResult, SkyPreset, SkyReplaceConfig, SelectSubjectMode, SelectSubjectResult};
 pub use self::layer_3d::{Shape3DKind, Layer3DProps};
 pub use self::canvas::{Tool, Slice, ColorProfile, SoftProofMode, HistogramChannel, ColorMode};
@@ -1048,6 +1058,95 @@ pub enum Action {
     SetPsdEmbedColorProfile(bool),
     /// Trigger PSD export (stub — records last export path).
     ExportAsPsd { path: String },
+
+    // ---- New Feature: Rich (non-destructive) Smart Objects ------------------
+    /// Capture a layer's pixels into a new embedded Smart Object.
+    EmbedSmartObject { layer_id: usize },
+    /// Set an embedded Smart Object's non-destructive scale.
+    SetSmartObjectScale { so_id: usize, scale: f32 },
+    /// Set an embedded Smart Object's non-destructive rotation (degrees).
+    SetSmartObjectRotation { so_id: usize, degrees: f32 },
+    /// Set an embedded Smart Object's non-destructive skew (degrees).
+    SetSmartObjectSkew { so_id: usize, skew_x: f32, skew_y: f32 },
+    /// Set an embedded Smart Object's non-destructive translation (output px).
+    SetSmartObjectTranslate { so_id: usize, x: f32, y: f32 },
+    /// Push a non-destructive filter onto an embedded Smart Object's stack.
+    AddSmartObjectFilter { so_id: usize, filter: self::smart_objects_rich::SmartFilter },
+    /// Clear an embedded Smart Object's filter stack.
+    ClearSmartObjectFilters { so_id: usize },
+    /// Reset an embedded Smart Object's transform to identity.
+    ResetSmartObjectTransform { so_id: usize },
+    /// Re-render an embedded Smart Object (source → transform → filters) and
+    /// upload the result into its bound layer.
+    UpdateSmartObject { so_id: usize },
+    /// Bake an embedded Smart Object: render + upload, then drop the embed.
+    BakeSmartObject { so_id: usize },
+
+    // ---- New Feature: Actions / batch automation ----------------------------
+    /// Begin (or resume) recording actions into a named set.
+    StartRecording { name: String },
+    /// Stop the active recording.
+    StopRecording,
+    /// Replay a recorded action set by index.
+    PlayActionSet { index: usize },
+    /// Replay a recorded action set by name.
+    PlayActionSetByName { name: String },
+    /// Delete a recorded action set by index.
+    DeleteActionSet { index: usize },
+    /// Clear all steps from a recorded action set (keep the set).
+    ClearActionSet { index: usize },
+    /// Rename a recorded action set.
+    RenameActionSet { index: usize, name: String },
+
+    // ---- New Feature: Scripting sandbox -------------------------------------
+    /// Run an inline script (rhai or line-DSL, auto-detected) immediately.
+    RunScript { source: String },
+    /// Set the persistent script-editor source buffer.
+    SetScriptSource(String),
+    /// Run the current script-editor source buffer.
+    RunCurrentScript,
+    /// Clear the accumulated script log.
+    ClearScriptLog,
+
+    // ---- New Feature: Rich preferences --------------------------------------
+    /// Set the RAM-usage fraction (Performance pane).
+    SetPrefMemoryFraction(f32),
+    /// Set the number of history (undo) states.
+    SetPrefHistoryStates(u32),
+    /// Toggle GPU compositing.
+    SetPrefUseGpu(bool),
+    /// Set the working RGB space name (Color pane).
+    SetPrefWorkingRgb(String),
+    /// Set the default rendering intent label.
+    SetPrefRenderingIntent(String),
+    /// Set the UI theme (Interface pane).
+    SetPrefTheme(String),
+    /// Set the UI scale factor.
+    SetPrefUiScale(f32),
+    /// Set the autosave interval in minutes (File Handling pane).
+    SetPrefAutosaveMinutes(u32),
+    /// Set the number of recent files to remember.
+    SetPrefRecentFileCount(u32),
+    /// Reset all rich preferences to defaults.
+    ResetPreferences,
+    /// Persist rich preferences to disk.
+    SavePreferences,
+    /// Load rich preferences from disk.
+    LoadPreferences,
+
+    // ---- New Feature: Per-artboard export metadata --------------------------
+    /// Set an artboard's export format.
+    SetArtboardExportFormat { id: u64, format: self::artboards::ArtboardExportFormat },
+    /// Set an artboard's export scale multiplier.
+    SetArtboardExportScale { id: u64, scale: f32 },
+    /// Set an artboard's export filename prefix/suffix.
+    SetArtboardExportNaming { id: u64, prefix: String, suffix: String },
+    /// Set an artboard's export quality (JPEG/WebP).
+    SetArtboardExportQuality { id: u64, quality: u8 },
+    /// Enable/disable an artboard in batch export.
+    SetArtboardExportEnabled { id: u64, enabled: bool },
+    /// Compute (and store) the per-artboard export plan.
+    PrepareArtboardExport,
 }
 
 
@@ -1556,6 +1655,34 @@ pub struct App {
     pub psd_export_config: crate::app_state::shapes::PsdExportConfig,
     /// Path of the last successful PSD export (stub).
     pub last_psd_export_path: Option<String>,
+
+    // ---- New Feature: Rich (non-destructive) Smart Objects ------------------
+    /// Embedded Smart Objects (source pixels + transform + filter stack).
+    pub embedded_smart_objects: Vec<self::smart_objects_rich::EmbeddedSmartObject>,
+    /// Auto-incrementing id counter for embedded Smart Objects.
+    pub embedded_so_counter: usize,
+
+    // ---- New Feature: Actions / batch automation ----------------------------
+    /// Action recorder + saved replayable action sets.
+    pub automation: self::automation::AutomationState,
+
+    // ---- New Feature: Scripting sandbox -------------------------------------
+    /// Persistent script-editor source buffer.
+    pub script_source: String,
+    /// Accumulated script log lines.
+    pub script_log: Vec<String>,
+
+    // ---- New Feature: Rich preferences --------------------------------------
+    /// Full Performance/Color/Interface/File-Handling preferences.
+    pub preferences: self::prefs::PigmentPreferences,
+    /// Override path for the preferences file (defaults when None).
+    pub preferences_path: Option<std::path::PathBuf>,
+
+    // ---- New Feature: Per-artboard export metadata --------------------------
+    /// Per-artboard export configs keyed by artboard id.
+    pub artboard_export_configs: std::collections::HashMap<u64, self::artboards::ArtboardExportConfig>,
+    /// Last computed per-artboard export plan.
+    pub last_artboard_export_plan: Vec<self::artboards::ArtboardExportItem>,
 }
 
 // ---- Batch 6: Select Subject ------------------------------------------------
@@ -1833,6 +1960,21 @@ impl App {
             // Batch 8: PSD export config
             psd_export_config: crate::app_state::shapes::PsdExportConfig::default(),
             last_psd_export_path: None,
+
+            // New Feature: rich Smart Objects
+            embedded_smart_objects: Vec::new(),
+            embedded_so_counter: 0,
+            // New Feature: actions / batch automation
+            automation: self::automation::AutomationState::default(),
+            // New Feature: scripting sandbox
+            script_source: String::new(),
+            script_log: Vec::new(),
+            // New Feature: rich preferences
+            preferences: self::prefs::PigmentPreferences::default(),
+            preferences_path: None,
+            // New Feature: per-artboard export metadata
+            artboard_export_configs: std::collections::HashMap::new(),
+            last_artboard_export_plan: Vec::new(),
         }
     }
 
@@ -1850,6 +1992,8 @@ impl App {
         if let Some(label) = action_label(&action) {
             self.history_labels.push(label);
         }
+        // Capture into the active recording (no-op unless recording / mid-replay).
+        self.record_action(&action);
         match action {
             Action::SetTool(t) => {
                 // Leaving the Text tool commits any in-progress text run.
@@ -2048,6 +2192,41 @@ impl App {
             | Action::SetPsdExportPath(_) | Action::SetPsdMaximizeCompatibility(_) | Action::SetPsdEncoding(_)
             | Action::SetPsdEmbedColorProfile(_) | Action::ExportAsPsd { .. }
             => self.apply_shapes(action),
+
+            // New Feature: rich (non-destructive) Smart Objects
+            Action::EmbedSmartObject { .. } | Action::SetSmartObjectScale { .. }
+            | Action::SetSmartObjectRotation { .. } | Action::SetSmartObjectSkew { .. }
+            | Action::SetSmartObjectTranslate { .. } | Action::AddSmartObjectFilter { .. }
+            | Action::ClearSmartObjectFilters { .. } | Action::ResetSmartObjectTransform { .. }
+            | Action::UpdateSmartObject { .. } | Action::BakeSmartObject { .. }
+            => self.apply_smart_objects_rich(action),
+
+            // New Feature: actions / batch automation
+            Action::StartRecording { .. } | Action::StopRecording
+            | Action::PlayActionSet { .. } | Action::PlayActionSetByName { .. }
+            | Action::DeleteActionSet { .. } | Action::ClearActionSet { .. }
+            | Action::RenameActionSet { .. }
+            => self.apply_automation(action),
+
+            // New Feature: scripting sandbox
+            Action::RunScript { .. } | Action::SetScriptSource(_)
+            | Action::RunCurrentScript | Action::ClearScriptLog
+            => self.apply_scripting(action),
+
+            // New Feature: rich preferences
+            Action::SetPrefMemoryFraction(_) | Action::SetPrefHistoryStates(_)
+            | Action::SetPrefUseGpu(_) | Action::SetPrefWorkingRgb(_)
+            | Action::SetPrefRenderingIntent(_) | Action::SetPrefTheme(_)
+            | Action::SetPrefUiScale(_) | Action::SetPrefAutosaveMinutes(_)
+            | Action::SetPrefRecentFileCount(_) | Action::ResetPreferences
+            | Action::SavePreferences | Action::LoadPreferences
+            => self.apply_prefs(action),
+
+            // New Feature: per-artboard export metadata
+            Action::SetArtboardExportFormat { .. } | Action::SetArtboardExportScale { .. }
+            | Action::SetArtboardExportNaming { .. } | Action::SetArtboardExportQuality { .. }
+            | Action::SetArtboardExportEnabled { .. } | Action::PrepareArtboardExport
+            => self.apply_artboards_export(action),
 
             _ => {}
         }

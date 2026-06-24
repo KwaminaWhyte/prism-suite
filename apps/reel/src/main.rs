@@ -128,6 +128,7 @@ fn build_global_grade(app: &App) -> GlobalGrade {
         wb_gain,
         color_wheels: app.color_wheels,
         rgb_curves: app.rgb_curves.clone(),
+        hsl_curves: app.hsl_curves.clone(),
     }
 }
 

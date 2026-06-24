@@ -318,6 +318,12 @@ pub struct Clip {
     pub blend_mode: ClipBlendMode,
     pub time_remap_enabled: bool,
     pub time_remap_keys: Vec<(f32, f32)>,
+    /// Speed-factor time-remap keys: `(timeline_t, speed_factor)`. A factor of
+    /// `1.0` is real-time, `2.0` double-speed, `0.0` a freeze-frame. The per-frame
+    /// source time is the piecewise-linear integral of these factors (see
+    /// [`crate::program_frame::remapped_source_time`]). When empty, the
+    /// `time_remap_keys` position model (or constant `speed`) is used instead.
+    pub time_remap_speed_keys: Vec<(f32, f32)>,
     pub effects: Vec<ClipEffect>,
     pub motion_x: f32,
     pub motion_y: f32,
@@ -389,7 +395,8 @@ impl Default for Clip {
             speed_curve: SpeedCurve::default(), proxy_path: None, link_group: None,
             anchor_x: 0.0, anchor_y: 0.0, crop_left: 0.0, crop_right: 0.0,
             crop_top: 0.0, crop_bottom: 0.0, blend_mode: ClipBlendMode::Normal,
-            time_remap_enabled: false, time_remap_keys: Vec::new(), effects: Vec::new(),
+            time_remap_enabled: false, time_remap_keys: Vec::new(),
+            time_remap_speed_keys: Vec::new(), effects: Vec::new(),
             motion_x: 0.0, motion_y: 0.0, motion_scale_x: 1.0, motion_scale_y: 1.0, motion_rotation: 0.0,
         }
     }
@@ -1306,6 +1313,44 @@ impl AppTimelineExt for App {
                     c.time_remap_keys.push((at_t, src_t));
                     c.time_remap_keys.push((end - 1e-4, src_t));
                     c.time_remap_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    self.host.mark_dirty();
+                }
+            }
+            Action::SetTimeRemapSpeedKeys { clip_idx, mut keys } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    c.time_remap_speed_keys = keys;
+                    c.time_remap_enabled = true;
+                    self.host.mark_dirty();
+                }
+            }
+            Action::AddTimeRemapSpeedKey { clip_idx, timeline_t, factor } => {
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.time_remap_enabled = true;
+                    c.time_remap_speed_keys.push((timeline_t, factor.max(0.0)));
+                    c.time_remap_speed_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    self.host.mark_dirty();
+                }
+            }
+            Action::AddSpeedFreezeFrame { clip_idx, at_t, hold_secs } => {
+                // Insert a freeze (factor 0) of `hold_secs` at `at_t`: unity speed
+                // before and after, a zero-speed plateau in between. The clip's
+                // duration grows by `hold_secs` so the held frames have room.
+                if let Some(c) = self.project.clips.get_mut(clip_idx) {
+                    c.time_remap_enabled = true;
+                    let hold = hold_secs.max(0.0);
+                    let end = c.end();
+                    if c.time_remap_speed_keys.is_empty() {
+                        c.time_remap_speed_keys = vec![(c.start, 1.0), (end, 1.0)];
+                    }
+                    c.duration += hold;
+                    // Shift any keys at/after the freeze point later by `hold`.
+                    for k in c.time_remap_speed_keys.iter_mut() {
+                        if k.0 > at_t { k.0 += hold; }
+                    }
+                    c.time_remap_speed_keys.push((at_t, 0.0));
+                    c.time_remap_speed_keys.push((at_t + hold, 0.0));
+                    c.time_remap_speed_keys.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                     self.host.mark_dirty();
                 }
             }

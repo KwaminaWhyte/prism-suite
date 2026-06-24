@@ -44,6 +44,56 @@ fn bezier_source_time(local_t: f32, duration: f32, p0: f32, p1: f32, p2: f32, p3
     frac.clamp(0.0, 1.0) * duration
 }
 
+/// Integrate a clip's `time_remap_speed_keys` — `(timeline_t, speed_factor)`
+/// pairs — into the source time at timeline time `t`. The keys describe playback
+/// *speed* (1.0 = real-time, 2.0 = double-speed, 0.0 = freeze); the source time
+/// at `t` is `source_in` plus the area under the speed curve from the clip's
+/// start to `t`, where the speed curve is linearly interpolated between keys.
+///
+/// A flat `0.0` segment integrates to zero added source time → a freeze-frame
+/// (the source time stops advancing while the playhead moves). Before the first
+/// key the first key's speed holds; after the last key the last key's speed
+/// holds (Premiere's hold-extrapolation). Returns a source time clamped to ≥0.
+///
+/// The trapezoidal area of one `[t0,t1]` segment with speeds `[s0,s1]` is
+/// `(s0 + s1) * 0.5 * (t1 - t0)`; the partial segment up to `t` uses the
+/// interpolated speed at `t`.
+pub fn remapped_source_time(keys: &[(f32, f32)], source_in: f32, start: f32, t: f32) -> f32 {
+    if keys.is_empty() {
+        return (source_in + (t - start).max(0.0)).max(0.0);
+    }
+    // Before the first key: hold the first key's speed back toward the start.
+    let first = keys[0];
+    if t <= first.0 {
+        let dt = (t - start).max(0.0).min((first.0 - start).max(0.0));
+        return (source_in + first.1.max(0.0) * dt).max(0.0);
+    }
+    // Segment from the clip start to the first key (hold the first key's speed).
+    let mut src = source_in + first.1.max(0.0) * (first.0 - start).max(0.0);
+    for w in keys.windows(2) {
+        let (t0, s0) = w[0];
+        let (t1, s1) = w[1];
+        let s0 = s0.max(0.0);
+        let s1 = s1.max(0.0);
+        if t >= t1 {
+            // Full trapezoidal segment.
+            src += (s0 + s1) * 0.5 * (t1 - t0).max(0.0);
+        } else if t > t0 {
+            // Partial segment up to `t`: interpolate the speed at `t`.
+            let frac = (t - t0) / (t1 - t0).max(1e-9);
+            let s_t = s0 + frac * (s1 - s0);
+            src += (s0 + s_t) * 0.5 * (t - t0);
+            return src.max(0.0);
+        }
+    }
+    // After the last key: hold the last key's speed.
+    let last = keys[keys.len() - 1];
+    if t > last.0 {
+        src += last.1.max(0.0) * (t - last.0);
+    }
+    src.max(0.0)
+}
+
 /// Cache of decoded+fit video frames keyed by `(path, source frame index)`, so
 /// the same playhead frame isn't re-decoded every redraw. An empty `Vec` marks
 /// a decode that failed (missing ffmpeg / bad media) so we don't retry it every
@@ -73,6 +123,8 @@ pub struct GlobalGrade {
     pub color_wheels: crate::app_state::ColorWheels,
     /// Per-channel RGB tone curves. Identity = two-point linear.
     pub rgb_curves: crate::app_state::RgbCurves,
+    /// HSL secondary curves (hue-vs-hue/sat/luma). Identity = flat.
+    pub hsl_curves: crate::app_state::HslCurves,
 }
 
 impl GlobalGrade {
@@ -83,6 +135,7 @@ impl GlobalGrade {
             wb_gain: [1.0, 1.0, 1.0],
             color_wheels: crate::app_state::ColorWheels::default(),
             rgb_curves: crate::app_state::RgbCurves::default(),
+            hsl_curves: crate::app_state::HslCurves::default(),
         }
     }
 
@@ -94,6 +147,7 @@ impl GlobalGrade {
             && (self.wb_gain[2] - 1.0).abs() < 1e-4
             && self.color_wheels.is_identity()
             && self.rgb_curves.is_identity()
+            && self.hsl_curves.is_identity()
     }
 
     /// Apply to one straight-sRGB pixel `rgb` (0..1) in place.
@@ -141,6 +195,8 @@ impl GlobalGrade {
         self.color_wheels.apply(rgb);
         // Apply per-channel RGB curves after color wheels.
         self.rgb_curves.apply(rgb);
+        // Apply HSL secondary curves last (hue-vs-hue/sat/luma).
+        self.hsl_curves.apply(rgb);
     }
 }
 
@@ -305,7 +361,23 @@ fn render_program_inner(
 
     // The transition pass: composite the two clips per the transition kind.
     if let Some(tr) = transition {
-        if let Some((from_off, to_off)) = tr.push_offsets(t) {
+        // Geometric transitions (Slide / Zoom / Spin / Cube fold) warp both
+        // frames into a single composited layer — sample both clips, then blend.
+        let geom = {
+            let from_buf = project.clips.get(tr.from)
+                .filter(|c| c.opacity > 0.0)
+                .and_then(|c| sample_clip(c, t, w, h, cache, global, log_tracks, depth))
+                .unwrap_or_else(|| vec![0u8; (w as usize) * (h as usize) * 4]);
+            let to_buf = project.clips.get(tr.to)
+                .filter(|c| c.opacity > 0.0)
+                .and_then(|c| sample_clip(c, t, w, h, cache, global, log_tracks, depth))
+                .unwrap_or_else(|| vec![0u8; (w as usize) * (h as usize) * 4]);
+            use crate::app_state::transitions::TransitionGeometryExt;
+            tr.geometry_blend(t, &from_buf, &to_buf, w, h)
+        };
+        if let Some(blended) = geom {
+            layers.push((blended, 1.0));
+        } else if let Some((from_off, to_off)) = tr.push_offsets(t) {
             // Push: slide outgoing clip out, incoming clip in.
             for (clip_idx, offset) in [(tr.from, from_off), (tr.to, to_off)] {
                 let Some(clip) = project.clips.get(clip_idx) else { continue; };
@@ -423,12 +495,37 @@ fn draw_active_caption(buf: &mut [u8], w: u32, h: u32, t: f32, captions: &[Capti
     let char_w = 5 * scale + scale;
     let char_h = 7 * scale;
 
-    // Wrap the text into lines on existing newlines (no auto-wrap this pass).
-    let lines: Vec<&str> = cap.text.split('\n').collect();
+    // Parse styled inline tags (<b>/<i>/<u>/<font color>) into runs, then flatten
+    // to per-character (glyph, color) cells so the rendered caption shows the
+    // tag-stripped text with any per-run color overrides. Newlines split lines.
+    let cap_color = [
+        (cap.style.color[0].clamp(0.0, 1.0) * 255.0) as u8,
+        (cap.style.color[1].clamp(0.0, 1.0) * 255.0) as u8,
+        (cap.style.color[2].clamp(0.0, 1.0) * 255.0) as u8,
+        (cap.style.color[3].clamp(0.0, 1.0) * 255.0) as u8,
+    ];
+    let runs = crate::app_state::parse_inline_tags(&cap.text);
+    let mut styled_lines: Vec<Vec<(char, [u8; 4])>> = vec![Vec::new()];
+    for run in &runs {
+        let col = run.color.map(|c| [
+            (c[0].clamp(0.0, 1.0) * 255.0) as u8,
+            (c[1].clamp(0.0, 1.0) * 255.0) as u8,
+            (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+            255u8,
+        ]).unwrap_or(cap_color);
+        for ch in run.text.chars() {
+            if ch == '\n' {
+                styled_lines.push(Vec::new());
+            } else {
+                styled_lines.last_mut().unwrap().push((ch, col));
+            }
+        }
+    }
+    let lines = styled_lines;
     let block_h = lines.len() * char_h + lines.len().saturating_sub(1) * scale;
     let widest = lines
         .iter()
-        .map(|l| l.chars().count())
+        .map(|l| l.len())
         .max()
         .unwrap_or(0);
     let block_w = if widest > 0 { widest * char_w - scale } else { 0 };
@@ -444,13 +541,6 @@ fn draw_active_caption(buf: &mut [u8], w: u32, h: u32, t: f32, captions: &[Capti
             (fx.clamp(0.0, 1.0) * w as f32) as usize,
             (fy.clamp(0.0, 1.0) * h as f32) as usize),
     };
-
-    let color = [
-        (cap.style.color[0].clamp(0.0, 1.0) * 255.0) as u8,
-        (cap.style.color[1].clamp(0.0, 1.0) * 255.0) as u8,
-        (cap.style.color[2].clamp(0.0, 1.0) * 255.0) as u8,
-        (cap.style.color[3].clamp(0.0, 1.0) * 255.0) as u8,
-    ];
 
     // Translucent box behind the text for legibility (caption convention).
     let pad = scale * 2;
@@ -471,14 +561,14 @@ fn draw_active_caption(buf: &mut [u8], w: u32, h: u32, t: f32, captions: &[Capti
         }
     }
 
-    // Draw each line centered within the block.
+    // Draw each line centered within the block, each glyph in its run's color.
     for (li, line) in lines.iter().enumerate() {
-        let n_chars = line.chars().count();
+        let n_chars = line.len();
         let line_w = if n_chars > 0 { n_chars * char_w - scale } else { 0 };
         let lx = bx + (block_w.saturating_sub(line_w)) / 2;
         let ly = by + li * (char_h + scale);
-        for (ci, ch) in line.chars().enumerate() {
-            let code = ch as u32;
+        for (ci, (ch, color)) in line.iter().enumerate() {
+            let code = *ch as u32;
             if code < 32 || code > 126 {
                 continue;
             }
@@ -596,18 +686,31 @@ fn sample_clip_raw(
             Some(aspect_fit(&img.rgba8, img.size.width, img.size.height, w, h))
         }
         ClipSource::Video(video) => {
-            // Map the playhead → clip-local source time, applying speed and reverse.
-            let local_t = (t - clip.start).max(0.0);
-            let effective_local = match &clip.speed_curve {
-                SpeedCurve::Constant => local_t * clip.speed,
-                SpeedCurve::Bezier { p0, p1, p2, p3 } => {
-                    bezier_source_time(local_t, clip.duration, *p0, *p1, *p2, *p3) * clip.speed
-                }
-            };
-            let source_t = if clip.reversed {
-                (clip.duration - effective_local).max(0.0) + clip.source_in.max(0.0)
+            // Map the playhead → clip-local source time. Time-remap (when on)
+            // takes priority over the constant speed / bezier speed-curve: a
+            // speed-factor key list integrates per-frame source time (honoring
+            // freeze-frame factor=0); a position key list maps timeline→source
+            // directly. Falling through to the speed curve preserves the old path
+            // for un-remapped clips.
+            let source_t = if clip.time_remap_enabled && !clip.time_remap_speed_keys.is_empty() {
+                remapped_source_time(
+                    &clip.time_remap_speed_keys, clip.source_in.max(0.0), clip.start, t,
+                )
+            } else if clip.time_remap_enabled && clip.time_remap_keys.len() >= 2 {
+                clip.remapped_source_t(t)
             } else {
-                effective_local + clip.source_in.max(0.0)
+                let local_t = (t - clip.start).max(0.0);
+                let effective_local = match &clip.speed_curve {
+                    SpeedCurve::Constant => local_t * clip.speed,
+                    SpeedCurve::Bezier { p0, p1, p2, p3 } => {
+                        bezier_source_time(local_t, clip.duration, *p0, *p1, *p2, *p3) * clip.speed
+                    }
+                };
+                if clip.reversed {
+                    (clip.duration - effective_local).max(0.0) + clip.source_in.max(0.0)
+                } else {
+                    effective_local + clip.source_in.max(0.0)
+                }
             };
             let frame_index = video.frame_index_at(source_t);
             let seek = video.frame_time(frame_index);
@@ -1230,5 +1333,50 @@ mod tests {
         let (_, _, b) = render_program_at(
             &project_with(vec![graded], 1), 1.0, 16, 16, &mut cache, &GlobalGrade::identity(), None, &[]);
         assert_ne!(center_px(&a, w, h), center_px(&b, w, h), "HSL secondary changes a matched hue");
+    }
+
+    #[test]
+    fn remap_speed_constant_unity_is_realtime() {
+        // A single 1.0 key, clip starting at t=2 with source_in=0: at timeline
+        // t=2 source is 0, at t=5 source has advanced 3s (real-time).
+        let keys = [(2.0_f32, 1.0_f32)];
+        assert!((remapped_source_time(&keys, 0.0, 2.0, 2.0) - 0.0).abs() < 1e-4);
+        assert!((remapped_source_time(&keys, 0.0, 2.0, 5.0) - 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn remap_speed_double_advances_twice_as_fast() {
+        // Constant 2.0 speed: 4 timeline seconds → 8 source seconds.
+        let keys = [(0.0_f32, 2.0_f32), (4.0, 2.0)];
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 4.0) - 8.0).abs() < 1e-4);
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 2.0) - 4.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn remap_speed_freeze_holds_source_time() {
+        // Real-time for 2s, then freeze (factor 0) for the rest: source time
+        // climbs to 2.0 then stops.
+        let keys = [(0.0_f32, 1.0_f32), (2.0, 1.0), (2.0, 0.0), (6.0, 0.0)];
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 2.0) - 2.0).abs() < 1e-4);
+        // At t=4 (mid-freeze) and t=6 (end) the source is still 2.0.
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 4.0) - 2.0).abs() < 1e-4);
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 6.0) - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn remap_speed_ramp_integrates_trapezoid() {
+        // A linear ramp 0→2 over [0,4]: area = 0.5 * (0+2) * 4 = 4.0 source secs.
+        let keys = [(0.0_f32, 0.0_f32), (4.0, 2.0)];
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 4.0) - 4.0).abs() < 1e-4);
+        // Halfway, the speed at t=2 is 1.0; area = 0.5*(0+1)*2 = 1.0.
+        assert!((remapped_source_time(&keys, 0.0, 0.0, 2.0) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn remap_speed_respects_source_in_offset() {
+        // source_in shifts the whole curve up by the in-point.
+        let keys = [(0.0_f32, 1.0_f32), (3.0, 1.0)];
+        assert!((remapped_source_time(&keys, 5.0, 0.0, 0.0) - 5.0).abs() < 1e-4);
+        assert!((remapped_source_time(&keys, 5.0, 0.0, 3.0) - 8.0).abs() < 1e-4);
     }
 }

@@ -114,9 +114,26 @@ impl AppMulticamExt for App {
             Action::SetEdlReelName(n) => { self.edl_config.reel_name = n; }
             Action::SetEdlIncludeAudio(b) => { self.edl_config.include_audio = b; }
             Action::SetEdlIncludeVideo(b) => { self.edl_config.include_video = b; }
-            Action::ExportEdl(p) => { self.last_edl_export_path = Some(p); }
+            Action::ExportEdl(p) => {
+                // Write a real CMX 3600 EDL using the timeline's clips.
+                let fps = self.edl_config.frame_rate;
+                let reel = self.edl_config.reel_name.clone();
+                let title = self.project.name.clone();
+                let text = super::edl::write_cmx3600(&self.project, fps, &reel, &title);
+                if std::fs::write(&p, text).is_ok() {
+                    self.last_edl_export_path = Some(p);
+                }
+            }
             Action::ImportEdl(_p) => { self.last_import_clip_count = 0; }
-            Action::ExportFcpXml(p) => { self.last_edl_export_path = Some(p); }
+            Action::ExportFcpXml(p) => {
+                // Write a real FCP XML (xmeml v5) using the timeline's clips.
+                let fps = self.edl_config.frame_rate;
+                let title = self.project.name.clone();
+                let text = super::edl::write_fcpxml(&self.project, fps, &title);
+                if std::fs::write(&p, text).is_ok() {
+                    self.last_edl_export_path = Some(p);
+                }
+            }
             Action::ImportFcpXml(_p) => { self.last_import_clip_count = 0; }
             Action::ExportOtio(p) => { self.last_edl_export_path = Some(p); }
             Action::ToggleAutoReframePanel => { self.auto_reframe_panel_open = !self.auto_reframe_panel_open; }

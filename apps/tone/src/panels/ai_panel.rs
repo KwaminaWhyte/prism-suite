@@ -2,7 +2,7 @@
 
 use gpui::{div, px, Context, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled};
 use gpui::prelude::FluentBuilder;
-use prism_ui::{colors, font_size, TextField};
+use prism_ui::{colors, font_size, TextArea};
 
 use crate::app_state::{Action, App, MusicGenStatus, DemucsStatus, ModelDownloadStatus, OnnxModelKind};
 use crate::model_manager::{self, ToneModelId};
@@ -29,7 +29,7 @@ fn demucs_download_progress(app: &App) -> f32 {
 
 pub fn render_ai_panel(
     app: &App,
-    ai_prompt_field: Entity<TextField>,
+    ai_prompt_field: Entity<TextArea>,
     cx: &mut Context<Tone>,
 ) -> impl IntoElement {
     let has_musicgen_running = app.musicgen_jobs.iter().any(|j| j.status == MusicGenStatus::Running);
@@ -85,8 +85,9 @@ pub fn render_ai_panel(
                         .text_color(colors::text_secondary())
                         .child("MUSICGEN"),
                 )
-                // Prompt area — a real editable TextField. The user types the
-                // prompt that drives MusicGen; it is synced into `app.ai_prompt`.
+                // Prompt area — a real editable multi-line TextArea. The user
+                // types the prompt that drives MusicGen (newlines allowed); it
+                // is synced into `app.ai_prompt`.
                 .child(
                     div()
                         .id("tone-ai-prompt")

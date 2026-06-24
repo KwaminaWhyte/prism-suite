@@ -10,15 +10,16 @@ use crate::app_state::{Action, App, TrackKind};
 use crate::Tone;
 
 pub fn render_mixer(app: &App, cx: &mut Context<Tone>) -> impl IntoElement {
+    // The outer height / top-border / bg are owned by the wrapper in `main.rs`
+    // (which also hosts the active-track inspector); this fills that row.
     div()
+        .id("mixer-strip-scroll")
         .w_full()
-        .h(px(120.0))
+        .h_full()
         .bg(colors::surface_raised())
-        .border_t_1()
-        .border_color(colors::surface_border())
         .flex()
         .flex_row()
-        .overflow_hidden()
+        .overflow_x_scroll()
         // Channel strips
         .children(
             app.tracks

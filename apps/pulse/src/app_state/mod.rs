@@ -487,6 +487,16 @@ impl App {
     pub fn new() -> Self {
         let project = Project::new();
         let host = CanvasHost::new(&project);
+        // Seed the comp-settings staging buffer from the active comp so the
+        // panel's typeable width/height/fps/duration fields have initial values
+        // and the panel renders immediately when opened.
+        let pending_comp_settings = project.comps.first().map(|c| PendingCompSettings {
+            width: c.width,
+            height: c.height,
+            fps: c.fps,
+            duration_secs: c.duration,
+            bg_color: [0.0, 0.0, 0.0, 1.0],
+        });
         Self {
             host,
             project,
@@ -522,7 +532,7 @@ impl App {
             gpui_effects_expanded: HashMap::new(),
             render_queue: Vec::new(),
             comp_settings_open: false,
-            pending_comp_settings: None,
+            pending_comp_settings,
             ram_preview: HashMap::new(),
             ram_preview_playing: false,
             ram_preview_frame: 0,

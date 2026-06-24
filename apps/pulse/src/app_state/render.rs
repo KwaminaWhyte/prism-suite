@@ -239,6 +239,20 @@ impl App {
 
             Action::ToggleCompSettings => {
                 self.comp_settings_open = !self.comp_settings_open;
+                // When opening, stage the active comp's current settings so the
+                // panel (and its typeable fields) have values to edit. The
+                // edits only take effect on `ApplyCompSettings`.
+                if self.comp_settings_open && self.pending_comp_settings.is_none() {
+                    let ci = self.active_comp_index();
+                    let comp = &self.project.comps[ci];
+                    self.pending_comp_settings = Some(PendingCompSettings {
+                        width: comp.width,
+                        height: comp.height,
+                        fps: comp.fps,
+                        duration_secs: comp.duration,
+                        bg_color: [0.0, 0.0, 0.0, 1.0],
+                    });
+                }
             }
             Action::SetPendingCompWidth(w) => {
                 if let Some(p) = &mut self.pending_comp_settings {

@@ -1,12 +1,14 @@
 //! Expression editor pop-out — a focused panel bound to one property's
 //! expression on the **selected** layer.
 //!
-//! Real typing: the editor now hosts a focusable [`prism_ui::TextField`] so the
-//! user can type ANY rhai expression. Pressing Enter (the field's `on_submit`,
-//! wired in `main.rs`) sets the expression for the bound `(layer, prop)` and
-//! evaluates it; the "Evaluate" button does the same on demand. The preset chips
-//! remain as quick-insert helpers — clicking one fills the text field and sets
-//! the expression — but free-text entry is the primary path.
+//! Real **multi-line** typing: the editor hosts a focusable
+//! [`prism_ui::TextArea`] so the user can type ANY (multi-line) rhai expression,
+//! which is what After Effects expressions actually are. Plain Enter inserts a
+//! newline; **Cmd/Ctrl+Enter** (the area's `on_submit`, wired in `main.rs`) sets
+//! the expression for the bound `(layer, prop)` and evaluates it; the "Evaluate"
+//! button does the same on demand. The preset chips remain as quick-insert
+//! helpers — clicking one fills the text area and sets the expression — but
+//! free-text entry is the primary path.
 //!
 //! A property selector switches which `(layer, prop)` the editor targets (stored
 //! in `app.expr_editor_prop`), and the scalar result / any error from
@@ -20,7 +22,7 @@ use gpui::{
     StatefulInteractiveElement, Styled,
 };
 
-use prism_ui::{colors, section_header, TextField};
+use prism_ui::{colors, section_header, TextArea};
 
 use crate::app_state::{Action, App};
 use crate::comp::Prop;
@@ -44,7 +46,7 @@ const PRESETS: &[(&str, &str)] = &[
     ("value", "value"),
 ];
 
-pub fn render(app: &App, expr_field: &Entity<TextField>, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(app: &App, expr_field: &Entity<TextArea>, cx: &mut Context<Pulse>) -> impl IntoElement {
     let header = div()
         .flex()
         .items_center()
@@ -195,7 +197,7 @@ pub fn render(app: &App, expr_field: &Entity<TextField>, cx: &mut Context<Pulse>
             .py_1()
             .text_color(colors::text_secondary())
             .text_size(px(9.0))
-            .child("Type an expression and press Enter (or click Evaluate).")
+            .child("Type an expression — Cmd/Ctrl+Enter to apply (or click Evaluate).")
             .into_any_element()
     };
 
@@ -221,14 +223,14 @@ pub fn render(app: &App, expr_field: &Entity<TextField>, cx: &mut Context<Pulse>
                 .child(format!("Layer {layer_id} · property:")),
         )
         .child(div().flex().flex_wrap().gap_1().px_2().pb_1().children(prop_chips))
-        // Editable expression text field (REAL typing).
+        // Editable multi-line expression text area (REAL typing).
         .child(
             div()
                 .px_3()
                 .py_1()
                 .text_color(colors::text_secondary())
                 .text_size(px(9.0))
-                .child("Expression"),
+                .child("Expression (multi-line · Cmd/Ctrl+Enter applies)"),
         )
         .child(
             div()

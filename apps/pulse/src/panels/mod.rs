@@ -57,6 +57,7 @@ pub mod graph;
 pub mod keying_lights;
 pub mod layers;
 pub mod output_module;
+pub mod parse;
 pub mod preferences;
 pub mod preview_panel;
 pub mod properties;

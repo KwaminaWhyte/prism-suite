@@ -9,14 +9,14 @@
 //! exactly as before.
 
 use gpui::{
-    div, px, rgb, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, rgb, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 use gpui::prelude::FluentBuilder;
 
 use crate::comp::Prop;
 
-use prism_ui::colors;
+use prism_ui::{colors, TextField};
 
 use crate::comp::{Light, LightKind};
 
@@ -28,6 +28,32 @@ use crate::Pulse;
 const KEYFRAME: u32 = 0x37c8c0;
 /// Accent for a property that has an expression active.
 const EXPR_COLOR: u32 = 0xe5c07b;
+
+/// Borrowed handles to the root view's typeable transform fields (one per
+/// most-used 2D prop). The fields' text is kept synced to the live value in
+/// `Pulse::render` (focus-guarded); here we just render the matching field
+/// inline in its property row.
+pub struct PropFieldRefs<'a> {
+    pub x: &'a Entity<TextField>,
+    pub y: &'a Entity<TextField>,
+    pub scale: &'a Entity<TextField>,
+    pub rotation: &'a Entity<TextField>,
+    pub opacity: &'a Entity<TextField>,
+}
+
+impl PropFieldRefs<'_> {
+    /// The held field for `prop`, if it is one of the typeable props.
+    fn field_for(&self, prop: Prop) -> Option<&Entity<TextField>> {
+        match prop {
+            Prop::X => Some(self.x),
+            Prop::Y => Some(self.y),
+            Prop::Scale => Some(self.scale),
+            Prop::Rotation => Some(self.rotation),
+            Prop::Opacity => Some(self.opacity),
+            _ => None,
+        }
+    }
+}
 
 /// The transform properties this panel edits (2-D), in After-Effects order.
 const ROWS: [Prop; 7] = [
@@ -98,7 +124,7 @@ fn mb_stepper(
         )
 }
 
-pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(app: &App, prop_fields: &PropFieldRefs, cx: &mut Context<Pulse>) -> impl IntoElement {
     let ci = app.active_comp_index();
     let comp = &app.project.comps[ci];
     let time = app.time;
@@ -493,6 +519,20 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                     }))
             };
 
+            // Typeable value: props with a held field show the editable
+            // TextField (type a value + Enter to set); the others (anchor) keep
+            // the static readout. The field's text is synced to `value` by
+            // `Pulse::sync_prop_fields` each frame (focus-guarded).
+            let value_el: gpui::AnyElement = match prop_fields.field_for(prop) {
+                Some(field) => div().flex_1().child(field.clone()).into_any_element(),
+                None => div()
+                    .flex_1()
+                    .text_color(colors::text_primary())
+                    .text_size(px(11.0))
+                    .child(fmt_value(prop, value))
+                    .into_any_element(),
+            };
+
             div()
                 .flex()
                 .items_center()
@@ -507,13 +547,7 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                         .child(prop.label()),
                 )
                 .child(stepper(("prop-dec", pi), "−", -step))
-                .child(
-                    div()
-                        .flex_1()
-                        .text_color(colors::text_primary())
-                        .text_size(px(11.0))
-                        .child(fmt_value(prop, value)),
-                )
+                .child(value_el)
                 .child(stepper(("prop-inc", pi), "+", step))
                 .child(
                     // Stopwatch diamond.

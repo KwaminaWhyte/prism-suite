@@ -224,3 +224,61 @@
             std::path::PathBuf::from("/exports/final_v2.mov")
         );
     }
+
+    #[test]
+    fn comp_settings_pending_seeded_from_active_comp_on_new() {
+        // The typeable comp-settings fields read their initial values from
+        // `pending_comp_settings`, which must be populated at construction (not
+        // only after the first Apply) so the panel renders immediately.
+        let app = App::new();
+        let ci = app.active_comp_index();
+        let comp = &app.project.comps[ci];
+        let pending = app
+            .pending_comp_settings
+            .as_ref()
+            .expect("pending comp settings seeded on new()");
+        assert_eq!(pending.width, comp.width);
+        assert_eq!(pending.height, comp.height);
+        assert_eq!(pending.fps, comp.fps);
+        assert_eq!(pending.duration_secs, comp.duration);
+    }
+
+    #[test]
+    fn toggle_comp_settings_keeps_pending_populated() {
+        // Opening the panel must leave `pending_comp_settings` populated so the
+        // panel (which early-returns on None) actually renders.
+        let mut app = App::new();
+        assert!(!app.comp_settings_open);
+        app.apply(Action::ToggleCompSettings);
+        assert!(app.comp_settings_open);
+        assert!(app.pending_comp_settings.is_some());
+    }
+
+    #[test]
+    fn effect_query_field_updates_live_query() {
+        // The effect-browser search TextField fires SetEffectQuery on every
+        // edit; the query string the browser filters by must track it.
+        let mut app = App::new();
+        assert_eq!(app.effect_query, "");
+        app.apply(Action::SetEffectQuery("blur".to_string()));
+        assert_eq!(app.effect_query, "blur");
+        app.apply(Action::SetEffectQuery(String::new()));
+        assert_eq!(app.effect_query, "");
+    }
+
+    #[test]
+    fn typeable_comp_dimensions_round_trip_through_actions() {
+        // Drives the exact action surface the typeable width/height/fps/duration
+        // fields use on Enter.
+        let mut app = App::new();
+        app.apply(Action::ToggleCompSettings);
+        app.apply(Action::SetPendingCompWidth(1280));
+        app.apply(Action::SetPendingCompHeight(720));
+        app.apply(Action::SetPendingCompFps(24.0));
+        app.apply(Action::SetPendingCompDuration(12.5));
+        let p = app.pending_comp_settings.as_ref().unwrap();
+        assert_eq!(p.width, 1280);
+        assert_eq!(p.height, 720);
+        assert_eq!(p.fps, 24.0);
+        assert_eq!(p.duration_secs, 12.5);
+    }

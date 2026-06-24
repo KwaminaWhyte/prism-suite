@@ -7,11 +7,12 @@
 //! `App::effects_expanded`. Cards start collapsed by default.
 
 use gpui::{
-    div, px, rgb, svg, Context, InteractiveElement, IntoElement, ParentElement,
+    div, px, rgb, svg, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
+use gpui::prelude::FluentBuilder;
 
-use prism_ui::{colors, Icon, section_header};
+use prism_ui::{colors, Icon, section_header, TextField};
 
 use crate::comp::filter_grouped;
 
@@ -34,7 +35,11 @@ const STACKS: [(&str, EffectStack); 6] = [
     ("Generate", EffectStack::Generate),
 ];
 
-pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    effect_query_field: &Entity<TextField>,
+    cx: &mut Context<Pulse>,
+) -> impl IntoElement {
     let ci = app.active_comp_index();
     let comp = &app.project.comps[ci];
 
@@ -165,7 +170,7 @@ pub fn render(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
         .child(gpui_cards);
 
     if app.effect_browser_open {
-        panel = panel.child(browser(app, cx));
+        panel = panel.child(browser(app, effect_query_field, cx));
     }
     panel
 }
@@ -696,7 +701,11 @@ fn param_row(
 }
 
 /// The Effects & Presets browser.
-fn browser(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
+fn browser(
+    app: &App,
+    effect_query_field: &Entity<TextField>,
+    cx: &mut Context<Pulse>,
+) -> impl IntoElement {
     let groups = filter_grouped(&app.effect_query);
 
     let group_els = groups
@@ -740,6 +749,9 @@ fn browser(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
         })
         .collect::<Vec<_>>();
 
+    let has_results = !group_els.is_empty();
+    let query_empty = app.effect_query.trim().is_empty();
+
     div()
         .flex()
         .flex_col()
@@ -754,6 +766,18 @@ fn browser(app: &App, cx: &mut Context<Pulse>) -> impl IntoElement {
                 .text_size(px(11.0))
                 .child("Effects & Presets"),
         )
+        // Real, typeable search box → live `SetEffectQuery` (on_change).
+        .child(div().px_2().pb_1().child(effect_query_field.clone()))
+        .when(!has_results && !query_empty, |d| {
+            d.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(colors::text_secondary())
+                    .text_size(px(10.0))
+                    .child(format!("No effects match \u{201c}{}\u{201d}.", app.effect_query.trim())),
+            )
+        })
         .children(group_els)
 }
 

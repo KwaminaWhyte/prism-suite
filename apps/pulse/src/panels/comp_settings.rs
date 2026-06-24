@@ -13,7 +13,15 @@ use crate::app_state::{Action, App};
 use crate::panels::BG_ACTIVE;
 use crate::Pulse;
 
-pub fn render(app: &App, comp_name_field: &Entity<TextField>, cx: &mut Context<Pulse>) -> impl IntoElement {
+pub fn render(
+    app: &App,
+    comp_name_field: &Entity<TextField>,
+    comp_width_field: &Entity<TextField>,
+    comp_height_field: &Entity<TextField>,
+    comp_fps_field: &Entity<TextField>,
+    comp_duration_field: &Entity<TextField>,
+    cx: &mut Context<Pulse>,
+) -> impl IntoElement {
     if !app.comp_settings_open {
         return div().into_any_element();
     }
@@ -28,9 +36,18 @@ pub fn render(app: &App, comp_name_field: &Entity<TextField>, cx: &mut Context<P
     let fps = pending.fps;
     let dur = pending.duration_secs;
 
-    let row = |label: &'static str, value: String, dec_action: Action, inc_action: Action, cx: &mut Context<Pulse>| {
+    // A row pairing a typeable field (type a value + Enter) with the existing
+    // −/+ steppers, so both entry styles work. `value_field` is the held
+    // `TextField` entity; `unit` annotates the displayed step value.
+    let row = |label: &'static str,
+               value_field: &Entity<TextField>,
+               value: String,
+               dec_action: Action,
+               inc_action: Action,
+               cx: &mut Context<Pulse>| {
         let dec = dec_action;
         let inc = inc_action;
+        let field = value_field.clone();
         div()
             .flex()
             .items_center()
@@ -63,11 +80,13 @@ pub fn render(app: &App, comp_name_field: &Entity<TextField>, cx: &mut Context<P
                         cx.notify();
                     })),
             )
+            // Typeable value field (REAL typing — Enter parses + applies).
+            .child(div().w(px(72.0)).child(field))
             .child(
                 div()
                     .flex_1()
-                    .text_color(colors::text_primary())
-                    .text_size(px(10.0))
+                    .text_color(colors::text_secondary())
+                    .text_size(px(9.0))
                     .child(value),
             )
             .child(
@@ -140,10 +159,10 @@ pub fn render(app: &App, comp_name_field: &Entity<TextField>, cx: &mut Context<P
                 )
                 .child(div().flex_1().child(comp_name_field.clone())),
         )
-        .child(row("Width", format!("{w}px"), Action::SetPendingCompWidth(w.saturating_sub(1).max(1)), Action::SetPendingCompWidth(w + 1), cx))
-        .child(row("Height", format!("{h}px"), Action::SetPendingCompHeight(h.saturating_sub(1).max(1)), Action::SetPendingCompHeight(h + 1), cx))
-        .child(row("FPS", format!("{fps:.1}"), Action::SetPendingCompFps(fps - 1.0), Action::SetPendingCompFps(fps + 1.0), cx))
-        .child(row("Duration", format!("{dur:.1}s"), Action::SetPendingCompDuration(dur - 0.5), Action::SetPendingCompDuration(dur + 0.5), cx))
+        .child(row("Width", comp_width_field, format!("{w}px"), Action::SetPendingCompWidth(w.saturating_sub(1).max(1)), Action::SetPendingCompWidth(w + 1), cx))
+        .child(row("Height", comp_height_field, format!("{h}px"), Action::SetPendingCompHeight(h.saturating_sub(1).max(1)), Action::SetPendingCompHeight(h + 1), cx))
+        .child(row("FPS", comp_fps_field, format!("{fps:.1}"), Action::SetPendingCompFps(fps - 1.0), Action::SetPendingCompFps(fps + 1.0), cx))
+        .child(row("Duration", comp_duration_field, format!("{dur:.1}s"), Action::SetPendingCompDuration(dur - 0.5), Action::SetPendingCompDuration(dur + 0.5), cx))
         .child(
             div()
                 .px_3()

@@ -33,13 +33,14 @@ mod panels;
 use std::sync::Arc;
 
 use app_state::{Action, App};
+use comp::Prop;
 use gpui::{
-    div, px, rgb, size, AppContext, Bounds, Context, Entity, FocusHandle,
+    div, px, rgb, size, AppContext, Bounds, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, RenderImage,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowKind, WindowOptions,
 };
 use gpui::prelude::FluentBuilder;
-use prism_ui::TextField;
+use prism_ui::{TextArea, TextField};
 
 use panels::preview_panel;
 use panels::{DOCK_W, STRIP_W, TIMELINE_H, TOOLBAR_H};
@@ -64,14 +65,53 @@ struct Pulse {
     // their focus / caret / selection survive across re-renders. The panels read
     // these entities and render them inline; each field's `on_submit` routes its
     // typed text to the matching `Action` via the weak self-handle below.
-    /// Free-text expression input for the Expression Editor panel.
-    expr_field: Entity<TextField>,
+    /// Free-text **multi-line** expression input for the Expression Editor panel.
+    /// AE expressions are multi-line, so this is a `TextArea` (plain Enter =
+    /// newline, Cmd/Ctrl+Enter submits → SetExpression + EvaluateExpression).
+    expr_field: Entity<TextArea>,
     /// Editable name for the selected layer (Layers panel).
     layer_name_field: Entity<TextField>,
     /// Editable name for the active composition (Comp Settings panel).
     comp_name_field: Entity<TextField>,
     /// Editable export / render output path (Render Queue panel).
     render_path_field: Entity<TextField>,
+    /// Live effect-browser search query (Effects panel) → `SetEffectQuery`.
+    effect_query_field: Entity<TextField>,
+    /// Typeable comp-settings dimensions: width, height, fps, duration (seconds).
+    comp_width_field: Entity<TextField>,
+    comp_height_field: Entity<TextField>,
+    comp_fps_field: Entity<TextField>,
+    comp_duration_field: Entity<TextField>,
+    /// Typeable transform values for the selected layer (Properties panel). One
+    /// per most-used 2D prop: X, Y, Scale, Rotation, Opacity. The text is synced
+    /// from the live value each frame (focus-guarded, so it never clobbers active
+    /// typing); Enter parses + clamps + dispatches `SetTransform`.
+    prop_fields: PropFields,
+    /// Tracks the `(selected_layer, prop_field_values)` last pushed into the
+    /// transform fields so the sync only writes when the value actually changed.
+    prop_sync: PropSync,
+}
+
+/// The held transform-value `TextField`s, one per most-used 2D property.
+struct PropFields {
+    x: Entity<TextField>,
+    y: Entity<TextField>,
+    scale: Entity<TextField>,
+    rotation: Entity<TextField>,
+    opacity: Entity<TextField>,
+}
+
+/// Last value synced into each transform field, so re-renders don't redundantly
+/// overwrite the field (which would also fight the caret). `None` means "never
+/// synced / no layer selected".
+#[derive(Default)]
+struct PropSync {
+    layer: Option<usize>,
+    x: Option<f32>,
+    y: Option<f32>,
+    scale: Option<f32>,
+    rotation: Option<f32>,
+    opacity: Option<f32>,
 }
 
 impl Pulse {
@@ -112,13 +152,15 @@ impl Pulse {
     // this root view. The fields are created once in `Pulse::new` and held on
     // the struct so caret / selection / focus persist across re-renders.
 
-    /// Free-text expression input. On Enter, sets the expression for the
+    /// Free-text **multi-line** expression input. Plain Enter inserts a newline;
+    /// Cmd/Ctrl+Enter (the `TextArea`'s `on_submit`) sets the expression for the
     /// editor's bound `(layer, prop)` and immediately evaluates it.
-    fn make_expr_field(cx: &mut Context<Self>) -> Entity<TextField> {
+    fn make_expr_field(cx: &mut Context<Self>) -> Entity<TextArea> {
         let weak = cx.weak_entity();
         cx.new(|cx| {
-            TextField::new(cx)
-                .placeholder("e.g. wiggle(2, 30)")
+            TextArea::new(cx)
+                .placeholder("e.g. wiggle(2, 30)\n(Cmd/Ctrl+Enter to apply)")
+                .rows(5)
                 .on_submit(move |text, _win, cx| {
                     let Some(pulse) = weak.upgrade() else { return };
                     let text = text.to_string();
@@ -143,6 +185,197 @@ impl Pulse {
                     });
                 })
         })
+    }
+
+    /// Live effect-browser search field. On every edit, routes the query to
+    /// `SetEffectQuery` so the browser list filters as the user types.
+    fn make_effect_query_field(cx: &mut Context<Self>) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("Search effects…")
+                .on_change(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    let text = text.to_string();
+                    pulse.update(cx, |p, cx| {
+                        p.app.apply(Action::SetEffectQuery(text));
+                        cx.notify();
+                    });
+                })
+        })
+    }
+
+    /// Typeable comp-settings dimension fields. Each parses the typed text,
+    /// clamps it, and dispatches the matching `SetPendingComp*` action on Enter.
+    fn make_comp_width_field(cx: &mut Context<Self>, app: &App) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        let initial = app
+            .pending_comp_settings
+            .as_ref()
+            .map(|p| p.width.to_string())
+            .unwrap_or_default();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("1920")
+                .initial_value(initial)
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    if let Some(v) = panels::parse::parse_u32_clamped(text, 1, 16384) {
+                        pulse.update(cx, |p, cx| {
+                            p.app.apply(Action::SetPendingCompWidth(v));
+                            cx.notify();
+                        });
+                    }
+                })
+        })
+    }
+
+    fn make_comp_height_field(cx: &mut Context<Self>, app: &App) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        let initial = app
+            .pending_comp_settings
+            .as_ref()
+            .map(|p| p.height.to_string())
+            .unwrap_or_default();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("1080")
+                .initial_value(initial)
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    if let Some(v) = panels::parse::parse_u32_clamped(text, 1, 16384) {
+                        pulse.update(cx, |p, cx| {
+                            p.app.apply(Action::SetPendingCompHeight(v));
+                            cx.notify();
+                        });
+                    }
+                })
+        })
+    }
+
+    fn make_comp_fps_field(cx: &mut Context<Self>, app: &App) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        let initial = app
+            .pending_comp_settings
+            .as_ref()
+            .map(|p| format!("{:.2}", p.fps))
+            .unwrap_or_default();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("30")
+                .initial_value(initial)
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    // Match the SetPendingCompFps clamp in render.rs (1..=240).
+                    if let Some(v) = panels::parse::parse_f32_clamped(text, 1.0..=240.0) {
+                        pulse.update(cx, |p, cx| {
+                            p.app.apply(Action::SetPendingCompFps(v));
+                            cx.notify();
+                        });
+                    }
+                })
+        })
+    }
+
+    fn make_comp_duration_field(cx: &mut Context<Self>, app: &App) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        let initial = app
+            .pending_comp_settings
+            .as_ref()
+            .map(|p| format!("{:.2}", p.duration_secs))
+            .unwrap_or_default();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder("5.0")
+                .initial_value(initial)
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    if let Some(v) = panels::parse::parse_f32_clamped(text, 0.1..=3600.0) {
+                        pulse.update(cx, |p, cx| {
+                            p.app.apply(Action::SetPendingCompDuration(v));
+                            cx.notify();
+                        });
+                    }
+                })
+        })
+    }
+
+    /// A typeable transform-value field for `prop` on the selected layer. On
+    /// Enter it parses + clamps the typed number to `prop`'s legal range and
+    /// dispatches `SetTransform(prop, value)` at the current playhead.
+    fn make_prop_field(cx: &mut Context<Self>, prop: Prop) -> Entity<TextField> {
+        let weak = cx.weak_entity();
+        cx.new(|cx| {
+            TextField::new(cx)
+                .placeholder(prop.label())
+                .on_submit(move |text, _win, cx| {
+                    let Some(pulse) = weak.upgrade() else { return };
+                    let (range, _) = prop.range();
+                    if let Some(v) = panels::parse::parse_f32_clamped(text, range) {
+                        pulse.update(cx, |p, cx| {
+                            if p.app.selected_layer.is_some() {
+                                p.app.apply(Action::SetTransform(prop, v));
+                            }
+                            cx.notify();
+                        });
+                    }
+                })
+        })
+    }
+
+    /// Sync each transform field's text to the selected layer's live value for
+    /// that property at the playhead. Skips a field that is currently focused
+    /// (the user is mid-type) so we never clobber active editing, and skips a
+    /// field whose value hasn't changed since the last sync (avoids needless
+    /// `set_text` churn). When no layer is selected, the fields are cleared once.
+    fn sync_prop_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(li) = self.app.selected_layer else {
+            // Clear once on deselect.
+            if self.prop_sync.layer.is_some() {
+                let fields = [
+                    self.prop_fields.x.clone(),
+                    self.prop_fields.y.clone(),
+                    self.prop_fields.scale.clone(),
+                    self.prop_fields.rotation.clone(),
+                    self.prop_fields.opacity.clone(),
+                ];
+                for f in fields {
+                    f.update(cx, |fld, cx| fld.set_text(String::new(), window, cx));
+                }
+                self.prop_sync = PropSync::default();
+            }
+            return;
+        };
+        let ci = self.app.active_comp_index();
+        let comp = match self.app.project.comps.get(ci) {
+            Some(c) if c.layers.get(li).is_some() => c,
+            _ => return,
+        };
+        let t = self.app.time;
+        let layer_changed = self.prop_sync.layer != Some(li);
+
+        // (prop, current value, field handle, last-synced slot)
+        let mut entries: Vec<(Prop, f32, Entity<TextField>, &mut Option<f32>)> = vec![
+            (Prop::X, comp.layer_value(li, Prop::X, t), self.prop_fields.x.clone(), &mut self.prop_sync.x),
+            (Prop::Y, comp.layer_value(li, Prop::Y, t), self.prop_fields.y.clone(), &mut self.prop_sync.y),
+            (Prop::Scale, comp.layer_value(li, Prop::Scale, t), self.prop_fields.scale.clone(), &mut self.prop_sync.scale),
+            (Prop::Rotation, comp.layer_value(li, Prop::Rotation, t), self.prop_fields.rotation.clone(), &mut self.prop_sync.rotation),
+            (Prop::Opacity, comp.layer_value(li, Prop::Opacity, t), self.prop_fields.opacity.clone(), &mut self.prop_sync.opacity),
+        ];
+
+        for (prop, value, field, slot) in entries.drain(..) {
+            // Don't fight active typing.
+            if field.read(cx).focus_handle(cx).is_focused(window) {
+                continue;
+            }
+            let changed = layer_changed || slot.map(|p| (p - value).abs() > 1e-4).unwrap_or(true);
+            if changed {
+                let txt = fmt_prop_value(prop, value);
+                field.update(cx, |fld, cx| fld.set_text(txt, window, cx));
+                *slot = Some(value);
+            }
+        }
+        self.prop_sync.layer = Some(li);
     }
 
     /// Editable name for the selected layer. On Enter, renames the layer.
@@ -275,23 +508,52 @@ impl Render for Pulse {
             .max(0.05);
         let (w, h) = (comp_w * fit, comp_h * fit);
 
+        // Keep the typeable transform fields showing the selected layer's live
+        // values (focus-guarded so active typing is never clobbered).
+        self.sync_prop_fields(window, cx);
+
         // Persistent text-field entities (cloned cheaply — they are handles).
         let expr_field = self.expr_field.clone();
         let layer_name_field = self.layer_name_field.clone();
         let comp_name_field = self.comp_name_field.clone();
         let render_path_field = self.render_path_field.clone();
+        let effect_query_field = self.effect_query_field.clone();
+        let comp_width_field = self.comp_width_field.clone();
+        let comp_height_field = self.comp_height_field.clone();
+        let comp_fps_field = self.comp_fps_field.clone();
+        let comp_duration_field = self.comp_duration_field.clone();
+        let prop_x_field = self.prop_fields.x.clone();
+        let prop_y_field = self.prop_fields.y.clone();
+        let prop_scale_field = self.prop_fields.scale.clone();
+        let prop_rotation_field = self.prop_fields.rotation.clone();
+        let prop_opacity_field = self.prop_fields.opacity.clone();
 
         // Build panel elements (read-only &App + cx for Action listeners).
         let app = &self.app;
         let toolbar = panels::toolbar::render(app, cx);
         let tools = panels::tools::render(app, cx);
         let layers = panels::layers::render(app, &layer_name_field, cx);
-        let properties = panels::properties::render(app, cx);
-        let effects = panels::effects::render(app, cx);
+        let prop_fields = panels::properties::PropFieldRefs {
+            x: &prop_x_field,
+            y: &prop_y_field,
+            scale: &prop_scale_field,
+            rotation: &prop_rotation_field,
+            opacity: &prop_opacity_field,
+        };
+        let properties = panels::properties::render(app, &prop_fields, cx);
+        let effects = panels::effects::render(app, &effect_query_field, cx);
         let expressions = panels::expressions::render(app, cx);
         let expr_controls = panels::expr_controls::render(app, cx);
         let render_queue = panels::render_queue::render(app, &render_path_field, cx);
-        let comp_settings = panels::comp_settings::render(app, &comp_name_field, cx);
+        let comp_settings = panels::comp_settings::render(
+            app,
+            &comp_name_field,
+            &comp_width_field,
+            &comp_height_field,
+            &comp_fps_field,
+            &comp_duration_field,
+            cx,
+        );
         let timeline = panels::timeline::render(app, cx);
         // Wave 4 panels — built only when their toggle is on, so they cost
         // nothing when hidden and stack into the right dock when shown.
@@ -424,6 +686,17 @@ impl Render for Pulse {
     }
 }
 
+/// Format a transform property's value for display in its typeable field.
+/// Positions/rotation get one decimal; scale/opacity get two (they are small,
+/// fractional values). No unit suffix is appended so the text round-trips
+/// cleanly (and the parser tolerates suffixes regardless).
+fn fmt_prop_value(prop: Prop, v: f32) -> String {
+    match prop {
+        Prop::Scale | Prop::Opacity => format!("{v:.2}"),
+        _ => format!("{v:.1}"),
+    }
+}
+
 /// A pulsing waveform placeholder shown when audio preview is enabled.
 /// The bars animate based on the current playhead time.
 fn audio_waveform_placeholder(playing: bool, t: f32) -> impl IntoElement {
@@ -494,6 +767,18 @@ fn main() {
                     let layer_name_field = Pulse::make_layer_name_field(cx);
                     let comp_name_field = Pulse::make_comp_name_field(cx, &app);
                     let render_path_field = Pulse::make_render_path_field(cx, &app);
+                    let effect_query_field = Pulse::make_effect_query_field(cx);
+                    let comp_width_field = Pulse::make_comp_width_field(cx, &app);
+                    let comp_height_field = Pulse::make_comp_height_field(cx, &app);
+                    let comp_fps_field = Pulse::make_comp_fps_field(cx, &app);
+                    let comp_duration_field = Pulse::make_comp_duration_field(cx, &app);
+                    let prop_fields = PropFields {
+                        x: Pulse::make_prop_field(cx, Prop::X),
+                        y: Pulse::make_prop_field(cx, Prop::Y),
+                        scale: Pulse::make_prop_field(cx, Prop::Scale),
+                        rotation: Pulse::make_prop_field(cx, Prop::Rotation),
+                        opacity: Pulse::make_prop_field(cx, Prop::Opacity),
+                    };
                     Pulse {
                         app,
                         focus,
@@ -502,6 +787,13 @@ fn main() {
                         layer_name_field,
                         comp_name_field,
                         render_path_field,
+                        effect_query_field,
+                        comp_width_field,
+                        comp_height_field,
+                        comp_fps_field,
+                        comp_duration_field,
+                        prop_fields,
+                        prop_sync: PropSync::default(),
                     }
                 })
             },

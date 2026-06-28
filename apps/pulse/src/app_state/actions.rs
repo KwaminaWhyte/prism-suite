@@ -30,7 +30,7 @@ use super::{
     OutputModule, OutputModuleFormat, OutputCodec, ColorDepth,
     PreviewQuality,
     KeyKind, LightKind, RenderCodec,
-    ParticleAction,
+    ParticleAction, MotionPathAction,
 };
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -993,4 +993,7 @@ pub enum Action {
     /// A particle-emitter sub-action (add / configure / remove a layer emitter).
     /// The variants live in `particles.rs`; see [`ParticleAction`].
     Particles(ParticleAction),
+    /// A motion-path sub-action (spatial tangents / temporal ease / preset /
+    /// auto-orient); see [`MotionPathAction`] in `motion_paths.rs`.
+    MotionPaths(MotionPathAction),
 }

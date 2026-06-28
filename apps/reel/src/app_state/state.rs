@@ -308,6 +308,9 @@ pub struct App {
 
     // --- Workspaces (named panel layouts) -------------------------------------
     pub workspaces: WorkspaceManager,
+
+    // --- Phase 3: clip transitions (see app_state/transition_fx.rs) ----------
+    pub transition_fx: Vec<TransitionFx>,
 }
 
 impl App {
@@ -495,6 +498,7 @@ impl App {
             keymap: Keymap::premiere_defaults(),
             last_keybind_conflicts: Vec::new(),
             workspaces: WorkspaceManager::default(),
+            transition_fx: Vec::new(),
         }
     }
 }

@@ -453,6 +453,9 @@ impl App {
             // --- Particle system (particles.rs) ---
             a @ Action::Particles(_) => self.apply_particles(a),
 
+            // --- Motion paths / graph-editor easing (motion_paths.rs) ---
+            a @ Action::MotionPaths(_) => self.apply_motion_paths(a),
+
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),
         }

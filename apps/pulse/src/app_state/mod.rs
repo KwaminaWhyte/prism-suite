@@ -88,7 +88,7 @@ pub use tracking::RotobrushStroke;
 pub use expressions::ExprLang;
 pub use keyframes::{GizmoDrag, WorkAreaHandle, KeyframeDrag, PreviewRect, GraphGrab};
 pub use crate::comp::Handle as GizmoHandle2;
-pub use motion_paths::{MotionPath, MotionPathPoint, MotionEasing};
+pub use motion_paths::{MotionPath, MotionPathPoint, MotionEasing, KeyframeEase, EasePreset, PathAxis, MotionPathAction, eased_progress};
 pub use shape_groups::{ShapeLayerGroup, ShapeGroupTransform, ShapeItemKind, MergeMode, TrimMultiple};
 pub use audio_mixer::{AudioBus, MixerTrack, MasterBus, Mixdown, db_to_linear, linear_to_db, pan_law};
 pub use expressions::{LoopMode, ExprTrack};

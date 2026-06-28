@@ -595,6 +595,22 @@ pub enum Action {
     /// Content-aware patch fill (seeded PatchMatch-lite); `seed` = deterministic.
     ContentAwarePatch { center: [f32; 2], radius: f32, seed: u64 },
 
+    // --- Phase 6: Liquify forward-warp mesh (real algorithms — app_state/liquify.rs) ---
+    /// Liquify push (forward warp): displace pixels along `drag` within `radius`, falloff-weighted.
+    LiquifyPush { center: [f32; 2], radius: f32, drag: [f32; 2], strength: f32 },
+    /// Liquify bloat: push pixels radially outward from `center` by `amount`, falloff-weighted.
+    LiquifyBloat { center: [f32; 2], radius: f32, amount: f32 },
+    /// Liquify pucker: pull pixels inward toward `center` by `amount`, falloff-weighted.
+    LiquifyPucker { center: [f32; 2], radius: f32, amount: f32 },
+    /// Liquify twirl: rotate pixels around `center` by `angle` rad (falloff-scaled); `ccw` = direction.
+    LiquifyTwirl { center: [f32; 2], radius: f32, angle: f32, ccw: bool },
+    /// Liquify reconstruct: decay the warp field toward identity within `radius` by `amount`.
+    LiquifyReconstruct { center: [f32; 2], radius: f32, amount: f32 },
+    /// Commit the in-progress Liquify warp mesh to pixels (one undo step).
+    LiquifyCommit,
+    /// Reset the in-progress Liquify warp mesh, restoring the frozen base pixels.
+    LiquifyReset,
+
     // --- Batch 7: Gradient Map stops ---
     /// Update the gradient stops of a GradientMap adjustment layer.
     SetGradientMapStops { layer_id: LayerId, stops: Vec<(f32, [f32; 4])> },

@@ -682,4 +682,24 @@ pub enum Action {
     RenameTrack { index: usize, name: String },
     /// Rename a Batch-5 sequence by `id`. Empty names are ignored.
     RenameSequence { sequence_id: usize, name: String },
+
+    // --- Phase 3: clip transitions + time-remap / speed (transition_fx.rs) ----
+    /// Place a Phase-3 transition anchored to clip `clip_idx`'s cut / edge.
+    AddTransitionFx { clip_idx: usize, kind: TransitionFxKind, duration_frames: u32, align: TransitionAlign },
+    /// Remove the transition at `idx` from the `transition_fx` list.
+    RemoveTransitionFx { idx: usize },
+    /// Set a transition's duration in frames (clamped to >= 1).
+    SetTransitionFxDuration { idx: usize, duration_frames: u32 },
+    /// Set a transition's alignment (centered / start / end).
+    SetTransitionFxAlign { idx: usize, align: TransitionAlign },
+    /// Change a transition's kind.
+    SetTransitionFxKind { idx: usize, kind: TransitionFxKind },
+    /// Set a clip's signed speed factor (negative = reverse). Drops keyframed remap.
+    SetClipSpeedFactor { clip_idx: usize, factor: f32 },
+    /// Toggle frame-blend (vs nearest) sampling for a clip's time-remap.
+    SetClipFrameBlend { clip_idx: usize, blend: bool },
+    /// Add a `(timeline_t, source_t)` time-remap keyframe (enables remap, sorted).
+    AddRemapKeyframe { clip_idx: usize, timeline_t: f32, source_t: f32 },
+    /// Clear all of a clip's time-remap keyframes (disables remap).
+    ClearRemapKeyframes { clip_idx: usize },
 }

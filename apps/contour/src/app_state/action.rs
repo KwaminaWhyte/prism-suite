@@ -592,6 +592,21 @@ pub enum Action {
     /// Transform Each (about each shape's centre) with optional replication.
     DistortTransformEach { shape_id: usize, move_x: f32, move_y: f32, scale_x: f32, scale_y: f32, angle_deg: f32, copies: usize },
 
+    // --- Width tool / variable-width stroke profiles (width_tool/) ---
+    /// Add a width point to `shape_id`'s profile at arc-length `t` (0..1) with the
+    /// given `left`/`right` half-widths (creates a uniform profile on first edit).
+    WidthPointAdd { shape_id: usize, t: f32, left: f32, right: f32 },
+    /// Slide width point `index` of `shape_id`'s profile to position `t`.
+    WidthPointMove { shape_id: usize, index: usize, t: f32 },
+    /// Delete width point `index` of `shape_id`'s profile (keeps ≥ 1 point).
+    WidthPointDelete { shape_id: usize, index: usize },
+    /// Set the `left`/`right` half-widths of width point `index` of `shape_id`.
+    WidthPointSetWidths { shape_id: usize, index: usize, left: f32, right: f32 },
+    /// Replace `shape_id`'s profile with a [`WidthPreset`] (scaled to stroke weight).
+    WidthApplyPreset { shape_id: usize, preset: WidthPreset },
+    /// Bake `shape_id`'s variable-width outline into a filled closed path.
+    WidthExpandStroke { shape_id: usize },
+
     // --- Batch 6: Find / Replace text ---
     /// Toggle the Find / Replace text panel open or closed.
     ToggleFindReplacePanel,

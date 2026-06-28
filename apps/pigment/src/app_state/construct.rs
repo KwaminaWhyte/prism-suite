@@ -235,6 +235,7 @@ impl App {
             liquify_show_mesh: false,
             liquify_mesh: LiquifyMesh { width: 0, height: 0, subdivisions: 4 },
             liquify_smart_radius: false,
+            liquify_session: None,
             // Batch 5 (new): Select Subject (AI stub)
             select_subject_mode: SelectSubjectMode::Device,
             last_select_subject: None,

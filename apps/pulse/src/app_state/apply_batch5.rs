@@ -145,6 +145,8 @@ impl App {
                         in_handle: (0.0, 0.0),
                         out_handle: (0.0, 0.0),
                         easing: MotionEasing::Linear,
+                        ease_in: KeyframeEase::default(),
+                        ease_out: KeyframeEase::default(),
                     });
                     path.points.sort_by(|a, b| {
                         a.time_s.partial_cmp(&b.time_s).unwrap_or(std::cmp::Ordering::Equal)

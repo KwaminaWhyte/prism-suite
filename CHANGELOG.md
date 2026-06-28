@@ -9,6 +9,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-28
+
+### Added — Feature wave 2: more real engine algorithms across four apps
+- **Reel** — Phase 3 clip transitions (cross-dissolve, dip-to-black/white, wipe
+  linear/radial/clock, slide, push, iris) with pure per-progress evaluate math +
+  time-remap/speed (signed reverse, keyframed remap curve). +30 tests.
+- **Pulse** — spatial Bézier motion paths (De Casteljau spline, arc-length
+  constant-speed, auto-orient) + graph-editor temporal easing (AE two-control
+  cubic-bezier solve, F9 ease presets). +25 tests.
+- **Contour** — Width Tool / variable-width stroke profiles → real outline
+  geometry (smoothstep half-width, miter/round/bevel + caps, expand-to-fill). +31 tests.
+- **Pigment** — Liquify forward-warp mesh (push/bloat/pucker/twirl/reconstruct)
+  on a non-destructive displacement field, inverse-sampled (no holes). +31 tests.
+
+### Changed — File organization
+- Pigment `main.rs` 1199 → 836 (extracted `host_helpers.rs`); Contour
+  `app_state/mod.rs` 1020 → 902 (extracted `tool.rs`). Every source file is back
+  under the ~1000-line limit except the two atomic flat `Action` enums.
+- Full workspace suite green: Pigment 521, Contour 897, Pulse 1100, Reel 433,
+  Drift 672, Tone 759, prism-ui 51, prism-canvas 126 (+117 features this wave).
+
 ## [0.13.0] - 2026-06-28
 
 ### Added — Feature wave: real engine algorithms across four apps

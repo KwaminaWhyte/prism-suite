@@ -79,6 +79,7 @@ pub(crate) fn action_label(action: &Action) -> Option<String> {
         Action::CloneStampDab { .. } => Some("Clone Stamp".into()),
         Action::RemoveRedEye { .. } => Some("Red-Eye Removal".into()),
         Action::ContentAwarePatch { .. } => Some("Content-Aware Patch".into()),
+        Action::LiquifyCommit => Some("Liquify".into()),
         Action::SaveAs(_) => Some("Save As".into()),
         _ => None,
     }

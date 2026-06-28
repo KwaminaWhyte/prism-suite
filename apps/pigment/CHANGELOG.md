@@ -6,6 +6,36 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-28
+
+### Added — Liquify forward-warp mesh (real algorithms)
+- **Liquify** — a real forward-warp mesh deformation built on a per-pixel 2-D
+  displacement field (`WarpField`) stored independently of the image, so the warp
+  is fully non-destructive until committed (the mesh round-trip).
+  - **Push (forward warp)** — drags pixels along the drag vector within the brush
+    radius, smooth-falloff weighted (`push`).
+  - **Bloat / Pucker** — push pixels radially outward / pull them inward from the
+    brush center, falloff-weighted (`bloat_pucker`).
+  - **Twirl (CW/CCW)** — rotate pixels around the brush center by a falloff-scaled
+    angle (`twirl`).
+  - **Reconstruct** — decay the field back toward identity within the radius,
+    smoothly undoing the warp (`reconstruct`).
+- The field is applied to a pixel buffer by **inverse sampling** (`apply_warp`):
+  every destination pixel reads `src[d − field[d]]` bilinearly with edge clamping,
+  so the warp has no holes and never reads out of bounds; an identity field is a
+  bit-exact copy.
+- New `Action`s `LiquifyPush` / `LiquifyBloat` / `LiquifyPucker` / `LiquifyTwirl`
+  / `LiquifyReconstruct` plus `LiquifyCommit` / `LiquifyReset`, routed through
+  `app_state/liquify.rs`. A Liquify session freezes the base pixels and snapshots
+  the layer once (commit = one undo step; reset restores the base exactly).
+- +31 tests (490 → 521).
+
+### Changed — File organization
+- Split `main.rs` (1199 → 836) by extracting the root-view helpers — `on_key`,
+  `window_to_doc`, `doc_image`, inline-rename fields, `dockable_wrap`, and the
+  canvas overlay painters (`paint_marching_ants` / `paint_guides`) — into a new
+  `host_helpers.rs`, bringing it back under the ~1000-line limit.
+
 ## [0.13.0] - 2026-06-28
 
 ### Added — Phase 6 retouching core (real algorithms)

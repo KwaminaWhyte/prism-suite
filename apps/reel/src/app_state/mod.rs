@@ -52,6 +52,9 @@ mod autosave;
 // --- Phase 3: built-in per-clip effects --------------------------------------
 mod clip_effects;
 
+// --- Phase 3: clip transitions + time-remap / speed --------------------------
+mod transition_fx;
+
 // --- Domain trait imports (used in apply dispatcher) -------------------------
 
 use audio::AppAudioExt;
@@ -69,6 +72,7 @@ use edl::AppEdlExt;
 use color_curves::AppColorCurvesExt;
 use apply_batch5::AppBatch5Ext;
 use clip_effects::AppClipEffectsExt;
+use transition_fx::AppTransitionFxExt;
 
 // --- Public re-exports -------------------------------------------------------
 
@@ -141,6 +145,12 @@ pub use autosave::{AutosaveConfig, AutosaveRing};
 
 // Phase 3: built-in per-clip effects domain
 pub use clip_effects::{BuiltinEffect, EffectParams};
+
+// Phase 3: clip transitions + time-remap / speed domain
+pub use transition_fx::{
+    TimeRemap, TransitionAlign, TransitionFx, TransitionFxKind, TransitionGeometry,
+    TransitionState, WipeShape,
+};
 
 // Graphics-templates domain (Essential Graphics / Motion Graphics Templates)
 pub use graphics_templates::{
@@ -386,6 +396,19 @@ impl App {
             | Action::ClearBuiltinEffects { .. }
             | Action::SetBuiltinEffectParams { .. } => {
                 self.apply_clip_effects(action);
+            }
+
+            // --- Phase 3: clip transitions + time-remap / speed --------------
+            Action::AddTransitionFx { .. }
+            | Action::RemoveTransitionFx { .. }
+            | Action::SetTransitionFxDuration { .. }
+            | Action::SetTransitionFxAlign { .. }
+            | Action::SetTransitionFxKind { .. }
+            | Action::SetClipSpeedFactor { .. }
+            | Action::SetClipFrameBlend { .. }
+            | Action::AddRemapKeyframe { .. }
+            | Action::ClearRemapKeyframes { .. } => {
+                self.apply_transition_fx(action);
             }
 
             // --- Export presets domain ----------------------------------------

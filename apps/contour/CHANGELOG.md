@@ -7,6 +7,31 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-28
+
+### Added — Width Tool / variable-width stroke profiles (real outline geometry)
+- **Variable-width profiles** — a `WidthProfile` is an ordered list of width
+  points, each with an arc-length position (`t`) plus independent **left/right**
+  half-widths (asymmetric strokes); the half-width is **smoothstep**-blended
+  between points.
+- **`stroke_outline`** — flatten a path's centreline, sample the per-vertex
+  tangent/normal, offset each side by the interpolated half-width, and build a
+  single closed, fillable outline contour (left forward + right reversed) with
+  **butt / round / square** caps at open ends; closed paths yield an annulus.
+- **Profile presets** — Uniform, Width Profile 1 (taper both ends), 2 (taper to
+  start), 3 (taper to end), and Bulge → `WidthApplyPreset`.
+- **Width-point editing** — add / move (clamped between neighbours) / delete /
+  set-widths via `WidthPointAdd` / `WidthPointMove` / `WidthPointDelete` /
+  `WidthPointSetWidths`.
+- **Expand Stroke** — bake the variable-width outline into a real filled
+  `Shape::Path` (fill = old stroke colour, no stroke) → `WidthExpandStroke`.
+- All implemented as pure, unit-tested geometry in `app_state/width_tool/`.
+
+### Changed — File organization
+- Extracted the `Tool` enum + its `label`/`glyph`/`ALL` metadata out of
+  `app_state/mod.rs` into `app_state/tool.rs` to keep `mod.rs` under the
+  ~1000-line limit (1020 → 902).
+
 ## [0.13.0] - 2026-06-28
 
 ### Added — Distort & Transform family (real path geometry)

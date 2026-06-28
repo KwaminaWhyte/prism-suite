@@ -34,6 +34,7 @@ mod layer_styles_extra;
 mod transform_extra;
 mod redeye;
 mod healing;
+mod liquify;
 mod tests_shapes;
 mod psd_export;
 mod guides;
@@ -50,6 +51,8 @@ mod tests_state;
 mod tests_state_b;
 #[cfg(test)]
 mod healing_tests;
+#[cfg(test)]
+mod liquify_tests;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
@@ -95,9 +98,6 @@ use prism_core::shape::ShapeKind;
 use prism_core::{Adjustment, BlendMode, Document, LayerId, LayerKind};
 
 use crate::canvas_host::CanvasHost;
-
-
-
 
 
 
@@ -524,6 +524,8 @@ pub struct App {
     pub liquify_mesh: LiquifyMesh,
     /// Smart-radius adjusts brush fall-off based on local image structure.
     pub liquify_smart_radius: bool,
+    /// In-progress non-destructive Liquify warp session (None = not liquifying).
+    pub liquify_session: Option<self::liquify::LiquifySession>,
 
     // --- Batch 5 (new): Select Subject (AI stub) ---
     pub select_subject_mode: SelectSubjectMode,
@@ -665,10 +667,6 @@ pub struct App {
     pub navigator: self::navigator::NavigatorView,
 }
 
-// ---- Batch 6: Select Subject ------------------------------------------------
-
-// (no new structs needed — uses existing selection mask infrastructure)
-
 impl App {
     /// Mark the selection mask as changed so the root view re-traces the marching-
     /// ants boundary on its next frame. Call after any host selection mutation.
@@ -795,6 +793,12 @@ impl App {
             Action::HealBrush { .. } | Action::CloneStampDab { .. }
             | Action::RemoveRedEye { .. } | Action::ContentAwarePatch { .. }
             => self.apply_healing(action),
+
+            // liquify forward-warp mesh (Phase 6 — liquify.rs)
+            Action::LiquifyPush { .. } | Action::LiquifyBloat { .. } | Action::LiquifyPucker { .. }
+            | Action::LiquifyTwirl { .. } | Action::LiquifyReconstruct { .. }
+            | Action::LiquifyCommit | Action::LiquifyReset
+            => self.apply_liquify(action),
 
             // filters
             Action::ApplyFilter(_) | Action::AddSmartFilter(_, _) | Action::RemoveSmartFilter(_, _)

@@ -309,6 +309,10 @@ pub struct Clip {
     /// [`crate::program_frame::remapped_source_time`]). When empty, the
     /// `time_remap_keys` position model (or constant `speed`) is used instead.
     pub time_remap_speed_keys: Vec<(f32, f32)>,
+    /// Phase 3: when sampling a time-remapped / speed-changed frame, blend the two
+    /// adjacent source frames (`true`) vs snap to the nearest one (`false`). See
+    /// [`super::transition_fx::TimeRemap`].
+    pub remap_frame_blend: bool,
     pub effects: Vec<ClipEffect>,
     /// Phase 3: ordered stack of non-destructive built-in effects (transform,
     /// crop, opacity, blend, drop shadow, blur, sharpen). See
@@ -385,7 +389,8 @@ impl Default for Clip {
             anchor_x: 0.0, anchor_y: 0.0, crop_left: 0.0, crop_right: 0.0,
             crop_top: 0.0, crop_bottom: 0.0, blend_mode: ClipBlendMode::Normal,
             time_remap_enabled: false, time_remap_keys: Vec::new(),
-            time_remap_speed_keys: Vec::new(), effects: Vec::new(),
+            time_remap_speed_keys: Vec::new(), remap_frame_blend: false,
+            effects: Vec::new(),
             builtin_effects: Vec::new(),
             motion_x: 0.0, motion_y: 0.0, motion_scale_x: 1.0, motion_scale_y: 1.0, motion_rotation: 0.0,
         }

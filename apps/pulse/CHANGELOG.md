@@ -7,6 +7,14 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-28
+
+### Added — Spatial motion paths + graph-editor temporal easing
+- **Spatial Bézier motion path** (`app_state/motion_paths.rs`) — a position keyframed in 2D with per-keyframe spatial tangent handles (`in_handle` / `out_handle`). `MotionPath::sample_position(t)` walks the cubic-Bézier spline through the keys with **De Casteljau** (passes exactly through every keyframe), `sample_constant_speed(u)` re-parameterizes it by **arc length** for constant-velocity travel, and `orientation_at(t)` reads the path tangent to drive *Orient Along Path* (auto-orient).
+- **Graph-editor temporal easing** — each keyframe carries incoming/outgoing `KeyframeEase { influence: 0..100, speed }` handles forming the AE two-control-point value graph. `eased_progress(out, in, x)` solves cubic-Bézier `y` given `x` (Newton's method + bisection fallback); `MotionPath::value_at(t, axis)` maps it onto a scalar property. `EasePreset::{Linear, EasyEase, EaseIn, EaseOut, Hold}` supplies the F9 family (linear == lerp, easy-ease symmetric, ease-in slow→fast, hold == step).
+- **App action layer** — `Action::MotionPaths(MotionPathAction::{SetSpatialTangents, SetTemporalEase, ApplyEasePreset, ToggleAutoOrient})` (app-side state, like particles — not undoable), nested under one `Action` variant to keep `actions.rs` under 1000 lines.
+- +25 tests (1075 → 1100): endpoint pass-through, symmetric-handle centering, arc-length constant speed, auto-orient tangent angles, linear/ease-in/ease-out/easy-ease/hold value graphs, and the action layer.
+
 ## [0.13.0] - 2026-06-28
 
 ### Added — Particle system (CC Particle World / Particle Playground analog)

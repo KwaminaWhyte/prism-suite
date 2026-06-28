@@ -1,8 +1,9 @@
 //! The apply layer for the Distort & Transform + Offset Path family: wires the
 //! pure geometry functions in [`super`] onto `impl App`, mapping each transform
-//! over the selected shape's contours with one undo checkpoint. This is the
-//! **terminal** stage of the `Action` dispatch chain (reached from
-//! `apply_textfield`'s catch-all); its own `_ => {}` is the chain's final no-op.
+//! over the selected shape's contours with one undo checkpoint. Reached from
+//! `apply_textfield`'s catch-all; its own catch-all now forwards to
+//! [`App::apply_width_tool`](crate::app_state::App::apply_width_tool) (the Width
+//! Tool family), which owns the dispatch chain's final `_ => {}` no-op.
 
 use super::{offset_path, pucker_bloat, roughen, transform_each_affine, twist, zigzag};
 use crate::app_state::{Action, App};
@@ -51,7 +52,9 @@ impl App {
             } => self.distort_transform_each(
                 shape_id, move_x, move_y, scale_x, scale_y, angle_deg, copies,
             ),
-            _ => {}
+            // Forward everything else to the Width Tool family, the new terminal
+            // stage of the dispatch chain (it owns the real `_ => {}` no-op).
+            other => self.apply_width_tool(other),
         }
     }
 

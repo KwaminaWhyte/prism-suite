@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-28
+
+### Added — Phase 3: clip transitions + time-remap / speed
+- **Pure transition model** (`transition_fx.rs`) — a `TransitionFx` placed at a
+  clip's cut / head / tail with a kind, duration in **frames**, and alignment
+  (centered / start / end). Each kind exposes a pure
+  `fn evaluate(progress: f32) -> TransitionState` (outgoing/incoming opacities,
+  optional dip colour + strength, and a geometry descriptor):
+  - **Cross Dissolve** — linear opacity crossfade (opacities sum to ~1 mid-cut).
+  - **Dip to Black / Dip to White** — out→colour→in; full dip colour at the midpoint.
+  - **Wipe** — `Linear`/`Radial`/`Clock` shape with an `edge` position 0→1 and a
+    clamped `softness` band.
+  - **Slide / Push** — normalized incoming/outgoing offsets (slide covers a
+    stationary A; push moves both in opposite phase).
+  - **Iris** — circular reveal with a 0→1 radius.
+  - `TransitionAlign::span` + `progress_at_frame` map a frame offset to progress.
+- **Time-remap / speed** — pure `TimeRemap`: signed `speed` factor (negative =
+  reverse), `source_time_at(timeline_t)` with constant-speed or piecewise-linear
+  keyframed curves, `effective_duration` (2× speed halves duration), reverse maps
+  end→start, identity at speed 1, plus a `frame_blend` (vs nearest) sampling flag.
+  `App::clip_time_remap` builds the model from a clip's live state.
+- **Actions** — `AddTransitionFx`, `RemoveTransitionFx`, `SetTransitionFxDuration`,
+  `SetTransitionFxAlign`, `SetTransitionFxKind`, `SetClipSpeedFactor`,
+  `SetClipFrameBlend`, `AddRemapKeyframe`, `ClearRemapKeyframes` (routed through
+  the single `App::apply` choke point).
+- +30 tests (403 → 433).
+
 ## [0.13.0] - 2026-06-28
 
 ### Added — Phase 3: built-in per-clip effects

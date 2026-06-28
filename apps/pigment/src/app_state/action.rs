@@ -358,6 +358,16 @@ pub enum Action {
     /// scaled by `strength`. Approximates Photoshop's path-driven motion blur.
     ApplyPathBlur { segments: Vec<crate::filters_extra::PathSegment>, strength: f32 },
 
+    // --- Phase 8: Blur / Sharpen / Distort gallery (real pure pixel math) ---
+    /// Apply one Phase 8 gallery blur/sharpen op (Gaussian / Box / Box≈Gaussian /
+    /// Motion / Zoom / Spin / Unsharp Mask / Smart Sharpen) to the active layer
+    /// via `crate::filters_gallery`. One enum keeps the `Action` count minimal.
+    ApplyGalleryBlur(GalleryBlur),
+    /// Displace the active layer by reading `source`'s R/G as x/y pixel offsets
+    /// (scaled by `scale_x` / `scale_y`), then inverse-bilinear-sampling the
+    /// active layer (edge-clamped). A zero/transparent source is the identity.
+    ApplyDisplacementMap { source: LayerId, scale_x: f32, scale_y: f32 },
+
     // --- Batch 3: Camera Raw dialog toggle ---
     ToggleCameraRawDialog,
     /// Toggle a Camera Raw dialog section (basic/detail/hsl).

@@ -88,8 +88,10 @@ impl Drift {
                     self.app.apply(Action::SetActiveTool(DriftTool::Ellipse));
                     cx.notify();
                 }
-                // Arrow-key nudge when Move tool is active
-                "up" | "down" | "left" | "right"
+                // Arrow-key nudge when Move tool is active. "left"/"right" are
+                // already consumed by the unguarded StepBackward/StepForward arms
+                // above, so only "up"/"down" can reach here.
+                "up" | "down"
                     if self.app.active_tool == DriftTool::Move =>
                 {
                     if let Some(id) = self.app.active_layer {
@@ -98,10 +100,8 @@ impl Drift {
                             .unwrap_or_else(crate::app_state::LayerTransform::new);
                         let step = if ks.modifiers.shift { 10.0_f32 } else { 1.0_f32 };
                         let (nx, ny) = match ks.key.as_str() {
-                            "up"    => (t.x, t.y - step),
-                            "down"  => (t.x, t.y + step),
-                            "left"  => (t.x - step, t.y),
-                            _       => (t.x + step, t.y),
+                            "up" => (t.x, t.y - step),
+                            _    => (t.x, t.y + step), // "down"
                         };
                         self.app.apply(Action::SetLayerPosition { id, x: nx, y: ny });
                         cx.notify();

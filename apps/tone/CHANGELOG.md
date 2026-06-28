@@ -7,6 +7,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Fixed
+- **Reentrant-update crash** — clicking an AI style-tag chip called
+  `field.set_text(...)` on the AI-prompt `TextArea` from inside a root `cx.listener`;
+  `set_text` fires the field's `on_change` synchronously, which re-entered
+  `Tone::update` while the root was already being updated → GPUI panic
+  (`cannot update Tone while it is already being updated`). The `set_text` is now
+  wrapped in `win.defer(...)` so it runs after the listener releases the entity
+  (matching Pigment's text-field idiom).
+- Silenced the `render_session_view` dead-code/unused-import warnings (no
+  Session/Arrangement view slot exists yet; kept the documented re-export).
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line + comprehensive text input

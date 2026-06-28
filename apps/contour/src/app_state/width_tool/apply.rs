@@ -4,9 +4,9 @@
 //! per-shape profile map; **Expand Stroke** bakes the variable-width outline into
 //! a real filled [`Shape::Path`] with one undo checkpoint.
 //!
-//! This is the **terminal** stage of the `Action` dispatch chain: it is reached
-//! from `apply_path_distort`'s catch-all, and its own `_ => {}` is the chain's
-//! final no-op.
+//! Reached from `apply_path_distort`'s catch-all; its own catch-all now forwards
+//! to [`App::apply_shape_builder`](crate::app_state::App) (the Shape Builder
+//! family), which owns the dispatch chain's final `_ => {}` no-op.
 //!
 //! The width profile lives on `App` (keyed by paint-order index), not in the
 //! document model — like the text-on-path attachment maps — so profile-only edits
@@ -50,7 +50,9 @@ impl App {
                 self.width_apply_preset(shape_id, preset)
             }
             Action::WidthExpandStroke { shape_id } => self.width_expand_stroke(shape_id),
-            _ => {}
+            // Forward everything else to the Shape Builder family, the new terminal
+            // stage of the dispatch chain (it owns the real `_ => {}` no-op).
+            other => self.apply_shape_builder(other),
         }
     }
 

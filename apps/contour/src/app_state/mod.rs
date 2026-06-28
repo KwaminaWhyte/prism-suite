@@ -71,6 +71,8 @@ pub use tool::Tool;
 pub use path_distort::OffsetJoin;
 pub mod width_tool;
 pub use width_tool::WidthPreset;
+pub mod shape_builder;
+pub use shape_builder::{Region, ShapeBuilderSession};
 mod apply_batch12;
 mod apply_textfield;
 pub(crate) use apply_textfield::parse_dimension;
@@ -601,6 +603,13 @@ pub struct App {
     /// and `WidthExpandStroke` bakes it into a filled contour. App-side (not in
     /// the document), like the text-on-path maps.
     pub width_profiles: std::collections::HashMap<usize, width_tool::WidthProfile>,
+
+    // --- Shape Builder tool ---
+    /// The active Shape Builder session: the planar arrangement (atomic faces) of
+    /// the selection the user is welding / deleting, or `None` when the tool is
+    /// inactive. An editing overlay — committed into the document only on
+    /// `Action::ShapeBuilderCommit`.
+    pub shape_builder: Option<ShapeBuilderSession>,
 }
 
 impl App {
@@ -796,6 +805,7 @@ impl App {
             preferences: prefs_color::Preferences::default(),
             layer_filter: String::new(),
             width_profiles: std::collections::HashMap::new(),
+            shape_builder: None,
         }
     }
 

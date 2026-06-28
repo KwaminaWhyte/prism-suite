@@ -8,6 +8,18 @@ Versioning follows the workspace `version` in the root `Cargo.toml`.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Fixed
+- **Startup crash** — the script-source `TextArea` placeholder was a multi-line
+  string (`"// frame script…\n// Cmd/Ctrl+Enter to run"`); GPUI's single-line
+  shaper panics on an embedded newline, so the AI panel crashed on the first
+  frame. Placeholder is now single-line and routed through a new `sanitize_inline`
+  helper (collapses CR/LF to spaces). +3 tests.
+- Removed unreachable `"left"`/`"right"` match alternatives in `view_input.rs`
+  (the arrow-nudge arm; those keys are consumed earlier) — clears the
+  `unreachable pattern` warnings.
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line + comprehensive text input

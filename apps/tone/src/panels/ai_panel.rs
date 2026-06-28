@@ -128,8 +128,16 @@ pub fn render_ai_panel(
                                             if !p.is_empty() { p.push(' '); }
                                             p.push_str(&tag_s);
                                             this.app.apply(Action::SetAiPrompt(p.clone()));
+                                            // Defer the field's `set_text`: it fires the
+                                            // TextArea's `on_change`, which re-enters (updates)
+                                            // this root `Tone` view. Running it now — while we
+                                            // are already inside this root listener's update —
+                                            // would be a reentrant update and panic. Deferring
+                                            // runs it after this listener releases the entity.
                                             let field = this.ai_prompt_field.clone();
-                                            field.update(cx, |f, cx| f.set_text(p, win, cx));
+                                            win.defer(cx, move |win, cx| {
+                                                field.update(cx, |f, cx| f.set_text(p, win, cx));
+                                            });
                                             cx.notify();
                                         }))
                                         .child(*label)

@@ -7,6 +7,28 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Added — Shape Builder tool (real planar-region geometry)
+- **Planar arrangement** — `build_regions(shapes)` computes the distinct enclosed
+  faces (atomic regions) a set of overlapping closed shapes carves the plane into,
+  built incrementally through the existing boolean pipeline (`i_overlay`
+  Intersect / Difference / Union). Two overlapping rectangles split into three
+  faces (`A − B`, `A ∩ B`, `B − A`); disjoint shapes stay one face each. Fully
+  deterministic and area-conserving (the faces tile the union exactly).
+- **Region merge** — `merge_regions(selected)` unions a set of faces into one
+  combined shape (a closed `Path`, or a `Compound` when the result has holes or
+  disjoint pieces).
+- **Hit test** — `region_at(point)` (and `App::shape_builder_region_at`) maps a
+  document point to the face under it so the canvas can pick a region.
+- **Session actions** — `EnterShapeBuilder` snapshots the selection's faces into
+  an editing overlay; `ShapeBuilderMergeRegions` welds faces; `ShapeBuilderDelete‐
+  Region` drops a face (Alt-click semantics); `ShapeBuilderCommit` replaces the
+  source shapes with the resulting faces as new document shapes (one undo step);
+  `ShapeBuilderCancel` discards the session.
+- All implemented as pure, unit-tested geometry in `app_state/shape_builder/`,
+  reusing the real `Shape` / `SubPath` document model.
+
 ## [0.14.0] - 2026-06-28
 
 ### Added — Width Tool / variable-width stroke profiles (real outline geometry)

@@ -30,7 +30,7 @@ use super::{
     OutputModule, OutputModuleFormat, OutputCodec, ColorDepth,
     PreviewQuality,
     KeyKind, LightKind, RenderCodec,
-    ParticleAction, MotionPathAction,
+    ParticleAction, MotionPathAction, PuppetMeshAction,
 };
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -989,11 +989,11 @@ pub enum Action {
     /// Clear a layer's time-remap (disable + drop all keys).
     ClearTimeRemap { layer_id: usize },
 
-    // ── Particle system (particles.rs) ────────────────────────────────────────
-    /// A particle-emitter sub-action (add / configure / remove a layer emitter).
-    /// The variants live in `particles.rs`; see [`ParticleAction`].
+    // ── Nested sub-action wrappers (keep this enum under the 1000-line limit) ──
+    /// A particle-emitter sub-action; see [`ParticleAction`] in `particles.rs`.
     Particles(ParticleAction),
-    /// A motion-path sub-action (spatial tangents / temporal ease / preset /
-    /// auto-orient); see [`MotionPathAction`] in `motion_paths.rs`.
+    /// A motion-path sub-action; see [`MotionPathAction`] in `motion_paths.rs`.
     MotionPaths(MotionPathAction),
+    /// A puppet-mesh sub-action; see [`PuppetMeshAction`] in `puppet_mesh.rs`.
+    PuppetMesh(PuppetMeshAction),
 }

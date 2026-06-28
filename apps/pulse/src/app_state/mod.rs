@@ -64,6 +64,7 @@ mod lighting3d;
 mod shape_repeater;
 mod render_formats;
 mod particles;
+mod puppet_mesh;
 mod geom_util;
 use geom_util::{point_in_quad, vec_remove};
 
@@ -112,6 +113,7 @@ pub use particles::{
     EmitterConfig, Particle, ParticleAction, ParticleEmitterMap, simulate_particles,
     size_over_life, opacity_over_life, color_over_life,
 };
+pub use puppet_mesh::{DeformMesh, PuppetMeshAction};
 
 const UNDO_LIMIT: usize = 64;
 
@@ -487,6 +489,8 @@ pub struct App {
     /// Per-layer particle emitters (app-side; deterministic 2D simulator).
     /// Keyed by layer index. See [`simulate_particles`].
     pub particle_emitters: ParticleEmitterMap,
+    /// Per-layer triangulated puppet deformation meshes (puppet_mesh.rs), by layer.
+    pub puppet_deform_meshes: HashMap<usize, DeformMesh>,
 }
 
 /// Shared cell holding the preview image's painted bounds (window-relative), so
@@ -659,6 +663,7 @@ impl App {
             expr_editor_prop: "X".to_string(),
             keylight_open: false,
             particle_emitters: HashMap::new(),
+            puppet_deform_meshes: HashMap::new(),
         }
     }
 

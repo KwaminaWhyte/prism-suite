@@ -14,6 +14,10 @@ pub use tracks::render_tracks;
 pub use piano_roll::render_piano_roll;
 pub use timeline::render_timeline;
 pub use mixer::render_mixer;
+// Session View (Ableton-style scene/clip grid) is implemented and tested, but
+// not yet wired into the main layout — there is no Arrangement/Session view-mode
+// toggle slot for it yet. Kept exported and ready for the next UI wave.
+#[allow(unused_imports)]
 pub use session_view::render_session_view;
 
 pub const TRACKS_W: f32 = 220.0;

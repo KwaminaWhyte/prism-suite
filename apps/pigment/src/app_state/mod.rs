@@ -18,6 +18,7 @@ mod selections;
 mod painting;
 mod filters;
 mod filters_advanced;
+mod filters_blur;
 mod text;
 mod transforms;
 mod smart_objects;
@@ -69,6 +70,7 @@ pub use self::painting::{Brush, PenNode, LiquifyMode, HealMode, PatternDef, Spot
 pub use self::layers::{LayerComp, LayerCompState};
 pub use self::selections::{VanishingToolMode, VanishingPlane, Artboard, ApplyImageChannel, ApplyImageParams, ProofProfile, RenderingIntent, SoftProofSettings};
 pub use self::filters::{Filter, SmartSharpenMode, ToneMapMethod, NeuralFilter, NeuralFilterKind};
+pub use self::filters_blur::GalleryBlur;
 pub use self::layers::{AdjKind, Shadow, Glow, Bevel, LayerStyle, DropShadowFx, OuterGlowFx, BevelStyle, BevelTechnique, BevelEmbossFx, LayerEffects};
 pub use self::export::{PrintLayout, SmartFilter, ExportFormat, ExportPreset, MatchColorConfig, CameraRawConfig, HdrToneMappingMethod, HdrMergeConfig};
 pub use self::shapes::{ExtendedShapeKind, ExtendedShapeLayer, LineCap, LineJoin, BooleanOp, PsdEncoding, PsdExportConfig, SatinEffect, ColorOverlay, GradientOverlay, PatternOverlay, GradientOverlayStyle, ContourType, BevelDirection, StyleKind};
@@ -98,8 +100,6 @@ use prism_core::shape::ShapeKind;
 use prism_core::{Adjustment, BlendMode, Document, LayerId, LayerKind};
 
 use crate::canvas_host::CanvasHost;
-
-
 
 /// The single shared application state. Owns the host + document and all panel-
 /// facing tool/brush/view state. Mutated ONLY through [`App::apply`].
@@ -815,6 +815,8 @@ impl App {
             // advanced filters (surface/path blur)
             Action::ApplySurfaceBlur { .. } | Action::ApplyPathBlur { .. }
             => self.apply_filters_advanced(action),
+            // Phase 8 blur/sharpen/distort gallery (real pure pixel math)
+            Action::ApplyGalleryBlur(_) | Action::ApplyDisplacementMap { .. } => self.apply_filters_blur(action),
 
             // transforms
             Action::ApplyCrop { .. } | Action::CancelCrop

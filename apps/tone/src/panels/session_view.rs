@@ -2,6 +2,12 @@
 //!
 //! Rows = scenes, Columns = tracks. Each cell shows a clip if one is assigned
 //! to that (scene, track) pair, or an empty "+" placeholder.
+//!
+//! NOTE: This panel is implemented and unit-tested but not yet wired into the
+//! main layout (there is no Arrangement/Session view-mode toggle yet), so the
+//! render fn and its layout constants read as dead code for now. Allowed at the
+//! module level until the next UI wave wires it in.
+#![allow(dead_code)]
 
 use gpui::{
     div, px, AnyElement, Context, Element, InteractiveElement, IntoElement, ParentElement,

@@ -456,6 +456,9 @@ impl App {
             // --- Motion paths / graph-editor easing (motion_paths.rs) ---
             a @ Action::MotionPaths(_) => self.apply_motion_paths(a),
 
+            // --- Puppet deformation mesh (puppet_mesh.rs) ---
+            a @ Action::PuppetMesh(_) => self.apply_puppet_mesh(a),
+
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),
         }

@@ -6,6 +6,43 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Added — Phase 8 blur / sharpen / distort gallery (real, pure pixel math)
+- New pure-CPU, golden-testable filter gallery in `filters_gallery.rs` — every
+  function is a deterministic `fn(pixels, params) -> Vec<f32>` over a
+  linear-premultiplied RGBA f32 buffer, edge-clamped, with no engine/shader or
+  shared-crate change. Wired through `app_state/filters_blur.rs` via the standard
+  `read_layer_f32 → pure fn → snapshot_layer → upload_layer_f32` idiom.
+  - **Separable Gaussian blur** (`gaussian_blur`) — normalized 1-D kernel
+    (`gaussian_kernel_1d`, radius `ceil(3σ)`) convolved horizontally then
+    vertically; H∘V equals a full 2-D convolution under per-axis clamping. A
+    constant image is unchanged; an impulse's energy is preserved.
+  - **Box blur** (`box_blur`) — true O(n)-per-axis running-sum (sliding window of
+    `2r+1` clamped terms), plus a **multi-pass box ≈ Gaussian** fast path
+    (`box_blur_gaussian` + Kovesi/Wells `boxes_for_gaussian`).
+  - **Motion blur** (`motion_blur`) — directional linear smear (angle + length)
+    sampled along the line; structure perpendicular to the angle is preserved.
+  - **Radial blurs** — **Zoom** (`zoom_blur`, toward/away from a centre) and
+    **Spin** (`spin_blur`, rotational arc around a centre).
+  - **Unsharp Mask** (`unsharp_mask`) — `orig + amount·(orig − blur)`, gated by a
+    detail-luma `threshold` so flat/sub-threshold areas are untouched.
+  - **Smart Sharpen** (`smart_sharpen`) — edge-aware unsharp: the boost is scaled
+    by a local-luma-variance gate, so genuine edges sharpen while flat regions
+    (and noise) stay ~untouched.
+  - **Displacement map** (`displacement_map`) — reads a source layer's straight
+    R/G as x/y pixel offsets (scaled) and inverse-bilinear-samples the image
+    (edge-clamped); a zero/transparent source is the exact identity.
+- Two new `Action`s — `ApplyGalleryBlur(GalleryBlur)` (one enum covering all eight
+  blur/sharpen ops, to keep the atomic `Action` count minimal) and
+  `ApplyDisplacementMap { source, scale_x, scale_y }` — routed to
+  `App::apply_filters_blur`.
+- +42 tests (521 → 563): zero-radius/amount = identity, constant image unchanged,
+  impulse energy ≈ 1 and symmetric, box flat-region averaging, separable H∘V == 2-D
+  reference, motion smears along the angle only, unsharp edge-contrast overshoot,
+  smart-sharpen flat-area no-op, displacement zero-map identity / mapped-offset
+  shift / edge-clamp, and determinism across all ops.
+
 ## [0.14.0] - 2026-06-28
 
 ### Added — Liquify forward-warp mesh (real algorithms)

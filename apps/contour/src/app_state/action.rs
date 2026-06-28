@@ -607,6 +607,20 @@ pub enum Action {
     /// Bake `shape_id`'s variable-width outline into a filled closed path.
     WidthExpandStroke { shape_id: usize },
 
+    // --- Shape Builder tool (planar region arrangement, shape_builder/) ---
+    /// Enter the Shape Builder: build the planar arrangement (atomic faces) of the
+    /// current selection's overlapping outlines into a session overlay.
+    EnterShapeBuilder,
+    /// Merge (union) the listed atomic-face region indices into one combined shape
+    /// within the active session.
+    ShapeBuilderMergeRegions(Vec<usize>),
+    /// Delete (subtract) the atomic-face region at this index from the session.
+    ShapeBuilderDeleteRegion(usize),
+    /// Commit the session's faces as new document shapes, replacing the sources.
+    ShapeBuilderCommit,
+    /// Discard the Shape Builder session without changing the document.
+    ShapeBuilderCancel,
+
     // --- Batch 6: Find / Replace text ---
     /// Toggle the Find / Replace text panel open or closed.
     ToggleFindReplacePanel,

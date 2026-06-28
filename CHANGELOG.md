@@ -9,6 +9,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Added — Feature wave 3: deeper engine algorithms across four apps
+- **Reel** — Phase 4 Lumetri colour grade: `grade_pixel` pipeline (exposure →
+  temp/tint → tone → lift/gamma/gain → contrast → curves → saturation →
+  HSL-secondary) + scopes (luma waveform, RGB parade, vectorscope, histogram). +40 tests.
+- **Pulse** — Puppet Pin real mesh deformation: grid mesh, Shepard inverse-distance
+  handle weighting (with Starch stiffness) + barycentric warp map. +36 tests.
+- **Contour** — Shape Builder: planar-region arrangement via the i_overlay boolean
+  pipeline, region merge / delete / hit-test / commit. +33 tests.
+- **Pigment** — Phase 8 blur/sharpen/distort gallery: separable Gaussian, box
+  (running-sum), motion, zoom/spin, unsharp, smart-sharpen, displacement map. +42 tests.
+
+### Fixed — runtime panics + the shared crash class
+- **Tone** — reentrant `Tone::update` panic when an AI style-tag chip set the
+  prompt `TextArea` from inside a root listener; now deferred via `win.defer`.
+- **Drift** — startup panic from a multi-line `TextArea` placeholder hitting
+  GPUI's single-line shaper; placeholder made single-line + `sanitize_inline`.
+- **prism-ui** — defensive fix in `TextArea`: flatten any CR/LF in a line's
+  display string before `shape_line`, so a stray newline (placeholder or content)
+  can never crash the render in any app.
+- Cleared `unreachable pattern` (Drift `view_input`) and dead-code (Tone
+  `session_view`) warnings.
+- Full workspace suite green: Pigment 563, Contour 930, Pulse 1136, Reel 473,
+  Drift 675, Tone 759, prism-ui 51, prism-canvas 126 (4845 total; +154 this wave).
+
 ## [0.14.0] - 2026-06-28
 
 ### Added — Feature wave 2: more real engine algorithms across four apps

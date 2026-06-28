@@ -283,7 +283,9 @@ impl Drift {
             .unwrap_or_default();
         let script_source = cx.new(|cx| {
             TextArea::new(cx)
-                .placeholder("// frame script (JS / Rhai)\n// Cmd/Ctrl+Enter to run")
+                // A TextArea renders its placeholder through GPUI's single-line
+                // `shape_line`, which panics on `\n`. Keep placeholders inline.
+                .placeholder(sanitize_inline("// frame script (JS / Rhai) — Cmd/Ctrl+Enter to run"))
                 .rows(6)
                 .initial_value(initial_src)
                 .on_change({
@@ -342,6 +344,17 @@ impl Drift {
     }
 }
 
+/// Collapse any newlines (and carriage returns) in `s` into single spaces so the
+/// result is safe to hand to a single-line text shaper.
+///
+/// GPUI's `shape_line` — used by `TextField`/`TextArea` placeholders and any
+/// plain `div().child(text)` label — panics with "text argument should not
+/// contain newlines" on a `\n`. Placeholders and inline labels must therefore
+/// never carry one; route possibly-multi-line strings through here first.
+pub fn sanitize_inline(s: &str) -> String {
+    s.replace(['\r', '\n'], " ")
+}
+
 /// Ensure a script exists, then write `source` into the first script (the path
 /// shared by the source editor's `on_change` and Cmd/Ctrl+Enter "run").
 fn apply_script_source(d: &Entity<Drift>, source: String, cx: &mut gpui::App) {
@@ -358,4 +371,31 @@ fn apply_script_source(d: &Entity<Drift>, source: String, cx: &mut gpui::App) {
         }
         cx.notify();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_inline;
+
+    #[test]
+    fn sanitize_inline_strips_newlines() {
+        // The script-source placeholder used to carry a `\n`, which panicked
+        // GPUI's single-line shaper at startup. Inline strings must be flat.
+        let s = sanitize_inline("// frame script (JS / Rhai)\n// Cmd/Ctrl+Enter to run");
+        assert!(!s.contains('\n'));
+        assert!(!s.contains('\r'));
+        assert_eq!(s, "// frame script (JS / Rhai) // Cmd/Ctrl+Enter to run");
+    }
+
+    #[test]
+    fn sanitize_inline_handles_crlf_and_multiple_lines() {
+        let s = sanitize_inline("line1\r\nline2\nline3");
+        assert!(!s.contains('\n') && !s.contains('\r'));
+        assert_eq!(s, "line1  line2 line3");
+    }
+
+    #[test]
+    fn sanitize_inline_leaves_plain_text_untouched() {
+        assert_eq!(sanitize_inline("no newlines here"), "no newlines here");
+    }
 }

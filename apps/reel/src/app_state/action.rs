@@ -702,4 +702,32 @@ pub enum Action {
     AddRemapKeyframe { clip_idx: usize, timeline_t: f32, source_t: f32 },
     /// Clear all of a clip's time-remap keyframes (disables remap).
     ClearRemapKeyframes { clip_idx: usize },
+
+    // --- Phase 4: Lumetri-grade per-clip colour (color_grade.rs) --------------
+    /// Set a clip's grade exposure in stops (clamped ±6).
+    SetGradeExposure { clip: usize, value: f32 },
+    /// Set a clip's grade contrast about mid-grey (clamped −1..2).
+    SetGradeContrast { clip: usize, value: f32 },
+    /// Set a clip's grade saturation multiplier (clamped 0..4; 0 = greyscale).
+    SetGradeSaturation { clip: usize, value: f32 },
+    /// Set a clip's white-balance temperature (clamped ±1; >0 warmer).
+    SetGradeTemperature { clip: usize, value: f32 },
+    /// Set a clip's white-balance tint (clamped ±1; >0 magenta).
+    SetGradeTint { clip: usize, value: f32 },
+    /// Set a clip's whites tone control (clamped ±1).
+    SetGradeWhites { clip: usize, value: f32 },
+    /// Set a clip's blacks tone control (clamped ±1).
+    SetGradeBlacks { clip: usize, value: f32 },
+    /// Set a clip's highlights tone control (clamped ±1).
+    SetGradeHighlights { clip: usize, value: f32 },
+    /// Set a clip's shadows tone control (clamped ±1).
+    SetGradeShadows { clip: usize, value: f32 },
+    /// Set one of a clip's lift/gamma/gain wheels (RGB trackball + master).
+    SetGradeWheel { clip: usize, which: WheelKind, rgb: [f32; 3], master: f32 },
+    /// Add a control point to one of a clip's RGB/per-channel curves (sorted).
+    AddGradeCurvePoint { clip: usize, channel: GradeCurveChannel, point: [f32; 2] },
+    /// Replace a clip's HSL secondary qualifier + correction.
+    SetGradeSecondary { clip: usize, qualifier: SecondaryQualifier },
+    /// Remove a clip's entire grade (back to identity).
+    ResetClipGrade { clip: usize },
 }

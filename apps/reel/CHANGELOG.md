@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Added — Phase 4: Lumetri-grade colour + scopes
+- **Per-clip Lumetri grade** (`color_grade/mod.rs`) — a pure, deterministic
+  `LumetriGrade` and a single `grade_pixel(rgba, &LumetriGrade) -> rgba` pipeline
+  applied in a fixed, documented order: **exposure → temperature/tint → tone
+  (whites/blacks/highlights/shadows) → lift/gamma/gain → contrast → curves →
+  saturation → secondary**. Exposure is the one linear-light stage (decode via
+  `prism_color`, ×`2^stops`, re-encode — `+1` stop doubles the linear value);
+  every other stage runs in straight-sRGB 0..1.
+  - **Lift / gamma / gain** — `LiftGammaGain` of three `Wheel`s (RGB trackball +
+    master). Lift is a white-pivoting shadow offset, gamma a midtone power, gain
+    a black-pivoting highlight multiply; each is a true no-op at neutral.
+  - **RGB + per-channel curves** — `GradeCurves` (master/red/green/blue control
+    points) evaluated with a **monotone cubic Hermite** spline (Fritsch–Carlson),
+    so the identity `[[0,0],[1,1]]` is an exact pass-through; `build_channel_lut`
+    bakes the spline → LUT.
+  - **HSL secondary qualifier** — `SecondaryQualifier` keys a hue/sat/luma range
+    with feathered shoulders (circular hue distance), then blends a hue-rotate /
+    saturation / luma correction toward the original by per-pixel membership, so
+    only qualifying pixels are graded.
+- **Pure video scopes** (`color_grade/scopes.rs`) — `luma_waveform` (per-column
+  luma histogram), `rgb_parade` (three channel waveforms), `vectorscope` (a U/V
+  chroma bin grid where neutral sits dead centre), and `rgb_histogram` (per
+  channel + luma). All exact-count: waveform/parade columns sum to the row count,
+  histogram/vectorscope sum to the pixel count. Rec.601 luma + BT.601 U/V.
+- **Per-clip storage + actions** — a sparse `App::clip_grades` map (keyed by clip
+  index; absent = identity, never grows the `Clip` struct or `timeline.rs`).
+  13 actions routed through `App::apply`: `SetGradeExposure/Contrast/Saturation/
+  Temperature/Tint/Whites/Blacks/Highlights/Shadows`, `SetGradeWheel`,
+  `AddGradeCurvePoint`, `SetGradeSecondary`, `ResetClipGrade`.
+- +40 tests (433 → 473).
+
 ## [0.14.0] - 2026-06-28
 
 ### Added — Phase 3: clip transitions + time-remap / speed

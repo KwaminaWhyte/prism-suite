@@ -55,6 +55,9 @@ mod clip_effects;
 // --- Phase 3: clip transitions + time-remap / speed --------------------------
 mod transition_fx;
 
+// --- Phase 4: Lumetri-grade per-clip colour + scopes -------------------------
+mod color_grade;
+
 // --- Domain trait imports (used in apply dispatcher) -------------------------
 
 use audio::AppAudioExt;
@@ -73,6 +76,7 @@ use color_curves::AppColorCurvesExt;
 use apply_batch5::AppBatch5Ext;
 use clip_effects::AppClipEffectsExt;
 use transition_fx::AppTransitionFxExt;
+use color_grade::AppColorGradeExt;
 
 // --- Public re-exports -------------------------------------------------------
 
@@ -150,6 +154,14 @@ pub use clip_effects::{BuiltinEffect, EffectParams};
 pub use transition_fx::{
     TimeRemap, TransitionAlign, TransitionFx, TransitionFxKind, TransitionGeometry,
     TransitionState, WipeShape,
+};
+
+// Phase 4: Lumetri-grade per-clip colour + scopes domain
+pub use color_grade::{
+    build_channel_lut, eval_curve, exposure_scale, grade_pixel, luma_of, luma_waveform,
+    rgb_histogram, rgb_parade, vectorscope, ClipGrades, GradeCurveChannel, GradeCurves,
+    LiftGammaGain, LumetriGrade, ScopeHistogram, ScopeParade, ScopeVectorscope, ScopeWaveform,
+    SecondaryQualifier, Wheel, WheelKind,
 };
 
 // Graphics-templates domain (Essential Graphics / Motion Graphics Templates)
@@ -409,6 +421,23 @@ impl App {
             | Action::AddRemapKeyframe { .. }
             | Action::ClearRemapKeyframes { .. } => {
                 self.apply_transition_fx(action);
+            }
+
+            // --- Phase 4: Lumetri-grade per-clip colour ----------------------
+            Action::SetGradeExposure { .. }
+            | Action::SetGradeContrast { .. }
+            | Action::SetGradeSaturation { .. }
+            | Action::SetGradeTemperature { .. }
+            | Action::SetGradeTint { .. }
+            | Action::SetGradeWhites { .. }
+            | Action::SetGradeBlacks { .. }
+            | Action::SetGradeHighlights { .. }
+            | Action::SetGradeShadows { .. }
+            | Action::SetGradeWheel { .. }
+            | Action::AddGradeCurvePoint { .. }
+            | Action::SetGradeSecondary { .. }
+            | Action::ResetClipGrade { .. } => {
+                self.apply_color_grade(action);
             }
 
             // --- Export presets domain ----------------------------------------

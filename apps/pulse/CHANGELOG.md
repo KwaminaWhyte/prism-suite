@@ -7,6 +7,15 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-28
+
+### Added — Puppet Pin tool: real mesh deformation (no stubs)
+- **Triangulated deformation mesh** (`app_state/puppet_mesh.rs`) — `grid_mesh(layer, bounds, resolution)` builds a uniform grid clipped to a layer's bounding box: `(resolution+1)²` vertices, `2·resolution²` triangles, degenerate-free.
+- **Weighted handle deformation** — `deform_mesh(&DeformMesh, &[PinDisplacement])` displaces every vertex by a **normalized inverse-distance-squared blend** (Shepard interpolation) of the pin displacements, plus a *rest-anchor* ground weight so a **single** pin yields a smooth radial falloff (`Δ·falloff²/(falloff²+d²)`) instead of a rigid translation. A pin's `stiffness` scales its weight: a high-stiffness pin holding `delta = 0` keeps its neighborhood rigid (the **Starch** pin); `stiffness = 0` disables it. Pure + deterministic.
+- **Barycentric warp map** — `sample_warp(point, &original, &deformed)` locates a point's enclosing rest triangle, takes barycentric coordinates, and reconstructs it in the matching deformed triangle (total map; outside points fall back to the nearest triangle).
+- **App action layer** — `Action::PuppetMesh(PuppetMeshAction::{AddMesh,RemoveMesh,SetResolution,AddPin,MovePin,DeletePin,SetPinStiffness})` over a per-layer mesh map (app-side, like particles — not undoable); `App::deform_layer_mesh(layer)` / `App::warp_layer_point(layer, point)`. Nested under one `Action` variant to keep `actions.rs` under 1000 lines.
+- +30 tests: identity (no pins / zero deltas), pin-on-vertex exactness, single-pin falloff (near > far), two-pin symmetric blend at the midpoint, starch/zero-stiffness, determinism, barycentric correctness, `sample_warp` translation/centroid/fallback, and the full action layer.
+
 ## [0.14.0] - 2026-06-28
 
 ### Added — Spatial motion paths + graph-editor temporal easing

@@ -460,6 +460,15 @@ impl Element for TextAreaElement {
                 } else {
                     ((*line_text).to_string(), style.color)
                 };
+                // Defensive: GPUI's single-line `shape_line` panics on an embedded
+                // newline. Per-line body content never holds one, but a multi-line
+                // placeholder would — flatten any CR/LF to spaces before shaping so
+                // a stray newline can never crash the render.
+                let display = if display.contains('\n') || display.contains('\r') {
+                    display.replace(['\n', '\r'], " ")
+                } else {
+                    display
+                };
                 let run = TextRun {
                     len: display.len(),
                     font: font.clone(),

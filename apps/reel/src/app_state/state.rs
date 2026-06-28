@@ -311,6 +311,10 @@ pub struct App {
 
     // --- Phase 3: clip transitions (see app_state/transition_fx.rs) ----------
     pub transition_fx: Vec<TransitionFx>,
+
+    // --- Phase 4: Lumetri-grade per-clip colour (see color_grade.rs) ---------
+    /// Sparse per-clip Lumetri grade, keyed by clip index. Absent = identity.
+    pub clip_grades: ClipGrades,
 }
 
 impl App {
@@ -499,6 +503,7 @@ impl App {
             last_keybind_conflicts: Vec::new(),
             workspaces: WorkspaceManager::default(),
             transition_fx: Vec::new(),
+            clip_grades: ClipGrades::new(),
         }
     }
 }

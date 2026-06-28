@@ -30,6 +30,7 @@ use super::{
     OutputModule, OutputModuleFormat, OutputCodec, ColorDepth,
     PreviewQuality,
     KeyKind, LightKind, RenderCodec,
+    ParticleAction,
 };
 
 /// Every panel->state mutation a panel can request. Panels emit these; the root
@@ -84,11 +85,7 @@ pub enum Action {
     ToggleKeyframe(Prop),
     /// Move the keyframe at index `key_index` of the selected layer's `prop`
     /// track to a new absolute time (seconds).
-    MoveKeyframe {
-        prop: Prop,
-        key_index: usize,
-        time: f32,
-    },
+    MoveKeyframe { prop: Prop, key_index: usize, time: f32 },
 
     // --- Effects ---
     /// Toggle the Effects & Presets browser open/closed (pure UI state).
@@ -100,12 +97,7 @@ pub enum Action {
     /// Remove the effect at `index` from `stack` of the selected layer.
     RemoveEffect { stack: EffectStack, index: usize },
     /// Set the scalar parameter `param` of the effect at `index` in `stack`.
-    SetEffectParam {
-        stack: EffectStack,
-        index: usize,
-        param: usize,
-        value: f32,
-    },
+    SetEffectParam { stack: EffectStack, index: usize, param: usize, value: f32 },
 
     // --- Work area (loop / render region) ---
     /// Set the active comp's work-area start (in-point) to an absolute time in seconds.
@@ -123,11 +115,7 @@ pub enum Action {
     /// Clear the graph's explicit property selection (show all keyed props). Pure UI state.
     ClearGraphProps,
     /// Set the interpolation mode of key `key_index` on the selected layer's `prop` track.
-    SetInterp {
-        prop: Prop,
-        key_index: usize,
-        interp: Interp,
-    },
+    SetInterp { prop: Prop, key_index: usize, interp: Interp },
     /// Move keyframe `key_index` of the selected layer's `prop` track to a new time and value.
     MoveKeyframeXY {
         prop: Prop,
@@ -1000,4 +988,9 @@ pub enum Action {
     RemoveTimeRemapKey { layer_id: usize, key_index: usize },
     /// Clear a layer's time-remap (disable + drop all keys).
     ClearTimeRemap { layer_id: usize },
+
+    // ── Particle system (particles.rs) ────────────────────────────────────────
+    /// A particle-emitter sub-action (add / configure / remove a layer emitter).
+    /// The variants live in `particles.rs`; see [`ParticleAction`].
+    Particles(ParticleAction),
 }

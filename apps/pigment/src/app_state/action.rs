@@ -585,6 +585,16 @@ pub enum Action {
     /// Apply red-eye reduction at the given center + radius (stub — records position).
     RedEye { center: [f32; 2], radius: f32, darken: f32 },
 
+    // --- Phase 6: Retouching core (real algorithms — app_state/healing.rs) ---
+    /// Healing brush: gradient-domain (Poisson) texture transplant, tone-matched.
+    HealBrush { src_center: [f32; 2], dst_center: [f32; 2], radius: f32 },
+    /// Clone-stamp dab: soft-round offset copy with falloff + `opacity`.
+    CloneStampDab { src_center: [f32; 2], dst_center: [f32; 2], radius: f32, opacity: f32 },
+    /// Red-eye removal: desaturate + darken red-dominant pupil pixels by `strength`.
+    RemoveRedEye { center: [f32; 2], radius: f32, strength: f32 },
+    /// Content-aware patch fill (seeded PatchMatch-lite); `seed` = deterministic.
+    ContentAwarePatch { center: [f32; 2], radius: f32, seed: u64 },
+
     // --- Batch 7: Gradient Map stops ---
     /// Update the gradient stops of a GradientMap adjustment layer.
     SetGradientMapStops { layer_id: LayerId, stops: Vec<(f32, [f32; 4])> },

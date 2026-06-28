@@ -7,6 +7,26 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-28
+
+### Added — Distort & Transform family (real path geometry)
+- **Offset Path** — parallel-offset a closed outline outward/inward with
+  miter/round/bevel corner joins (open paths get a normal offset) →
+  `DistortOffsetPath`.
+- **Roughen** — subdivide segments to a detail count then jitter every point by
+  a size amount, driven by a **seeded SplitMix64** PRNG (fully deterministic, no
+  globals); optional smoothing → `DistortRoughen`.
+- **Zig-Zag** — convert each segment into N alternating ridges (corner) or a
+  wave (smooth) → `DistortZigZag`.
+- **Pucker & Bloat** — push anchors toward/away from the path centroid while
+  pulling bezier handles oppositely → `DistortPuckerBloat`.
+- **Twist** — swirl points about the centroid by an angle scaling with distance
+  from centre → `DistortTwist`.
+- **Transform Each** — per-copy scale/move/rotate about each shape's centre with
+  optional replication → `DistortTransformEach`.
+- All implemented as pure, unit-tested geometry functions in
+  `app_state/path_distort.rs`. +33 tests (833 → 866).
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line + comprehensive text input

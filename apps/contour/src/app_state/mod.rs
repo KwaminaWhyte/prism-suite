@@ -65,6 +65,8 @@ mod tests_batch10;
 mod apply_batch11;
 mod apply_batch13;
 mod geometry_warp;
+pub mod path_distort;
+pub use path_distort::OffsetJoin;
 mod apply_batch12;
 mod apply_textfield;
 pub(crate) use apply_textfield::parse_dimension;

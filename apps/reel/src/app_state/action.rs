@@ -300,6 +300,20 @@ pub enum Action {
     ReorderClipEffects { clip_idx: usize, from: usize, to: usize },
     ClearClipEffects { clip_idx: usize },
 
+    // --- Phase 3: built-in per-clip effects (see app_state/clip_effects.rs) ---
+    /// Push a new built-in effect onto a clip's ordered stack (params sanitized).
+    AddBuiltinEffect { clip_idx: usize, effect: BuiltinEffect },
+    /// Remove the effect at `effect_idx` from a clip's stack.
+    RemoveBuiltinEffect { clip_idx: usize, effect_idx: usize },
+    /// Move an effect from one stack position to another.
+    ReorderBuiltinEffects { clip_idx: usize, from: usize, to: usize },
+    /// Toggle the `enabled` (bypass) flag of a single built-in effect.
+    ToggleBuiltinEffect { clip_idx: usize, effect_idx: usize },
+    /// Remove every built-in effect from a clip.
+    ClearBuiltinEffects { clip_idx: usize },
+    /// Replace one effect's parameters (sanitized/clamped on apply).
+    SetBuiltinEffectParams { clip_idx: usize, effect_idx: usize, params: EffectParams },
+
     // --- Batch 7: clip motion (transform) ---
     SetClipMotion { clip_idx: usize, x: f32, y: f32 },
     SetClipMotionScale { clip_idx: usize, sx: f32, sy: f32 },

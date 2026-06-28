@@ -576,6 +576,22 @@ pub enum Action {
     /// skipped. One undo step.
     OffsetPath { shape_id: usize, distance: f32 },
 
+    // --- Distort & Transform family (path_distort.rs) ---
+    /// Offset path `shape_id` by `distance` (>0 out, <0 in) with corner `join`.
+    DistortOffsetPath { shape_id: usize, distance: f32, join: OffsetJoin },
+    /// Roughen: subdivide each segment to `detail` then jitter every point by up
+    /// to `size`, seeded by `seed` (SplitMix64); `smooth` curves the result.
+    DistortRoughen { shape_id: usize, size: f32, detail: usize, seed: u64, smooth: bool },
+    /// Zig-Zag: `ridges` alternating peaks of amplitude `size` per segment;
+    /// `smooth` makes a wave instead of corners.
+    DistortZigZag { shape_id: usize, size: f32, ridges: usize, smooth: bool },
+    /// Pucker (`amount`<0) / Bloat (`amount`>0) about the path centroid.
+    DistortPuckerBloat { shape_id: usize, amount: f32 },
+    /// Twist points about the centroid by `angle_deg`, scaled by distance.
+    DistortTwist { shape_id: usize, angle_deg: f32 },
+    /// Transform Each (about each shape's centre) with optional replication.
+    DistortTransformEach { shape_id: usize, move_x: f32, move_y: f32, scale_x: f32, scale_y: f32, angle_deg: f32, copies: usize },
+
     // --- Batch 6: Find / Replace text ---
     /// Toggle the Find / Replace text panel open or closed.
     ToggleFindReplacePanel,

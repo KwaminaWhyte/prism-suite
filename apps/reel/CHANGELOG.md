@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-28
+
+### Added — Phase 3: built-in per-clip effects
+- **Non-destructive effect stack** — each clip owns an ordered `Vec<BuiltinEffect>`
+  (`clip_effects.rs`) with an `enabled` bypass toggle per entry.
+- **Parametric effects with real math**:
+  - **Transform** — position (x/y), separate scale x/y, rotation (deg), anchor
+    pivot; stacked into a single 2D affine matrix (`effective_transform_matrix`).
+  - **Crop** — left/right/top/bottom fractions (0..1), summed with opposing
+    pairs capped below 1.0 (`effective_crop` / `effective_crop_area`).
+  - **Opacity** — 0..1 multiplier folded with clip opacity
+    (`effective_builtin_opacity`).
+  - **Blend** — reuses `prism_core::BlendMode`; separable W3C blend math +
+    Porter-Duff "over" compositing (`blend_channel` / `blend_sample`).
+  - **Drop shadow** — offset x/y, blur radius, opacity, color
+    (`effective_drop_shadow`).
+  - **Gaussian blur / sharpen** — summed radius / amount, clamped.
+- **Actions** — `AddBuiltinEffect`, `RemoveBuiltinEffect`,
+  `ReorderBuiltinEffects`, `ToggleBuiltinEffect`, `ClearBuiltinEffects`,
+  `SetBuiltinEffectParams` (all clamped/sanitized at the `App::apply` choke point).
+- +29 tests (374 → 403).
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line + comprehensive text input

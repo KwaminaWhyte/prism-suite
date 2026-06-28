@@ -310,6 +310,10 @@ pub struct Clip {
     /// `time_remap_keys` position model (or constant `speed`) is used instead.
     pub time_remap_speed_keys: Vec<(f32, f32)>,
     pub effects: Vec<ClipEffect>,
+    /// Phase 3: ordered stack of non-destructive built-in effects (transform,
+    /// crop, opacity, blend, drop shadow, blur, sharpen). See
+    /// [`super::clip_effects`].
+    pub builtin_effects: Vec<super::clip_effects::BuiltinEffect>,
     pub motion_x: f32,
     pub motion_y: f32,
     pub motion_scale_x: f32,
@@ -382,6 +386,7 @@ impl Default for Clip {
             crop_top: 0.0, crop_bottom: 0.0, blend_mode: ClipBlendMode::Normal,
             time_remap_enabled: false, time_remap_keys: Vec::new(),
             time_remap_speed_keys: Vec::new(), effects: Vec::new(),
+            builtin_effects: Vec::new(),
             motion_x: 0.0, motion_y: 0.0, motion_scale_x: 1.0, motion_scale_y: 1.0, motion_rotation: 0.0,
         }
     }

@@ -75,6 +75,10 @@ pub(crate) fn action_label(action: &Action) -> Option<String> {
         Action::SetLayerStyle(_, _) => Some("Set Layer Style".into()),
         Action::ClearLayerStyle(_) => Some("Clear Layer Style".into()),
         Action::ToggleClippingMask(_) => Some("Toggle Clipping Mask".into()),
+        Action::HealBrush { .. } => Some("Healing Brush".into()),
+        Action::CloneStampDab { .. } => Some("Clone Stamp".into()),
+        Action::RemoveRedEye { .. } => Some("Red-Eye Removal".into()),
+        Action::ContentAwarePatch { .. } => Some("Content-Aware Patch".into()),
         Action::SaveAs(_) => Some("Save As".into()),
         _ => None,
     }

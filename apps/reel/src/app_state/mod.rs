@@ -49,6 +49,9 @@ mod apply_batch5;
 mod project_mgmt;
 mod autosave;
 
+// --- Phase 3: built-in per-clip effects --------------------------------------
+mod clip_effects;
+
 // --- Domain trait imports (used in apply dispatcher) -------------------------
 
 use audio::AppAudioExt;
@@ -65,6 +68,7 @@ use transitions::AppTransitionsExt;
 use edl::AppEdlExt;
 use color_curves::AppColorCurvesExt;
 use apply_batch5::AppBatch5Ext;
+use clip_effects::AppClipEffectsExt;
 
 // --- Public re-exports -------------------------------------------------------
 
@@ -134,6 +138,9 @@ pub use project_mgmt::ConsolidateManifest;
 
 // Autosave / crash-recovery domain
 pub use autosave::{AutosaveConfig, AutosaveRing};
+
+// Phase 3: built-in per-clip effects domain
+pub use clip_effects::{BuiltinEffect, EffectParams};
 
 // Graphics-templates domain (Essential Graphics / Motion Graphics Templates)
 pub use graphics_templates::{
@@ -369,6 +376,16 @@ impl App {
             | Action::DetectSceneEdits { .. }
             | Action::ApplySceneEditSplits { .. } => {
                 self.apply_effects(action);
+            }
+
+            // --- Phase 3: built-in per-clip effects --------------------------
+            Action::AddBuiltinEffect { .. }
+            | Action::RemoveBuiltinEffect { .. }
+            | Action::ReorderBuiltinEffects { .. }
+            | Action::ToggleBuiltinEffect { .. }
+            | Action::ClearBuiltinEffects { .. }
+            | Action::SetBuiltinEffectParams { .. } => {
+                self.apply_clip_effects(action);
             }
 
             // --- Export presets domain ----------------------------------------

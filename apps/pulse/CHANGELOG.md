@@ -7,6 +7,14 @@ this project is pre-1.0, so versions are `0.x` milestones and track the workspac
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-28
+
+### Added — Particle system (CC Particle World / Particle Playground analog)
+- **Deterministic 2D particle simulator** (`app_state/particles.rs`) — `simulate_particles(&EmitterConfig, t)` returns every live particle (position/velocity/age/size/opacity/color) at a frame. Seeded, reproducible: each particle's birth + randomness (cone angle / speed / lifetime) comes from a **SplitMix64** keyed by `(emitter_seed, particle_index)` — no global RNG, no `Instant`. Real physics integrated from birth to `t` with a fixed sub-step: **gravity**, **air-resistance drag**, and optional **value-noise turbulence** (reuses `effects_noise::fractal_noise`).
+- **Per-particle envelopes** — size-over-life, opacity fade-in/out, and start→end color lerp.
+- **App action layer** — `Action::Particles(ParticleAction::{Add,Remove,SetParam,SetSeed,SetPosition,SetGravity,SetColors})` manage a per-layer emitter map (app-side, like Fractal Noise — not undoable); `App::simulate_layer_particles(layer, t)`.
+- +28 tests, 1047 → 1075 (determinism, gravity, drag, turbulence, cone/variance, lifetime death, emission-vs-rate, fade-out, color lerp). (`actions.rs` kept under 1000 via a nested `ParticleAction` enum + minor variant compaction.)
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line + comprehensive text input

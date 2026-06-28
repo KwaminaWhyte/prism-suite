@@ -33,6 +33,7 @@ mod shapes;
 mod layer_styles_extra;
 mod transform_extra;
 mod redeye;
+mod healing;
 mod tests_shapes;
 mod psd_export;
 mod guides;
@@ -47,6 +48,8 @@ mod helpers;
 mod tests_state;
 #[cfg(test)]
 mod tests_state_b;
+#[cfg(test)]
+mod healing_tests;
 
 pub use self::transforms::{CaFillMethod, ContentAwareCropConfig};
 pub use self::smart_objects::{SmartObjectKind, SmartObject, EdgeDetectMode, SelectMaskConfig};
@@ -787,6 +790,11 @@ impl App {
             | Action::DefinePattern { .. } | Action::SelectPattern(_) | Action::DeletePattern(_)
             | Action::SetPatternStampScale(_) | Action::SetPatternStampAligned(_)
             => self.apply_painting(action),
+
+            // healing / clone / red-eye / content-aware patch (Phase 6 — healing.rs)
+            Action::HealBrush { .. } | Action::CloneStampDab { .. }
+            | Action::RemoveRedEye { .. } | Action::ContentAwarePatch { .. }
+            => self.apply_healing(action),
 
             // filters
             Action::ApplyFilter(_) | Action::AddSmartFilter(_, _) | Action::RemoveSmartFilter(_, _)

@@ -13,9 +13,9 @@
 //! `RenameArtboard`) — only typing the value into them is new, so no apply
 //! changes were needed there.
 //!
-//! This handler is the **terminal** stage of the dispatch chain: `apply_batch12`
-//! routes its previously-final catch-all here, and this file owns the real
-//! `_ => {}` no-op.
+//! `apply_batch12` routes its previously-final catch-all here; this handler's own
+//! catch-all forwards to [`super::App::apply_path_distort`] (the Distort &
+//! Transform + Offset Path family), which owns the chain's real `_ => {}` no-op.
 
 use super::*;
 
@@ -57,8 +57,8 @@ pub(crate) fn parse_dimension(s: &str) -> Option<f32> {
 }
 
 impl App {
-    /// Terminal dispatcher for the TextField-driven actions. Reached from
-    /// `apply_batch12`'s catch-all; owns the final no-op.
+    /// Dispatcher for the TextField-driven actions. Reached from `apply_batch12`'s
+    /// catch-all; forwards anything unmatched to `apply_path_distort`.
     pub(super) fn apply_textfield(&mut self, action: Action) {
         match action {
             Action::RenameLayer { idx, name } => {
@@ -138,7 +138,8 @@ impl App {
                 // View-only state — no checkpoint / dirty needed.
                 self.layer_filter = s;
             }
-            _ => {}
+            // Distort & Transform + Offset Path family (the chain's last stage).
+            other => self.apply_path_distort(other),
         }
     }
 }

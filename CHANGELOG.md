@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-28
+
+### Added — Feature wave: real engine algorithms across four apps
+- **Reel** — Phase 3 built-in per-clip effect stack (Transform/Crop/Opacity/Blend/
+  Drop-shadow/Gaussian-blur/Sharpen) with real affine-matrix, crop, opacity, and
+  W3C+Porter-Duff blend math; ordered, reorderable, per-effect bypass. +29 tests.
+- **Pulse** — deterministic 2D particle system (CC Particle World analog): seeded
+  SplitMix64 birth/randomness, real gravity/drag/value-noise-turbulence physics
+  integrated per frame, size/opacity/color envelopes. +28 tests.
+- **Pigment** — Phase 6 retouching core: gradient-domain (Poisson/Gauss–Seidel)
+  Healing Brush, Clone Stamp with soft falloff, Red-eye removal, content-aware
+  PatchMatch-lite patch fill — all pure + deterministic. +31 tests.
+- **Contour** — Distort & Transform family on the real path model: Offset Path
+  (miter/round/bevel), Roughen (seeded), Zig-Zag, Pucker & Bloat, Twist,
+  Transform-Each. +33 tests.
+- Full workspace suite green: Pigment 490, Contour 866, Pulse 1075, Reel 403,
+  Drift 672, Tone 759, prism-ui 51, prism-canvas 126 (+121 this wave).
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line text + comprehensive text-input coverage

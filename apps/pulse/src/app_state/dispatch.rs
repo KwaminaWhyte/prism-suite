@@ -450,6 +450,9 @@ impl App {
             | Action::SetRenderCrf(_)
             | Action::SetRenderAudio(_)) => self.apply_render_formats(a),
 
+            // --- Particle system (particles.rs) ---
+            a @ Action::Particles(_) => self.apply_particles(a),
+
             // --- Everything else: composition, transport, layer management, 3D camera, history ---
             a => self.apply_composition(a),
         }

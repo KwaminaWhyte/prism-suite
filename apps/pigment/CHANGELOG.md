@@ -6,6 +6,28 @@ this project is pre-1.0, so versions are `0.x` milestones.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-28
+
+### Added — Phase 6 retouching core (real algorithms)
+- **Healing Brush** — gradient-domain (Poisson) seamless clone: an iterative
+  Gauss–Seidel solve over the gradient field transplants a source patch's texture
+  into a circular target region while a Dirichlet membrane matches the destination
+  tone at the boundary (no hard seam). Pure, deterministic (`heal_region` /
+  `poisson_blend`).
+- **Clone Stamp** — sample-offset copy with a soft round brush falloff
+  (hardness + opacity), bilinear source sampling for sub-pixel offsets
+  (`clone_stamp`).
+- **Red-eye removal** — detects red-dominant pupil pixels in a region (majority
+  red-energy + clear lead over G/B) and desaturates toward luma + darkens by a
+  strength; skin/neutral pixels untouched (`red_eye_correct`).
+- **Content-aware patch fill** — seeded PatchMatch-lite greedy exemplar synthesis
+  (local `Lcg`, no global rng) fills a circular region from surrounding texture,
+  deterministic per seed (`patch_fill`).
+- New `Action`s `HealBrush` / `CloneStampDab` / `RemoveRedEye` /
+  `ContentAwarePatch` routed through `app_state/healing.rs` (read layer →
+  pure fn → snapshot → upload, one undo step each).
+- +31 tests (459 → 490).
+
 ## [0.12.0] - 2026-06-24
 
 ### Added — Multi-line + comprehensive text input
